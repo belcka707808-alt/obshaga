@@ -1,0 +1,31 @@
+{
+	"FileVersion": 3,
+	"EngineAssociation": "",
+	"Category": "",
+	"Description": "Obshaga - Ne Spalimsya",
+	"Modules": [
+		{
+			"Name": "Obshaga",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		}
+	],
+	"Plugins": [
+		{
+			"Name": "ModelContextProtocol",
+			"Enabled": true,
+			"Optional": true,
+			"TargetAllowList": [
+				"Editor"
+			]
+		},
+		{
+			"Name": "AllToolsets",
+			"Enabled": true,
+			"Optional": true,
+			"TargetAllowList": [
+				"Editor"
+			]
+		}
+	]
+}

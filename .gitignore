@@ -1,0 +1,21 @@
+# Unreal Engine: generated on every build/launch
+Binaries/
+DerivedDataCache/
+Intermediate/
+Saved/
+Plugins/**/Binaries/
+Plugins/**/Intermediate/
+
+# IDE files (regenerated from the .uproject)
+.vs/
+.vscode/
+.idea/
+*.sln
+*.suo
+*.sdf
+*.VC.db
+*.VC.opendb
+*.code-workspace
+
+# Claude Code: personal settings stay local
+.claude/settings.local.json
