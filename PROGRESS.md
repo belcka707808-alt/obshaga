@@ -15,6 +15,7 @@
   - пак Third Person добавлен (`Content/ThirdPerson`, `Content/Characters`, `Content/Input`, `Content/LevelPrototyping`);
   - карта `Content/Obshaga/Map/L_Obshaga`, она же Editor Startup Map и Game Default Map; GameMode — `BP_ThirdPersonGameMode`;
   - Claude проверил сам: PIE, 2 игрока, Listen Server → `Join succeeded`, оба окна видят друг друга; персонаж хоста пошёл вперёд — во втором окне он тоже ушёл; персонаж клиента пошёл вперёд — у хоста он тоже сдвинулся. Ошибок в логе нет;
+  - повторная проверка с цифрами: позиции персонажей на сервере и на клиенте совпали до и после движения (хост `X 0 → 1224`, клиент `Y 0 → 831`, в обоих мирах одинаково). Позиции читаются через unreal-mcp `ActorTools.get_actor_transform` из миров `UEDPIE_0` (сервер) и `UEDPIE_1` (клиент);
   - `tools/pie-check.ps1` — скрипт для самопроверки (скриншот окна PIE, нажатие клавиш).
 
 ## В работе
