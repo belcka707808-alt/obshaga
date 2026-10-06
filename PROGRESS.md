@@ -10,20 +10,15 @@
   - `setup.bat` — ставит Git, Claude Code, Visual Studio, Epic Launcher, собирает проект и открывает редактор;
   - Claude Code: плагин Unreal Engine Skills (`.claude/settings.json`), подключение к редактору (`.mcp.json`), скилы `replication-check` и `milestone-done`;
   - соглашения по именам — `docs/CONVENTIONS.md`.
+- **2026-10-06 — M0, часть 2 (на Windows). M0 ГОТОВ.**
+  - UE 5.8.3, проект собирается и открывается, unreal-mcp подключён;
+  - пак Third Person добавлен (`Content/ThirdPerson`, `Content/Characters`, `Content/Input`, `Content/LevelPrototyping`);
+  - карта `Content/Obshaga/Map/L_Obshaga`, она же Editor Startup Map и Game Default Map; GameMode — `BP_ThirdPersonGameMode`;
+  - Claude проверил сам: PIE, 2 игрока, Listen Server → `Join succeeded`, оба окна видят друг друга; персонаж хоста пошёл вперёд — во втором окне он тоже ушёл; персонаж клиента пошёл вперёд — у хоста он тоже сдвинулся. Ошибок в логе нет;
+  - `tools/pie-check.ps1` — скрипт для самопроверки (скриншот окна PIE, нажатие клавиш).
 
-  На Windows ещё не проверено: в облаке нет Unreal Engine.
-
-## В работе — M0, часть 2 (на Windows)
-1. Запустить `setup.bat`. Он поставит недостающее, соберёт проект и откроет редактор.
-2. Подключить временного персонажа: Content Drawer → **Add** → **Add Feature or Content Pack** → вкладка **Blueprint** → **Third Person** → **Add to Project**.
-3. Создать карту: **File → New Level → Basic** → сохранить как `Content/Obshaga/Map/L_Obshaga`.
-4. **Edit → Project Settings → Maps & Modes**: Editor Startup Map и Game Default Map = `L_Obshaga`, Default GameMode = GameMode из пака Third Person (`BP_ThirdPersonGameMode`).
-5. Проверка: рядом с кнопкой Play → **Number of Players = 2**, **Net Mode = Play As Listen Server** → Play.
-6. Коммит: карта и ассеты уйдут в Git LFS.
-
-Шаги 2–5 может сделать Claude Code на вашем компьютере через unreal-mcp: откройте `claude` в папке проекта и напишите «Продолжаем M0».
-
-✔ Готово, когда два окна PIE видят друг друга как стоящих персонажей.
+## В работе
+- Ничего. Ждём «ок» на план M1.
 
 ## Дальше
 - **M1 — персонаж и серый макет.** Перед кодом — план шагов и архитектура простыми словами, ждать «ок».
@@ -33,8 +28,9 @@
 
 ## Решения
 - **Сеть:** Listen Server (хост — один из игроков), как в ТЗ.
-- **Движок:** последняя UE 5 из Epic Games Launcher. `setup.bat` сам прописывает установленную версию в `Obshaga.uproject`.
+- **Движок:** UE 5.8 (`EngineAssociation` в `Obshaga.uproject`).
 - **Графика:** Lumen и виртуальные тени выключены в `Config/DefaultEngine.ini` — цель 60 FPS на GTX 1660.
 - **Плагины ModelContextProtocol и AllToolsets** включены как необязательные. Если в вашей версии UE их нет, проект всё равно откроется, просто без управления редактором из Claude.
 - **Временный персонаж** — из пака Third Person. На M1 заменяем на C++ `AObshagaCharacter`.
 - **Код модуля:** на M0 только пустой модуль `Obshaga`. Зависимости (`EnhancedInput`, `AIModule`, `GameplayTags`…) добавляем на тех этапах, где они нужны.
+- **Самопроверка:** Claude сам запускает PIE через unreal-mcp (`StartPIE`, 2 игрока, Listen Server), двигает персонажей и смотрит скриншоты через `tools/pie-check.ps1`. Пользователя зовёт, только если что-то сломалось.
