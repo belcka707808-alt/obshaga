@@ -2,11 +2,20 @@
 
 #include "HidingSpot.h"
 #include "Interactable.h"
+#include "ItemActor.h"
 #include "ObshagaCharacter.h"
 #include "ObshagaCharacterConfig.h"
 #include "Engine/OverlapResult.h"
 #include "Engine/World.h"
 #include "GameFramework/Controller.h"
+
+namespace
+{
+	// Подбор предмета у ног: насколько вниз надо смотреть (Z направления взгляда), размер и сдвиг области поиска.
+	constexpr float FeetLookDownZ = -0.4f;
+	constexpr float FeetRadius = 80.f;
+	constexpr float FeetForwardOffset = 40.f;
+}
 
 UInteractionComponent::UInteractionComponent()
 {
@@ -96,6 +105,26 @@ AActor* UInteractionComponent::FindFocusedActor() const
 	for (const FOverlapResult& Overlap : Overlaps)
 	{
 		Consider(Overlap.GetActor(), true);
+	}
+
+	// Предмет у самых ног лучом не поймать: взгляд упирается в пол далеко впереди. Поэтому, если игрок
+	// смотрит вниз и ничего не нашёл, ищем предметы прямо под ним, чуть впереди по взгляду.
+	const FVector ViewDirection = ViewRotation.Vector();
+	if (!Best && ViewDirection.Z < FeetLookDownZ)
+	{
+		const float HalfHeight = Character->GetSimpleCollisionHalfHeight();
+		const FVector Forward = FVector(ViewDirection.X, ViewDirection.Y, 0.f).GetSafeNormal();
+		const FVector FeetPoint = Character->GetActorLocation() - FVector(0.f, 0.f, HalfHeight) + Forward * FeetForwardOffset;
+
+		Overlaps.Reset();
+		GetWorld()->OverlapMultiByChannel(Overlaps, FeetPoint, FQuat::Identity, ECC_Visibility, FCollisionShape::MakeSphere(FeetRadius), Params);
+		for (const FOverlapResult& Overlap : Overlaps)
+		{
+			if (Cast<AItemActor>(Overlap.GetActor()))
+			{
+				Consider(Overlap.GetActor(), true);
+			}
+		}
 	}
 	return Best;
 }

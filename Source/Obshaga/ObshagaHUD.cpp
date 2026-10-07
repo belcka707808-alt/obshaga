@@ -4,7 +4,9 @@
 #include "DeviceActor.h"
 #include "InteractionComponent.h"
 #include "ItemActor.h"
+#include "HidingSpot.h"
 #include "KomendantCharacter.h"
+#include "NightExitDoor.h"
 #include "ObshagaCharacter.h"
 #include "ObshagaGameState.h"
 #include "ObshagaPlayerController.h"
@@ -20,7 +22,6 @@
 
 namespace
 {
-	constexpr float NoticeSeconds = 3.f;
 	constexpr float NoiseSeconds = 1.5f;
 
 	FText RoleName(EPlayerRole Role)
@@ -99,7 +100,7 @@ void AObshagaHUD::DrawHUD()
 	}
 
 	// Сообщения рисуем последними, чтобы телефон их не закрывал.
-	if (GetWorld()->GetTimeSeconds() - Controller->GetNoticeTime() < NoticeSeconds && GameState->GetRoundState() != ERoundState::Finished)
+	if (GetWorld()->GetTimeSeconds() - Controller->GetNoticeTime() < AObshagaPlayerController::NoticeSeconds && GameState->GetRoundState() != ERoundState::Finished)
 	{
 		const FString Notice = Controller->GetNotice().ToString();
 		float Width = 0.f;
@@ -200,7 +201,14 @@ void AObshagaHUD::DrawCharacterInfo(const AObshagaCharacter* Character)
 
 	if (Character->IsHiding())
 	{
-		DrawCentered(LOCTEXT("Hiding", "Ты в укрытии").ToString(), FLinearColor(0.6f, 0.8f, 1.f), 0.2f);
+		const bool bOutside = Character->GetHidingSpot()->IsA<ANightExitDoor>();
+		DrawCentered((bOutside ? LOCTEXT("Outside", "Ты на улице") : LOCTEXT("Hiding", "Ты в укрытии")).ToString(), FLinearColor(0.6f, 0.8f, 1.f), 0.2f);
+	}
+	else
+	{
+		// Точка-прицел: по ней видно, на что нацелена кнопка взаимодействия.
+		const float Dot = 3.f * Scale;
+		DrawRect(FLinearColor(1.f, 1.f, 1.f, 0.55f), (Canvas->ClipX - Dot) * 0.5f, (Canvas->ClipY - Dot) * 0.5f, Dot, Dot);
 	}
 
 	const UInteractionComponent* Interaction = Character->GetInteractionComponent();
@@ -217,7 +225,6 @@ void AObshagaHUD::DrawCharacterInfo(const AObshagaCharacter* Character)
 
 	// Клавиши, которые дают задания: показать на вора и настучать на комнату.
 	const AObshagaPlayerController* Controller = Cast<AObshagaPlayerController>(GetOwningPlayerController());
-	const AObshagaPlayerState* MyState = Controller ? Controller->GetPlayerState<AObshagaPlayerState>() : nullptr;
 	const AObshagaCharacter* Suspect = Controller ? Controller->FindAccuseTarget() : nullptr;
 	if (Suspect && Suspect->GetPlayerState())
 	{
@@ -225,7 +232,7 @@ void AObshagaHUD::DrawCharacterInfo(const AObshagaCharacter* Character)
 		DrawCentered(Line.ToString(), FLinearColor(1.f, 0.6f, 0.6f), 0.82f);
 	}
 	const ARoomVolume* TipRoom = Character->GetCurrentRoom();
-	if (MyState && MyState->CanTipRoom() && TipRoom && TipRoom->RoomType == ERoomType::Bedroom && TipRoom->RoomId != MyState->GetHomeRoomId())
+	if (Controller && Controller->CanTipRoomNow() && TipRoom)
 	{
 		const FText Line = FText::Format(LOCTEXT("RoomTipPrompt", "[B] Настучать коменданту: {0}"), TipRoom->DisplayName);
 		DrawCentered(Line.ToString(), FLinearColor(1.f, 0.6f, 0.6f), 0.87f);
@@ -290,7 +297,16 @@ void AObshagaHUD::DrawPhone(const AObshagaPlayerState* MyState, const AObshagaGa
 	if (bRat && !MyState->GetRatIntel().IsEmpty())
 	{
 		Y = DrawWrapped(MyState->GetRatIntel().ToString(), FLinearColor(1.f, 0.7f, 0.7f), X, Y, TextWidth);
-		const FText Tip = MyState->HasUsedTip() ? LOCTEXT("TipUsed", "Ты уже настучал") : LOCTEXT("TipPrompt", "[T] Настучать на него коменданту");
+		const AObshagaPlayerState* Victim = Cast<AObshagaPlayerState>(MyState->GetRatTarget());
+		FText Tip = LOCTEXT("TipPrompt", "[T] Настучать на него коменданту");
+		if (MyState->HasUsedTip())
+		{
+			Tip = LOCTEXT("TipUsed", "Ты уже настучал");
+		}
+		else if (Victim && Victim->IsEvicted())
+		{
+			Tip = LOCTEXT("TipVictimEvicted", "Его уже выселили — стучать не на кого");
+		}
 		Y = DrawWrapped(Tip.ToString(), FLinearColor::Yellow, X, Y, TextWidth);
 	}
 
@@ -412,8 +428,10 @@ void AObshagaHUD::DrawInterrogation(const AObshagaPlayerState* MyState, const AO
 	}
 
 	// Остальным — предложение вступиться, если они достаточно близко к пойманному.
+	// Призраку и спрятавшемуся не предлагаем: их алиби сервер не примет.
+	const AObshagaCharacter* Me = Cast<AObshagaCharacter>(GetOwningPawn());
 	const APawn* SuspectPawn = Info.Suspect->GetPawn();
-	if (SuspectPawn && FVector::Dist(SuspectPawn->GetActorLocation(), MyLocation) <= GameState->GetAlibiRadius())
+	if (Me && !Me->IsGhost() && !Me->IsHiding() && SuspectPawn && FVector::Dist(SuspectPawn->GetActorLocation(), MyLocation) <= GameState->GetAlibiRadius())
 	{
 		DrawRect(FLinearColor(0.02f, 0.02f, 0.05f, 0.82f), PanelX, PanelY, PanelWidth, 70.f * Scale);
 		Y = DrawWrapped(FText::Format(LOCTEXT("OtherInterrogated", "Комендант допрашивает: {0} ({1} с)"), FText::FromString(Info.Suspect->GetPlayerName()), FText::AsNumber(Seconds)).ToString(), FLinearColor::White, X, Y, TextWidth);

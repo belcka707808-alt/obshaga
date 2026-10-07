@@ -6,6 +6,7 @@
 #include "ObshagaGameMode.h"
 #include "ObshagaGameState.h"
 #include "ObshagaPlayerState.h"
+#include "RoomVolume.h"
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
 #include "InputAction.h"
@@ -269,8 +270,10 @@ void AObshagaPlayerController::OnChoiceSilent()
 
 void AObshagaPlayerController::OnAlibi()
 {
+	// Призрак и спрятавшийся алиби дать не могут — сервер такое всё равно отклонит.
 	const AObshagaGameState* GameState = GetWorld()->GetGameState<AObshagaGameState>();
-	if (GameState && GameState->GetInterrogation().bActive && !IsLocalPlayerInterrogated())
+	const AObshagaCharacter* Me = GetObshagaCharacter();
+	if (GameState && GameState->GetInterrogation().bActive && !IsLocalPlayerInterrogated() && Me && !Me->IsGhost() && !Me->IsHiding())
 	{
 		ServerConfirmAlibi();
 	}
@@ -331,6 +334,17 @@ AObshagaCharacter* AObshagaPlayerController::FindAccuseTarget() const
 	return Best;
 }
 
+bool AObshagaPlayerController::CanTipRoomNow() const
+{
+	const AObshagaPlayerState* MyState = GetPlayerState<AObshagaPlayerState>();
+	const AObshagaCharacter* Me = GetObshagaCharacter();
+	const AObshagaGameState* GameState = GetWorld()->GetGameState<AObshagaGameState>();
+	const ARoomVolume* Room = Me ? Me->GetCurrentRoom() : nullptr;
+	return MyState && Me && MyState->CanTipRoom() && GameState && GameState->GetRoundState() == ERoundState::InProgress
+		&& !Me->IsHiding() && !Me->IsFrozen() && !Me->IsGhost()
+		&& Room && Room->RoomType == ERoomType::Bedroom && Room->RoomId != MyState->GetHomeRoomId();
+}
+
 void AObshagaPlayerController::OnAccuse()
 {
 	if (AObshagaCharacter* Suspect = FindAccuseTarget())
@@ -341,8 +355,7 @@ void AObshagaPlayerController::OnAccuse()
 
 void AObshagaPlayerController::OnTipOffRoom()
 {
-	const AObshagaPlayerState* MyState = GetPlayerState<AObshagaPlayerState>();
-	if (MyState && MyState->CanTipRoom())
+	if (CanTipRoomNow())
 	{
 		ServerTipOffRoom();
 	}
@@ -411,6 +424,35 @@ void AObshagaPlayerController::ClientHeardNoise_Implementation(FVector_NetQuanti
 
 void AObshagaPlayerController::ClientShowNotice_Implementation(const FText& Text)
 {
-	Notice = Text;
-	NoticeTime = GetWorld()->GetTimeSeconds();
+	// Пока на экране висит прошлое сообщение, новое ждёт своей очереди, а не затирает его.
+	const bool bShowing = GetWorld()->GetTimeSeconds() - NoticeTime < NoticeSeconds;
+	if (!bShowing && NoticeQueue.IsEmpty())
+	{
+		Notice = Text;
+		NoticeTime = GetWorld()->GetTimeSeconds();
+		return;
+	}
+
+	const auto SameText = [&Text](const FText& Other) { return Other.EqualTo(Text); };
+	if ((bShowing && SameText(Notice)) || NoticeQueue.ContainsByPredicate(SameText))
+	{
+		return;
+	}
+	if (NoticeQueue.Num() >= MaxQueuedNotices)
+	{
+		NoticeQueue.RemoveAt(0);
+	}
+	NoticeQueue.Add(Text);
+}
+
+void AObshagaPlayerController::PlayerTick(float DeltaTime)
+{
+	Super::PlayerTick(DeltaTime);
+
+	if (!NoticeQueue.IsEmpty() && GetWorld()->GetTimeSeconds() - NoticeTime >= NoticeSeconds)
+	{
+		Notice = NoticeQueue[0];
+		NoticeQueue.RemoveAt(0);
+		NoticeTime = GetWorld()->GetTimeSeconds();
+	}
 }

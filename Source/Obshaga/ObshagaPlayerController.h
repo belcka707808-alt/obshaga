@@ -37,11 +37,18 @@ public:
 	const FText& GetNotice() const { return Notice; }
 	float GetNoticeTime() const { return NoticeTime; }
 	bool IsPhoneOpen() const { return bPhoneOpen; }
+
+	/** Сколько секунд сообщение висит на экране и сколько сообщений может ждать в очереди. */
+	static constexpr float NoticeSeconds = 3.f;
+	static constexpr int32 MaxQueuedNotices = 4;
 	/** Игрок, на которого локальный игрок сейчас может показать коменданту (смотрит на него и стоит рядом). */
 	AObshagaCharacter* FindAccuseTarget() const;
+	/** Может ли локальный игрок прямо сейчас настучать на комнату, в которой стоит. */
+	bool CanTipRoomNow() const;
 
 protected:
 	virtual void SetupInputComponent() override;
+	virtual void PlayerTick(float DeltaTime) override;
 
 	/** Пойманный выбирает ответ на допросе: 1 — сознаться, 2 — соврать, 3 — молчать. */
 	UFUNCTION(Server, Reliable)
@@ -163,4 +170,5 @@ private:
 	TArray<FHeardNoise> RecentNoises;
 	FText Notice;
 	float NoticeTime = -100.f;
+	TArray<FText> NoticeQueue;
 };
