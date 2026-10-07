@@ -36,6 +36,12 @@ public:
 	/** Сервер: игрок, который сидит внутри. */
 	AObshagaCharacter* GetHiddenPlayer() const { return HiddenPlayer; }
 
+	/**
+	 * Сервер: тайник обыскивает комендант. Спрятавшегося игрока выгоняет наружу (OutFoundPlayer),
+	 * запрещёнку вынимает и возвращает; остальные предметы не трогает.
+	 */
+	AItemActor* KomendantSearch(AObshagaCharacter*& OutFoundPlayer);
+
 protected:
 	virtual void BeginPlay() override;
 

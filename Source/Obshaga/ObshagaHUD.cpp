@@ -3,12 +3,15 @@
 #include "CarryComponent.h"
 #include "InteractionComponent.h"
 #include "ItemActor.h"
+#include "KomendantCharacter.h"
 #include "ObshagaCharacter.h"
 #include "ObshagaGameState.h"
 #include "ObshagaPlayerController.h"
 #include "ObshagaPlayerState.h"
 #include "RoomVolume.h"
+#include "SuspicionComponent.h"
 #include "TaskComponent.h"
+#include "EngineUtils.h"
 #include "Engine/Canvas.h"
 #include "Engine/Engine.h"
 
@@ -90,7 +93,14 @@ void AObshagaHUD::DrawHUD()
 			Loudest = &Noise;
 		}
 	}
+	DrawKomendantLabels(Character, Font, Scale);
+
 	const AObshagaGameState* GameState = GetWorld()->GetGameState<AObshagaGameState>();
+	if (GameState && GameState->GetInterrogation().bActive)
+	{
+		DrawInterrogation(Character, Font, Scale);
+	}
+
 	if (GameState && GameState->GetRoundState() == ERoundState::Finished)
 	{
 		DrawRoundResults(Font, Scale);
@@ -187,6 +197,11 @@ void AObshagaHUD::DrawPhone(const AObshagaCharacter* Character, UFont* Font, flo
 	}
 
 	Y = DrawWrapped(FText::Format(LOCTEXT("PhoneScore", "Очки: {0}"), FText::AsNumber(FMath::RoundToInt32(PlayerState->GetScore()))).ToString(), Dim, X, Y, TextWidth, Font, Scale);
+	const USuspicionComponent* Suspicion = PlayerState->GetSuspicionComponent();
+	const int32 SuspicionPercent = Suspicion->GetSuspicionPercent();
+	const FLinearColor SuspicionColor = SuspicionPercent >= 70 ? FLinearColor::Red : (SuspicionPercent >= 35 ? FLinearColor::Yellow : Dim);
+	Y = DrawWrapped(FText::Format(LOCTEXT("PhoneSuspicion", "Подозрение: {0} из 100"), FText::AsNumber(SuspicionPercent)).ToString(), SuspicionColor, X, Y, TextWidth, Font, Scale);
+	Y = DrawWrapped(FText::Format(LOCTEXT("PhoneStrikes", "Страйки: {0} из 3"), FText::AsNumber(Suspicion->GetStrikes())).ToString(), Dim, X, Y, TextWidth, Font, Scale);
 	Y += 10.f * Scale;
 	Y = DrawWrapped(LOCTEXT("PhoneTasks", "СЕКРЕТНЫЕ ЗАДАНИЯ").ToString(), FLinearColor::White, X, Y, TextWidth, Font, Scale);
 
@@ -259,6 +274,98 @@ void AObshagaHUD::DrawRoundResults(UFont* Font, float Scale)
 			const FText Text = FText::Format(LOCTEXT("ScoreLine", "{0}: {1}"), FText::FromString(Player->GetPlayerName().Left(28)), FText::AsNumber(FMath::RoundToInt32(Player->GetScore())));
 			Y = DrawWrapped(Text.ToString(), FLinearColor(0.85f, 0.85f, 0.9f), X, Y, TextWidth, Font, Scale);
 		}
+	}
+}
+
+void AObshagaHUD::DrawInterrogation(const AObshagaCharacter* Character, UFont* Font, float Scale)
+{
+	const AObshagaGameState* GameState = GetWorld()->GetGameState<AObshagaGameState>();
+	const FInterrogationInfo& Info = GameState->GetInterrogation();
+	const APlayerState* MyState = Character->GetPlayerState();
+	if (!Info.Suspect || !MyState)
+	{
+		return;
+	}
+
+	const int32 Seconds = FMath::CeilToInt32(GameState->GetInterrogationRemainingSeconds());
+	const float PanelWidth = FMath::Min(Canvas->ClipX - 40.f * Scale, 420.f * Scale);
+	const float PanelX = (Canvas->ClipX - PanelWidth) * 0.5f;
+	const float PanelY = Canvas->ClipY * 0.28f;
+	const float Pad = 12.f * Scale;
+	const float TextWidth = PanelWidth - Pad * 2.f;
+	const float X = PanelX + Pad;
+	float Y = PanelY + Pad;
+
+	if (Info.Suspect == MyState)
+	{
+		DrawRect(FLinearColor(0.25f, 0.02f, 0.02f, 0.85f), PanelX, PanelY, PanelWidth, 150.f * Scale);
+		Y = DrawWrapped(FText::Format(LOCTEXT("InterrogationTitle", "ДОПРОС! Осталось {0} с"), FText::AsNumber(Seconds)).ToString(), FLinearColor::White, X, Y, TextWidth, Font, Scale);
+		if (Info.Choice == EInterrogationChoice::None)
+		{
+			Y = DrawWrapped(LOCTEXT("ChoiceConfess", "[1] Сознаться — страйк, маленький штраф").ToString(), FLinearColor::Yellow, X, Y, TextWidth, Font, Scale);
+			Y = DrawWrapped(LOCTEXT("ChoiceLie", "[2] Соврать — если поверит, уйдёшь чистым").ToString(), FLinearColor::Yellow, X, Y, TextWidth, Font, Scale);
+			Y = DrawWrapped(LOCTEXT("ChoiceSilent", "[3] Молчать — страйк, средний штраф").ToString(), FLinearColor::Yellow, X, Y, TextWidth, Font, Scale);
+		}
+		else
+		{
+			Y = DrawWrapped(LOCTEXT("ChoiceMade", "Ты соврал. Комендант думает...").ToString(), FLinearColor::Yellow, X, Y, TextWidth, Font, Scale);
+		}
+		DrawWrapped(FText::Format(LOCTEXT("AlibiCount", "Алиби подтвердили: {0}"), FText::AsNumber(Info.AlibiCount)).ToString(), FLinearColor(0.8f, 0.8f, 0.85f), X, Y, TextWidth, Font, Scale);
+		return;
+	}
+
+	// Остальным — предложение вступиться, если они достаточно близко к пойманному.
+	const APawn* SuspectPawn = Info.Suspect->GetPawn();
+	const float AlibiRadius = GameState->GetAlibiRadius();
+	if (SuspectPawn && FVector::Dist(SuspectPawn->GetActorLocation(), Character->GetActorLocation()) <= AlibiRadius)
+	{
+		DrawRect(FLinearColor(0.02f, 0.02f, 0.05f, 0.82f), PanelX, PanelY, PanelWidth, 70.f * Scale);
+		Y = DrawWrapped(FText::Format(LOCTEXT("OtherInterrogated", "Комендант допрашивает: {0} ({1} с)"), FText::FromString(Info.Suspect->GetPlayerName().Left(28)), FText::AsNumber(Seconds)).ToString(), FLinearColor::White, X, Y, TextWidth, Font, Scale);
+		DrawWrapped(LOCTEXT("AlibiPrompt", "[Y] Подтвердить алиби").ToString(), FLinearColor::Yellow, X, Y, TextWidth, Font, Scale);
+	}
+}
+
+void AObshagaHUD::DrawKomendantLabels(const AObshagaCharacter* Character, UFont* Font, float Scale)
+{
+	const APlayerController* Controller = GetOwningPlayerController();
+	if (!Controller)
+	{
+		return;
+	}
+
+	for (TActorIterator<AKomendantCharacter> It(GetWorld()); It; ++It)
+	{
+		const AKomendantCharacter* Komendant = *It;
+
+		// Подпись видна, только если коменданта видно: сквозь стены она его не выдаёт.
+		if (FVector::Dist(Komendant->GetActorLocation(), Character->GetActorLocation()) > 3000.f || !Controller->LineOfSightTo(Komendant))
+		{
+			continue;
+		}
+
+		const FVector Screen = Canvas->Project(Komendant->GetActorLocation() + FVector(0.f, 0.f, 115.f));
+		if (Screen.Z <= 0.f)
+		{
+			continue;
+		}
+
+		FText Label = LOCTEXT("KomendantCalm", "КОМЕНДАНТ");
+		FLinearColor Color(1.f, 0.85f, 0.3f);
+		if (Komendant->GetAlert() == EKomendantAlert::Suspicious)
+		{
+			Label = LOCTEXT("KomendantSuspicious", "КОМЕНДАНТ ?");
+			Color = FLinearColor(1.f, 0.55f, 0.1f);
+		}
+		else if (Komendant->GetAlert() == EKomendantAlert::Chasing)
+		{
+			Label = LOCTEXT("KomendantChasing", "КОМЕНДАНТ !");
+			Color = FLinearColor::Red;
+		}
+
+		float Width = 0.f;
+		float Height = 0.f;
+		GetTextSize(Label.ToString(), Width, Height, Font, Scale);
+		DrawText(Label.ToString(), Color, Screen.X - Width * 0.5f, Screen.Y - Height, Font, Scale);
 	}
 }
 

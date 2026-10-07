@@ -26,7 +26,12 @@ void UNoiseStatics::MakeGameNoise(const UObject* WorldContextObject, FVector Loc
 	}
 
 	// Комендант (M4) услышит это через AI Perception.
-	UAISense_Hearing::ReportNoiseEvent(World, Location, Loudness, NoiseInstigator);
+	// Источник обязателен для движка; если виновника нет, источником считается сам шумевший объект.
+	AActor* Source = NoiseInstigator ? NoiseInstigator : const_cast<AActor*>(Cast<AActor>(WorldContextObject));
+	if (Source)
+	{
+		UAISense_Hearing::ReportNoiseEvent(World, Location, Loudness, Source);
+	}
 
 	// Игрокам шлём шум адресно: кто далеко, тот о нём не узнаёт даже с читом.
 	for (FConstPlayerControllerIterator It = World->GetPlayerControllerIterator(); It; ++It)

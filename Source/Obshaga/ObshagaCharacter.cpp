@@ -53,6 +53,7 @@ void AObshagaCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& Ou
 
 	DOREPLIFETIME_CONDITION(AObshagaCharacter, bIsSprinting, COND_SkipOwner);
 	DOREPLIFETIME(AObshagaCharacter, HidingSpot);
+	DOREPLIFETIME(AObshagaCharacter, bIsFrozen);
 }
 
 void AObshagaCharacter::PostInitializeComponents()
@@ -161,6 +162,24 @@ void AObshagaCharacter::ExitHidingSpot(const FVector& ExitLocation)
 	ForceNetUpdate();
 }
 
+void AObshagaCharacter::SetFrozen(bool bNewFrozen)
+{
+	check(HasAuthority());
+
+	bIsFrozen = bNewFrozen;
+	if (bNewFrozen)
+	{
+		bIsSprinting = false;
+	}
+	ApplyHiding();
+	ForceNetUpdate();
+}
+
+void AObshagaCharacter::OnRep_IsFrozen()
+{
+	ApplyHiding();
+}
+
 void AObshagaCharacter::OnRep_HidingSpot()
 {
 	ApplyHiding();
@@ -173,7 +192,7 @@ void AObshagaCharacter::ApplyHiding()
 
 	// В укрытии персонаж стоит на месте; столкновения не трогаем, чтобы он оставался «в комнате».
 	UCharacterMovementComponent* Movement = GetCharacterMovement();
-	if (bHide)
+	if (bHide || bIsFrozen)
 	{
 		Movement->StopMovementImmediately();
 		Movement->DisableMovement();

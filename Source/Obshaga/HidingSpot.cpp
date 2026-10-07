@@ -6,6 +6,7 @@
 #include "ItemActor.h"
 #include "Obshaga.h"
 #include "ObshagaCharacter.h"
+#include "ObshagaItemData.h"
 #include "ObshagaPlayerController.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/StaticMesh.h"
@@ -235,6 +236,24 @@ void AHidingSpot::FinishSearch(AObshagaCharacter* By)
 		Notify(By, FText::Format(LOCTEXT("Found", "Нашёл: {0}"), Item->GetDisplayName()));
 		UE_LOG(LogObshaga, Verbose, TEXT("%s took %s out of %s"), *By->GetName(), *Item->GetName(), *GetName());
 	}
+}
+
+AItemActor* AHidingSpot::KomendantSearch(AObshagaCharacter*& OutFoundPlayer)
+{
+	OutFoundPlayer = HiddenPlayer;
+	if (HiddenPlayer)
+	{
+		Notify(HiddenPlayer, LOCTEXT("FoundByKomendant", "Комендант нашёл тебя!"));
+		EjectHiddenPlayer();
+	}
+
+	AItemActor* Contraband = nullptr;
+	if (HiddenItem && HiddenItem->GetItemData()->bContraband)
+	{
+		Contraband = HiddenItem;
+		HiddenItem = nullptr;
+	}
+	return Contraband;
 }
 
 void AHidingSpot::EjectHiddenPlayer()

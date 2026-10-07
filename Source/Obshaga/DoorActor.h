@@ -33,6 +33,12 @@ public:
 
 	bool IsOpen() const { return DoorState != EDoorState::Closed; }
 
+	/** Середина створки в мире. */
+	FVector GetDoorCenter() const;
+
+	/** Сервер: открыть дверь от того, кто стоит в точке FromLocation (без шума — так открывает комендант). */
+	void OpenFor(const FVector& FromLocation);
+
 protected:
 	virtual void BeginPlay() override;
 

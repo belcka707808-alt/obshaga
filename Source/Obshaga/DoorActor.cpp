@@ -98,6 +98,23 @@ void ADoorActor::Interact(AObshagaCharacter* By)
 	UNoiseStatics::MakeGameNoise(this, DoorMesh->GetComponentLocation(), NoiseLoudness, By);
 }
 
+FVector ADoorActor::GetDoorCenter() const
+{
+	return DoorMesh->GetComponentLocation();
+}
+
+void ADoorActor::OpenFor(const FVector& FromLocation)
+{
+	if (!HasAuthority() || IsOpen())
+	{
+		return;
+	}
+
+	const bool bOnPositiveSide = FVector::DotProduct(FromLocation - GetActorLocation(), GetActorRightVector()) > 0.f;
+	DoorState = bOnPositiveSide ? EDoorState::OpenBackward : EDoorState::OpenForward;
+	OnRep_DoorState();
+}
+
 void ADoorActor::OnRep_DoorState()
 {
 	SetActorTickEnabled(true);

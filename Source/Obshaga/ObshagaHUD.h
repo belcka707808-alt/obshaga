@@ -16,6 +16,8 @@ public:
 private:
 	void DrawPhone(const class AObshagaCharacter* Character, UFont* Font, float Scale);
 	void DrawRoundResults(UFont* Font, float Scale);
+	void DrawInterrogation(const class AObshagaCharacter* Character, UFont* Font, float Scale);
+	void DrawKomendantLabels(const class AObshagaCharacter* Character, UFont* Font, float Scale);
 	/** Рисует текст с переносом по словам; возвращает Y под последней строкой. */
 	float DrawWrapped(const FString& Text, const FLinearColor& Color, float X, float Y, float MaxWidth, UFont* Font, float Scale);
 };

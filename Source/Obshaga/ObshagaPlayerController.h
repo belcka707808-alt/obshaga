@@ -41,8 +41,16 @@ public:
 protected:
 	virtual void SetupInputComponent() override;
 
+	/** Пойманный выбирает ответ на допросе: 1 — сознаться, 2 — соврать, 3 — молчать. */
+	UFUNCTION(Server, Reliable)
+	void ServerInterrogationChoice(uint8 Choice);
+
+	/** Игрок рядом подтверждает алиби пойманного. */
+	UFUNCTION(Server, Reliable)
+	void ServerConfirmAlibi();
+
 private:
-	/** Раскладка MVP задаётся в коде: WASD, мышь, Shift, Ctrl, пробел, E, F, G, Tab, левая кнопка мыши. */
+	/** Раскладка MVP задаётся в коде: WASD, мышь, Shift, Ctrl, пробел, E, F, G, Tab, 1/2/3, Y, левая кнопка мыши. */
 	void CreateDefaultInput();
 
 	void OnMoveForward(const FInputActionValue& Value);
@@ -59,6 +67,11 @@ private:
 	void OnDrop();
 	void OnThrow();
 	void OnTogglePhone();
+	void OnChoiceConfess();
+	void OnChoiceLie();
+	void OnChoiceSilent();
+	void OnAlibi();
+	bool IsLocalPlayerInterrogated() const;
 
 	AObshagaCharacter* GetObshagaCharacter() const;
 
@@ -97,6 +110,18 @@ private:
 
 	UPROPERTY(Transient)
 	TObjectPtr<UInputAction> PhoneAction;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UInputAction> ConfessAction;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UInputAction> LieAction;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UInputAction> SilentAction;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UInputAction> AlibiAction;
 
 	/** Телефон открыт только у локального игрока; мир при этом не останавливается. */
 	bool bPhoneOpen = false;

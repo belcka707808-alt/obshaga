@@ -48,6 +48,11 @@ public:
 	AHidingSpot* GetHidingSpot() const { return HidingSpot; }
 	bool IsHiding() const { return HidingSpot != nullptr; }
 
+	/** Стоит на допросе и не может двигаться. */
+	bool IsFrozen() const { return bIsFrozen; }
+	/** Только сервер. */
+	void SetFrozen(bool bNewFrozen);
+
 	// Только сервер. Вызывает AHidingSpot.
 	void EnterHidingSpot(AHidingSpot* Spot);
 	void ExitHidingSpot(const FVector& ExitLocation);
@@ -63,6 +68,9 @@ protected:
 
 	UFUNCTION()
 	void OnRep_HidingSpot();
+
+	UFUNCTION()
+	void OnRep_IsFrozen();
 
 	void UpdateMovementSpeed();
 	void ApplyHiding();
@@ -93,6 +101,9 @@ protected:
 	/** Тайник, в котором персонаж сейчас прячется. */
 	UPROPERTY(ReplicatedUsing = OnRep_HidingSpot)
 	TObjectPtr<AHidingSpot> HidingSpot;
+
+	UPROPERTY(ReplicatedUsing = OnRep_IsFrozen)
+	bool bIsFrozen = false;
 
 private:
 	TArray<TWeakObjectPtr<ARoomVolume>> OverlappingRooms;

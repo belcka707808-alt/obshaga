@@ -3,6 +3,9 @@
 #include "CarryComponent.h"
 #include "InteractionComponent.h"
 #include "ObshagaCharacter.h"
+#include "ObshagaGameMode.h"
+#include "ObshagaGameState.h"
+#include "ObshagaPlayerState.h"
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
 #include "InputAction.h"
@@ -41,6 +44,10 @@ void AObshagaPlayerController::CreateDefaultInput()
 	DropAction = MakeAction(this, TEXT("IA_Drop"), EInputActionValueType::Boolean);
 	ThrowAction = MakeAction(this, TEXT("IA_Throw"), EInputActionValueType::Boolean);
 	PhoneAction = MakeAction(this, TEXT("IA_Phone"), EInputActionValueType::Boolean);
+	ConfessAction = MakeAction(this, TEXT("IA_Confess"), EInputActionValueType::Boolean);
+	LieAction = MakeAction(this, TEXT("IA_Lie"), EInputActionValueType::Boolean);
+	SilentAction = MakeAction(this, TEXT("IA_Silent"), EInputActionValueType::Boolean);
+	AlibiAction = MakeAction(this, TEXT("IA_Alibi"), EInputActionValueType::Boolean);
 
 	DefaultMappingContext = NewObject<UInputMappingContext>(this, TEXT("IMC_Obshaga"));
 	DefaultMappingContext->MapKey(MoveForwardAction, EKeys::W);
@@ -57,6 +64,10 @@ void AObshagaPlayerController::CreateDefaultInput()
 	DefaultMappingContext->MapKey(DropAction, EKeys::G);
 	DefaultMappingContext->MapKey(ThrowAction, EKeys::LeftMouseButton);
 	DefaultMappingContext->MapKey(PhoneAction, EKeys::Tab);
+	DefaultMappingContext->MapKey(ConfessAction, EKeys::One);
+	DefaultMappingContext->MapKey(LieAction, EKeys::Two);
+	DefaultMappingContext->MapKey(SilentAction, EKeys::Three);
+	DefaultMappingContext->MapKey(AlibiAction, EKeys::Y);
 }
 
 void AObshagaPlayerController::SetupInputComponent()
@@ -90,6 +101,10 @@ void AObshagaPlayerController::SetupInputComponent()
 	Input->BindAction(DropAction, ETriggerEvent::Started, this, &AObshagaPlayerController::OnDrop);
 	Input->BindAction(ThrowAction, ETriggerEvent::Started, this, &AObshagaPlayerController::OnThrow);
 	Input->BindAction(PhoneAction, ETriggerEvent::Started, this, &AObshagaPlayerController::OnTogglePhone);
+	Input->BindAction(ConfessAction, ETriggerEvent::Started, this, &AObshagaPlayerController::OnChoiceConfess);
+	Input->BindAction(LieAction, ETriggerEvent::Started, this, &AObshagaPlayerController::OnChoiceLie);
+	Input->BindAction(SilentAction, ETriggerEvent::Started, this, &AObshagaPlayerController::OnChoiceSilent);
+	Input->BindAction(AlibiAction, ETriggerEvent::Started, this, &AObshagaPlayerController::OnAlibi);
 }
 
 AObshagaCharacter* AObshagaPlayerController::GetObshagaCharacter() const
@@ -205,6 +220,63 @@ void AObshagaPlayerController::OnThrow()
 void AObshagaPlayerController::OnTogglePhone()
 {
 	bPhoneOpen = !bPhoneOpen;
+}
+
+bool AObshagaPlayerController::IsLocalPlayerInterrogated() const
+{
+	const AObshagaGameState* GameState = GetWorld()->GetGameState<AObshagaGameState>();
+	return GameState && GameState->GetInterrogation().bActive && GameState->GetInterrogation().Suspect == PlayerState;
+}
+
+void AObshagaPlayerController::OnChoiceConfess()
+{
+	if (IsLocalPlayerInterrogated())
+	{
+		ServerInterrogationChoice(static_cast<uint8>(EInterrogationChoice::Confess));
+	}
+}
+
+void AObshagaPlayerController::OnChoiceLie()
+{
+	if (IsLocalPlayerInterrogated())
+	{
+		ServerInterrogationChoice(static_cast<uint8>(EInterrogationChoice::Lie));
+	}
+}
+
+void AObshagaPlayerController::OnChoiceSilent()
+{
+	if (IsLocalPlayerInterrogated())
+	{
+		ServerInterrogationChoice(static_cast<uint8>(EInterrogationChoice::Silent));
+	}
+}
+
+void AObshagaPlayerController::OnAlibi()
+{
+	const AObshagaGameState* GameState = GetWorld()->GetGameState<AObshagaGameState>();
+	if (GameState && GameState->GetInterrogation().bActive && !IsLocalPlayerInterrogated())
+	{
+		ServerConfirmAlibi();
+	}
+}
+
+void AObshagaPlayerController::ServerInterrogationChoice_Implementation(uint8 Choice)
+{
+	// Клиент присылает только номер варианта; кто на допросе и что из этого выйдет, решает сервер.
+	AObshagaGameMode* GameMode = GetWorld()->GetAuthGameMode<AObshagaGameMode>();
+	if (GameMode && Choice >= static_cast<uint8>(EInterrogationChoice::Confess) && Choice <= static_cast<uint8>(EInterrogationChoice::Silent))
+	{
+		GameMode->SubmitInterrogationChoice(GetPlayerState<AObshagaPlayerState>(), static_cast<EInterrogationChoice>(Choice));
+	}
+}
+
+void AObshagaPlayerController::ServerConfirmAlibi_Implementation()
+{
+	if (AObshagaGameMode* GameMode = GetWorld()->GetAuthGameMode<AObshagaGameMode>())
+	{
+		GameMode->ConfirmAlibi(GetObshagaCharacter());
+	}
 }
 
 void AObshagaPlayerController::ClientHeardNoise_Implementation(FVector_NetQuantize Location, float Loudness)

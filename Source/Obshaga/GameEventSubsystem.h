@@ -25,7 +25,20 @@ enum class EGameEventType : uint8
 	PlayerLeftHiding,
 	PlayerFoundHiding,
 	RoundStarted,
-	RoundEnded
+	RoundEnded,
+	/** Комендант увидел игрока. */
+	PlayerSpotted,
+	/** Комендант поймал игрока, начался допрос. */
+	PlayerCaught,
+	InterrogationConfessed,
+	InterrogationSilent,
+	InterrogationLieSucceeded,
+	InterrogationLieFailed,
+	/** Instigator подтвердил алиби, и ложь Target удалась. */
+	AlibiConfirmed,
+	ContrabandConfiscated,
+	/** Комендант пошёл на шум, который устроил Instigator. */
+	KomendantAlerted
 };
 
 /** Одна запись на «доске объявлений»: кто, что сделал, с каким предметом, где и когда. */
