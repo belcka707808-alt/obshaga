@@ -54,6 +54,10 @@ protected:
 	UPROPERTY(EditAnywhere, Category = "Door", meta = (ClampMin = "1"))
 	float OpenSpeed = 260.f;
 
+	/** Громкость скрипа: 0 — тихо, 1 — грохот. */
+	UPROPERTY(EditAnywhere, Category = "Door", meta = (ClampMin = "0", ClampMax = "1"))
+	float NoiseLoudness = 0.2f;
+
 	UPROPERTY(ReplicatedUsing = OnRep_DoorState)
 	EDoorState DoorState = EDoorState::Closed;
 

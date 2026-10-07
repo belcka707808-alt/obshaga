@@ -1,16 +1,12 @@
 #include "InteractionComponent.h"
 
+#include "HidingSpot.h"
 #include "Interactable.h"
 #include "ObshagaCharacter.h"
 #include "ObshagaCharacterConfig.h"
+#include "Engine/OverlapResult.h"
 #include "Engine/World.h"
 #include "GameFramework/Controller.h"
-
-namespace
-{
-	// Сервер прощает небольшую разницу в позиции из-за лага.
-	constexpr float ServerRangeSlack = 75.f;
-}
 
 UInteractionComponent::UInteractionComponent()
 {
@@ -44,6 +40,12 @@ AActor* UInteractionComponent::FindFocusedActor() const
 		return nullptr;
 	}
 
+	// Из укрытия доступно только само укрытие: выйти.
+	if (AHidingSpot* Spot = Character->GetHidingSpot())
+	{
+		return Spot;
+	}
+
 	FVector ViewLocation;
 	FRotator ViewRotation;
 	Controller->GetPlayerViewPoint(ViewLocation, ViewRotation);
@@ -54,18 +56,65 @@ AActor* UInteractionComponent::FindFocusedActor() const
 
 	FCollisionQueryParams Params(SCENE_QUERY_STAT(InteractionTrace), false, Character);
 	FHitResult Hit;
-	if (!GetWorld()->LineTraceSingleByChannel(Hit, ViewLocation, TraceEnd, ECC_Visibility, Params))
+	const bool bHit = GetWorld()->LineTraceSingleByChannel(Hit, ViewLocation, TraceEnd, ECC_Visibility, Params);
+
+	// Помощь в прицеливании: в мелкий предмет трудно попасть лучом. Поэтому из всего, что лежит
+	// рядом с точкой взгляда, выбираем самый маленький объект: ноутбук на тумбочке важнее самой тумбочки.
+	AActor* Best = nullptr;
+	double BestSizeSquared = TNumericLimits<double>::Max();
+	auto Consider = [this, Character, &Best, &BestSizeSquared](AActor* Candidate, bool bCheckSight)
 	{
-		return nullptr;
+		const IInteractable* Interactable = Cast<IInteractable>(Candidate);
+		if (Candidate == Best || !Interactable || !IsInRange(Candidate, 0.f) || (bCheckSight && !HasLineOfSight(Candidate)))
+		{
+			return;
+		}
+
+		// Объект, с которым сейчас нечего делать, не должен заслонять соседний.
+		if (Interactable->GetInteractionPrompt(Character).IsEmpty() && Interactable->GetSecondaryPrompt(Character).IsEmpty())
+		{
+			return;
+		}
+
+		const double SizeSquared = Candidate->GetComponentsBoundingBox().GetSize().SizeSquared();
+		if (SizeSquared < BestSizeSquared)
+		{
+			BestSizeSquared = SizeSquared;
+			Best = Candidate;
+		}
+	};
+
+	if (bHit)
+	{
+		Consider(Hit.GetActor(), false);
 	}
 
-	AActor* HitActor = Hit.GetActor();
-	const IInteractable* Interactable = Cast<IInteractable>(HitActor);
-	if (!Interactable || !IsInRange(HitActor, 0.f) || !Interactable->CanInteract(Character))
+	const FVector AimPoint = bHit ? Hit.ImpactPoint : TraceEnd;
+	TArray<FOverlapResult> Overlaps;
+	const FCollisionShape AssistSphere = FCollisionShape::MakeSphere(Character->GetConfig()->AimAssistRadius);
+	GetWorld()->OverlapMultiByChannel(Overlaps, AimPoint, FQuat::Identity, ECC_Visibility, AssistSphere, Params);
+	for (const FOverlapResult& Overlap : Overlaps)
 	{
-		return nullptr;
+		Consider(Overlap.GetActor(), true);
 	}
-	return HitActor;
+	return Best;
+}
+
+bool UInteractionComponent::HasLineOfSight(const AActor* Target) const
+{
+	const AObshagaCharacter* Character = GetCharacter();
+	if (!Character || !Target)
+	{
+		return false;
+	}
+
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(InteractionSight), false, Character);
+	Params.AddIgnoredActor(Target);
+	// Целимся в ближайшую к глазам точку объекта: у открытой двери центр может оказаться за косяком.
+	const FVector EyeLocation = Character->GetPawnViewLocation();
+	const FVector TargetPoint = Target->GetComponentsBoundingBox().GetClosestPointTo(EyeLocation);
+	FHitResult Hit;
+	return !GetWorld()->LineTraceSingleByChannel(Hit, EyeLocation, TargetPoint, ECC_Visibility, Params);
 }
 
 bool UInteractionComponent::IsInRange(const AActor* Target, float Slack) const
@@ -87,22 +136,44 @@ FText UInteractionComponent::GetFocusedPrompt() const
 	return Interactable ? Interactable->GetInteractionPrompt(GetCharacter()) : FText::GetEmpty();
 }
 
-void UInteractionComponent::TryInteract()
+FText UInteractionComponent::GetFocusedSecondaryPrompt() const
+{
+	const IInteractable* Interactable = Cast<IInteractable>(FocusedActor.Get());
+	return Interactable ? Interactable->GetSecondaryPrompt(GetCharacter()) : FText::GetEmpty();
+}
+
+void UInteractionComponent::TryInteract(bool bSecondary)
 {
 	if (AActor* Target = FocusedActor.Get())
 	{
-		ServerInteract(Target);
+		ServerInteract(Target, bSecondary);
 	}
 }
 
-void UInteractionComponent::ServerInteract_Implementation(AActor* Target)
+void UInteractionComponent::ServerInteract_Implementation(AActor* Target, bool bSecondary)
 {
-	// Клиенту не верим: сервер сам перепроверяет объект, дистанцию и условия.
+	// Клиенту не верим: сервер сам перепроверяет объект и дистанцию, а условия действия проверяет сам объект.
 	AObshagaCharacter* Character = GetCharacter();
 	IInteractable* Interactable = Cast<IInteractable>(Target);
-	if (!Character || !Interactable || !IsInRange(Target, ServerRangeSlack) || !Interactable->CanInteract(Character))
+	if (!Character || !Interactable)
 	{
 		return;
 	}
-	Interactable->Interact(Character);
+
+	const AHidingSpot* CurrentSpot = Character->GetHidingSpot();
+	// Сквозь стену взаимодействовать нельзя, даже если клиент уверяет, что можно.
+	const bool bAllowed = CurrentSpot ? (Target == CurrentSpot) : (IsInRange(Target, ServerRangeSlack) && HasLineOfSight(Target));
+	if (!bAllowed)
+	{
+		return;
+	}
+
+	if (bSecondary)
+	{
+		Interactable->SecondaryInteract(Character);
+	}
+	else
+	{
+		Interactable->Interact(Character);
+	}
 }

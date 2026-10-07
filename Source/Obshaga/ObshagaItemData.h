@@ -1,0 +1,47 @@
+#pragma once
+
+#include "CoreMinimal.h"
+#include "Engine/DataAsset.h"
+#include "ObshagaItemData.generated.h"
+
+/** «Паспорт предмета»: один ассет на вид предмета (телевизор, чайник...). */
+UCLASS(BlueprintType)
+class OBSHAGA_API UObshagaItemData : public UDataAsset
+{
+	GENERATED_BODY()
+
+public:
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item")
+	FText DisplayName;
+
+	/** Размер серого куба-заглушки, пока нет настоящей модели. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item", meta = (Units = "cm"))
+	FVector BoxSize = FVector(30.f, 30.f, 30.f);
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item", meta = (ClampMin = "0.01", Units = "kg"))
+	float Weight = 1.f;
+
+	/** Тяжёлый: несут медленно и без бега. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item")
+	bool bHeavy = false;
+
+	/** Запрещёнка: за неё комендант ловит. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item")
+	bool bContraband = false;
+
+	/** С какой скоростью предмет вылетает из рук при броске. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Throw", meta = (ClampMin = "0", Units = "cm/s"))
+	float ThrowSpeed = 900.f;
+
+	/** Насколько предмет шумный при ударе: 0 — бесшумный, 1 — грохот. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Noise", meta = (ClampMin = "0", ClampMax = "1"))
+	float NoiseFactor = 0.5f;
+
+	/** Удары слабее этого шума не дают. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Noise", meta = (ClampMin = "0", Units = "cm/s"))
+	float MinImpactSpeed = 150.f;
+
+	/** Удар с такой скоростью и сильнее даёт максимальную громкость предмета. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Noise", meta = (ClampMin = "1", Units = "cm/s"))
+	float LoudImpactSpeed = 800.f;
+};

@@ -1,5 +1,7 @@
 #include "ObshagaCharacter.h"
 
+#include "CarryComponent.h"
+#include "HidingSpot.h"
 #include "InteractionComponent.h"
 #include "Obshaga.h"
 #include "ObshagaCharacterConfig.h"
@@ -37,6 +39,11 @@ AObshagaCharacter::AObshagaCharacter()
 	FollowCamera->bUsePawnControlRotation = false;
 
 	InteractionComponent = CreateDefaultSubobject<UInteractionComponent>(TEXT("InteractionComponent"));
+	CarryComponent = CreateDefaultSubobject<UCarryComponent>(TEXT("CarryComponent"));
+
+	CarryPoint = CreateDefaultSubobject<USceneComponent>(TEXT("CarryPoint"));
+	CarryPoint->SetupAttachment(RootComponent);
+	CarryPoint->SetRelativeLocation(FVector(65.f, 0.f, 10.f));
 }
 
 void AObshagaCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -44,6 +51,7 @@ void AObshagaCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& Ou
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 
 	DOREPLIFETIME_CONDITION(AObshagaCharacter, bIsSprinting, COND_SkipOwner);
+	DOREPLIFETIME(AObshagaCharacter, HidingSpot);
 }
 
 void AObshagaCharacter::PostInitializeComponents()
@@ -81,8 +89,8 @@ const UObshagaCharacterConfig* AObshagaCharacter::GetConfig() const
 
 void AObshagaCharacter::SetSprinting(bool bNewSprinting)
 {
-	// Вприсядку не бегаем.
-	bNewSprinting = bNewSprinting && !IsCrouched();
+	// Вприсядку и с тяжёлым предметом не бегаем.
+	bNewSprinting = bNewSprinting && !IsCrouched() && !CarryComponent->IsCarryingHeavy();
 	if (bIsSprinting == bNewSprinting)
 	{
 		return;
@@ -99,7 +107,7 @@ void AObshagaCharacter::SetSprinting(bool bNewSprinting)
 
 void AObshagaCharacter::ServerSetSprinting_Implementation(bool bNewSprinting)
 {
-	bIsSprinting = bNewSprinting && !IsCrouched();
+	bIsSprinting = bNewSprinting && !IsCrouched() && !CarryComponent->IsCarryingHeavy();
 	UpdateMovementSpeed();
 }
 
@@ -111,7 +119,69 @@ void AObshagaCharacter::OnRep_IsSprinting()
 void AObshagaCharacter::UpdateMovementSpeed()
 {
 	const UObshagaCharacterConfig* Cfg = GetConfig();
-	GetCharacterMovement()->MaxWalkSpeed = bIsSprinting ? Cfg->SprintSpeed : Cfg->WalkSpeed;
+	float Speed = bIsSprinting ? Cfg->SprintSpeed : Cfg->WalkSpeed;
+	if (CarryComponent->IsCarryingHeavy())
+	{
+		Speed = Cfg->WalkSpeed * Cfg->HeavyCarrySpeedMultiplier;
+	}
+	GetCharacterMovement()->MaxWalkSpeed = Speed;
+}
+
+void AObshagaCharacter::OnCarriedItemChanged()
+{
+	if (HasAuthority() && CarryComponent->IsCarryingHeavy())
+	{
+		bIsSprinting = false;
+	}
+	UpdateMovementSpeed();
+}
+
+void AObshagaCharacter::EnterHidingSpot(AHidingSpot* Spot)
+{
+	check(HasAuthority());
+
+	UnCrouch();
+	bIsSprinting = false;
+	HidingSpot = Spot;
+
+	const float HalfHeight = GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+	SetActorLocation(Spot->GetActorLocation() + FVector(0.f, 0.f, HalfHeight + 2.f), false, nullptr, ETeleportType::TeleportPhysics);
+	ApplyHiding();
+	ForceNetUpdate();
+}
+
+void AObshagaCharacter::ExitHidingSpot(const FVector& ExitLocation)
+{
+	check(HasAuthority());
+
+	HidingSpot = nullptr;
+	SetActorLocation(ExitLocation, false, nullptr, ETeleportType::TeleportPhysics);
+	ApplyHiding();
+	ForceNetUpdate();
+}
+
+void AObshagaCharacter::OnRep_HidingSpot()
+{
+	ApplyHiding();
+}
+
+void AObshagaCharacter::ApplyHiding()
+{
+	const bool bHide = IsHiding();
+	SetActorHiddenInGame(bHide);
+
+	// В укрытии персонаж стоит на месте; столкновения не трогаем, чтобы он оставался «в комнате».
+	UCharacterMovementComponent* Movement = GetCharacterMovement();
+	if (bHide)
+	{
+		Movement->StopMovementImmediately();
+		Movement->DisableMovement();
+	}
+	else if (Movement->MovementMode == MOVE_None)
+	{
+		Movement->SetMovementMode(MOVE_Walking);
+	}
+	UpdateMovementSpeed();
 }
 
 void AObshagaCharacter::OnStartCrouch(float HalfHeightAdjust, float ScaledHalfHeightAdjust)

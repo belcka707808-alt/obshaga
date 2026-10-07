@@ -20,23 +20,32 @@ public:
 
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 
-	/** Вызывается с клиента по нажатию кнопки взаимодействия. */
-	void TryInteract();
+	/** Вызывается с клиента по нажатию кнопки: E — основное действие, F — дополнительное. */
+	void TryInteract(bool bSecondary);
 
 	/** Объект под прицелом у локального игрока (не реплицируется). */
 	AActor* GetFocusedActor() const { return FocusedActor.Get(); }
 
-	/** Текст подсказки для локального игрока; пустой, если взаимодействовать не с чем. */
+	/** Тексты подсказок для локального игрока; пустые, если действия нет. */
 	FText GetFocusedPrompt() const;
+	FText GetFocusedSecondaryPrompt() const;
+
+	/** Достаточно ли близко персонаж к объекту. Slack — допуск на лаг для серверных проверок. */
+	bool IsInRange(const AActor* Target, float Slack) const;
+
+	/** Нет ли стены между глазами персонажа и объектом. */
+	bool HasLineOfSight(const AActor* Target) const;
+
+	/** Допуск по дистанции, с которым сервер перепроверяет клиента. */
+	static constexpr float ServerRangeSlack = 75.f;
 
 protected:
 	UFUNCTION(Server, Reliable)
-	void ServerInteract(AActor* Target);
+	void ServerInteract(AActor* Target, bool bSecondary);
 
 private:
 	AObshagaCharacter* GetCharacter() const;
 	AActor* FindFocusedActor() const;
-	bool IsInRange(const AActor* Target, float Slack) const;
 
 	TWeakObjectPtr<AActor> FocusedActor;
 };

@@ -3,7 +3,9 @@
 #   -Action list                                 — окна UnrealEditor
 #   -Action shot -Match "Client 1" -Out x.png    — скриншот окна (работает, даже если окно перекрыто)
 #   -Action key  -Match "Unreal Editor" -Key W -Ms 2000 — клик в центр окна и удержание клавиши (или сочетания: Shift+W)
-param([string]$Action, [string]$Out, [string]$Key = "W", [int]$Ms = 1500, [string]$Match = "")
+#   -Action look -Match "Server 0" -Dx 0 -Dy 80   — повернуть камеру мышью (Dy > 0 — вниз)
+#   -Action click -Match "Server 0"               — левая кнопка мыши (бросок)
+param([string]$Action, [string]$Out, [string]$Key = "W", [int]$Ms = 1500, [string]$Match = "", [int]$Dx = 0, [int]$Dy = 0)
 Add-Type -AssemblyName System.Drawing
 Add-Type @"
 using System; using System.Text; using System.Runtime.InteropServices;
@@ -40,6 +42,16 @@ if($Action -eq "shot"){
   $bmp = New-Object Drawing.Bitmap ($r.R-$r.L), ($r.B-$r.T)
   $g=[Drawing.Graphics]::FromImage($bmp); $dc=$g.GetHdc(); [U]::PrintWindow($w.H,$dc,2)|Out-Null; $g.ReleaseHdc($dc)
   $bmp.Save($Out,[Drawing.Imaging.ImageFormat]::Png); "$($w.T) $($bmp.Width)x$($bmp.Height)"
+}
+if($Action -eq "look"){
+  # Поворот камеры: относительное движение мыши маленькими шагами. Окно должно быть уже активно (сначала -Action key).
+  $steps = [Math]::Max([Math]::Abs($Dx), [Math]::Abs($Dy)) / 10 + 1
+  for($i=0; $i -lt $steps; $i++){ [U]::mouse_event(1,[int]($Dx/$steps),[int]($Dy/$steps),0,[UIntPtr]::Zero); Start-Sleep -Milliseconds 15 }
+  "looked $Dx,$Dy in $($w.T)"
+}
+if($Action -eq "click"){
+  [U]::mouse_event(2,0,0,0,[UIntPtr]::Zero); Start-Sleep -Milliseconds 60; [U]::mouse_event(4,0,0,0,[UIntPtr]::Zero)
+  "clicked in $($w.T)"
 }
 if($Action -eq "key"){
   # Если окно уже активно, не кликаем: движение курсора игра приняла бы за поворот камеры.

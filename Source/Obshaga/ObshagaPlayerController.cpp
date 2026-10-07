@@ -1,5 +1,6 @@
 #include "ObshagaPlayerController.h"
 
+#include "CarryComponent.h"
 #include "InteractionComponent.h"
 #include "ObshagaCharacter.h"
 #include "EnhancedInputComponent.h"
@@ -36,6 +37,9 @@ void AObshagaPlayerController::CreateDefaultInput()
 	SprintAction = MakeAction(this, TEXT("IA_Sprint"), EInputActionValueType::Boolean);
 	CrouchAction = MakeAction(this, TEXT("IA_Crouch"), EInputActionValueType::Boolean);
 	InteractAction = MakeAction(this, TEXT("IA_Interact"), EInputActionValueType::Boolean);
+	SecondaryInteractAction = MakeAction(this, TEXT("IA_SecondaryInteract"), EInputActionValueType::Boolean);
+	DropAction = MakeAction(this, TEXT("IA_Drop"), EInputActionValueType::Boolean);
+	ThrowAction = MakeAction(this, TEXT("IA_Throw"), EInputActionValueType::Boolean);
 
 	DefaultMappingContext = NewObject<UInputMappingContext>(this, TEXT("IMC_Obshaga"));
 	DefaultMappingContext->MapKey(MoveForwardAction, EKeys::W);
@@ -48,6 +52,9 @@ void AObshagaPlayerController::CreateDefaultInput()
 	DefaultMappingContext->MapKey(SprintAction, EKeys::LeftShift);
 	DefaultMappingContext->MapKey(CrouchAction, EKeys::LeftControl);
 	DefaultMappingContext->MapKey(InteractAction, EKeys::E);
+	DefaultMappingContext->MapKey(SecondaryInteractAction, EKeys::F);
+	DefaultMappingContext->MapKey(DropAction, EKeys::G);
+	DefaultMappingContext->MapKey(ThrowAction, EKeys::LeftMouseButton);
 }
 
 void AObshagaPlayerController::SetupInputComponent()
@@ -77,6 +84,9 @@ void AObshagaPlayerController::SetupInputComponent()
 	Input->BindAction(CrouchAction, ETriggerEvent::Started, this, &AObshagaPlayerController::OnCrouchStarted);
 	Input->BindAction(CrouchAction, ETriggerEvent::Completed, this, &AObshagaPlayerController::OnCrouchCompleted);
 	Input->BindAction(InteractAction, ETriggerEvent::Started, this, &AObshagaPlayerController::OnInteract);
+	Input->BindAction(SecondaryInteractAction, ETriggerEvent::Started, this, &AObshagaPlayerController::OnSecondaryInteract);
+	Input->BindAction(DropAction, ETriggerEvent::Started, this, &AObshagaPlayerController::OnDrop);
+	Input->BindAction(ThrowAction, ETriggerEvent::Started, this, &AObshagaPlayerController::OnThrow);
 }
 
 AObshagaCharacter* AObshagaPlayerController::GetObshagaCharacter() const
@@ -161,6 +171,47 @@ void AObshagaPlayerController::OnInteract()
 {
 	if (AObshagaCharacter* ObshagaCharacter = GetObshagaCharacter())
 	{
-		ObshagaCharacter->GetInteractionComponent()->TryInteract();
+		ObshagaCharacter->GetInteractionComponent()->TryInteract(false);
 	}
+}
+
+void AObshagaPlayerController::OnSecondaryInteract()
+{
+	if (AObshagaCharacter* ObshagaCharacter = GetObshagaCharacter())
+	{
+		ObshagaCharacter->GetInteractionComponent()->TryInteract(true);
+	}
+}
+
+void AObshagaPlayerController::OnDrop()
+{
+	if (AObshagaCharacter* ObshagaCharacter = GetObshagaCharacter())
+	{
+		ObshagaCharacter->GetCarryComponent()->TryDrop();
+	}
+}
+
+void AObshagaPlayerController::OnThrow()
+{
+	if (AObshagaCharacter* ObshagaCharacter = GetObshagaCharacter())
+	{
+		ObshagaCharacter->GetCarryComponent()->TryThrow();
+	}
+}
+
+void AObshagaPlayerController::ClientHeardNoise_Implementation(FVector_NetQuantize Location, float Loudness)
+{
+	const float Now = GetWorld()->GetTimeSeconds();
+	RecentNoises.RemoveAll([Now](const FHeardNoise& Noise) { return Now - Noise.Time > 3.f; });
+
+	FHeardNoise& Noise = RecentNoises.AddDefaulted_GetRef();
+	Noise.Location = Location;
+	Noise.Loudness = Loudness;
+	Noise.Time = Now;
+}
+
+void AObshagaPlayerController::ClientShowNotice_Implementation(const FText& Text)
+{
+	Notice = Text;
+	NoticeTime = GetWorld()->GetTimeSeconds();
 }

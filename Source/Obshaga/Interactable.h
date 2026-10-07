@@ -12,18 +12,25 @@ class UInteractable : public UInterface
 	GENERATED_BODY()
 };
 
-/** «Договор» для всего, с чем игрок взаимодействует кнопкой E: дверь, предмет, тайник. */
+/**
+ * «Договор» для всего, с чем игрок взаимодействует: дверь, предмет, тайник.
+ * Основное действие — кнопка E, дополнительное — F. Пустая подсказка значит «сейчас нельзя».
+ * Подсказки считаются на клиенте, действия выполняются только на сервере и сами проверяют условия.
+ */
 class OBSHAGA_API IInteractable
 {
 	GENERATED_BODY()
 
 public:
-	/** Можно ли сейчас взаимодействовать. Проверяется и на клиенте (подсказка), и на сервере (решение). */
-	virtual bool CanInteract(const AObshagaCharacter* By) const { return true; }
-
-	/** Текст подсказки, например «Открыть дверь». */
+	/** Текст подсказки основного действия, например «Открыть дверь». */
 	virtual FText GetInteractionPrompt(const AObshagaCharacter* By) const = 0;
 
-	/** Само действие. Вызывается только на сервере. */
+	/** Основное действие. Вызывается только на сервере. */
 	virtual void Interact(AObshagaCharacter* By) = 0;
+
+	/** Текст подсказки дополнительного действия, например «Спрятаться». */
+	virtual FText GetSecondaryPrompt(const AObshagaCharacter* By) const { return FText::GetEmpty(); }
+
+	/** Дополнительное действие. Вызывается только на сервере. */
+	virtual void SecondaryInteract(AObshagaCharacter* By) {}
 };
