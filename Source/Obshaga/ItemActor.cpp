@@ -1,12 +1,15 @@
 #include "ItemActor.h"
 
 #include "CarryComponent.h"
+#include "GameEventSubsystem.h"
 #include "HidingSpot.h"
 #include "NoiseStatics.h"
 #include "Obshaga.h"
 #include "ObshagaCharacter.h"
 #include "ObshagaItemData.h"
+#include "ObshagaPlayerController.h"
 #include "RoomVolume.h"
+#include "GameFramework/GameStateBase.h"
 #include "GameFramework/PlayerState.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/StaticMesh.h"
@@ -117,6 +120,65 @@ void AItemActor::Interact(AObshagaCharacter* By)
 	}
 }
 
+FText AItemActor::GetSecondaryPrompt(const AObshagaCharacter* By) const
+{
+	if (Placement.State != EItemState::World || !By || !GetItemData()->bReadable)
+	{
+		return FText::GetEmpty();
+	}
+	return FText::Format(LOCTEXT("Read", "Прочитать: {0}"), GetDisplayName());
+}
+
+void AItemActor::SecondaryInteract(AObshagaCharacter* By)
+{
+	if (Placement.State == EItemState::World)
+	{
+		ReadBy(By);
+	}
+}
+
+void AItemActor::ReadBy(AObshagaCharacter* By)
+{
+	if (!HasAuthority() || !By || !GetItemData()->bReadable)
+	{
+		return;
+	}
+
+	if (NoteText.IsEmpty())
+	{
+		// Слух — про случайного жильца, кроме самого читателя.
+		const FText Templates[] = {
+			LOCTEXT("Rumor1", "Говорят, {0} ворует еду из холодильника"),
+			LOCTEXT("Rumor2", "{0} стучит коменданту. Проверено"),
+			LOCTEXT("Rumor3", "Это {0} сломал душ на первом этаже"),
+			LOCTEXT("Rumor4", "{0} прячет под кроватью что-то запрещённое"),
+			LOCTEXT("Rumor5", "{0} по ночам выходит из общаги. Куда — никто не знает"),
+			LOCTEXT("Rumor6", "{0} врёт. Всегда. Просто не верьте")
+		};
+
+		TArray<APlayerState*> Others;
+		if (const AGameStateBase* GameState = GetWorld()->GetGameState())
+		{
+			for (APlayerState* Other : GameState->PlayerArray)
+			{
+				if (Other && Other != By->GetPlayerState())
+				{
+					Others.Add(Other);
+				}
+			}
+		}
+		const FText Subject = Others.IsEmpty() ? LOCTEXT("RumorSomeone", "кое-кто")
+			: FText::FromString(Others[FMath::RandRange(0, Others.Num() - 1)]->GetPlayerName());
+		NoteText = FText::Format(Templates[FMath::RandRange(0, UE_ARRAY_COUNT(Templates) - 1)], Subject);
+	}
+
+	if (AObshagaPlayerController* Controller = Cast<AObshagaPlayerController>(By->GetController()))
+	{
+		Controller->ClientShowNotice(FText::Format(LOCTEXT("NoteNotice", "В записке: «{0}»"), NoteText));
+	}
+	UGameEventSubsystem::PublishFrom(By, EGameEventType::NoteRead, this);
+}
+
 void AItemActor::SetCarriedBy(AObshagaCharacter* Carrier)
 {
 	check(HasAuthority());
@@ -162,6 +224,7 @@ void AItemActor::ResetToInitial()
 
 	LastCarrier.Reset();
 	LastHiddenBy.Reset();
+	NoteText = FText::GetEmpty();
 	HidingSpot = nullptr;
 	Placement.State = EItemState::World;
 	Placement.Holder = nullptr;

@@ -156,12 +156,37 @@ void AKomendantAIController::InvestigateTip(const FVector& Location)
 	}
 }
 
+void AKomendantAIController::InspectRoom(FName RoomId)
+{
+	// Тайники этой комнаты встают в начало очереди обыска (очередь разбирается с конца).
+	int32 NumQueued = 0;
+	for (AHidingSpot* Spot : HidingSpots)
+	{
+		const ARoomVolume* Room = ARoomVolume::FindRoomAt(this, Spot->GetActorLocation() + FVector(0.f, 0.f, 50.f));
+		if (Room && Room->RoomId == RoomId)
+		{
+			InspectionQueue.Remove(Spot);
+			InspectionQueue.Add(Spot);
+			++NumQueued;
+		}
+	}
+	RoomHeat.FindOrAdd(RoomId) += 20.f;
+
+	// Спокойный обход бросает сразу; погоню и допрос сначала заканчивает.
+	if (State == EKomendantState::Patrol && !QueuedSpot.IsValid())
+	{
+		Path.Reset();
+		WaitTime = 0.f;
+	}
+	UE_LOG(LogObshaga, Verbose, TEXT("Komendant tipped about room %s: %d hiding spots queued"), *RoomId.ToString(), NumQueued);
+}
+
 void AKomendantAIController::OnPhaseChanged()
 {
 	ApplyPersonality();
 
 	// Утром — проверка: обойти жилые комнаты и обыскать в них все тайники.
-	InspectionQueue.Reset();
+	// Очередь не сбрасываем: в ней могут ждать комнаты, на которые настучали.
 	const AObshagaGameState* GameState = GetWorld()->GetGameState<AObshagaGameState>();
 	if (GameState->GetPhase() == ERoundPhase::Morning)
 	{
@@ -170,7 +195,7 @@ void AKomendantAIController::OnPhaseChanged()
 			const ARoomVolume* Room = ARoomVolume::FindRoomAt(this, Spot->GetActorLocation() + FVector(0.f, 0.f, 50.f));
 			if (Room && Room->RoomType == ERoomType::Bedroom)
 			{
-				InspectionQueue.Add(Spot);
+				InspectionQueue.AddUnique(Spot);
 			}
 		}
 		UE_LOG(LogObshaga, Verbose, TEXT("Komendant morning inspection: %d hiding spots"), InspectionQueue.Num());
@@ -686,25 +711,65 @@ void AKomendantAIController::SearchSpot(AHidingSpot* Spot)
 
 	if (Contraband)
 	{
-		// Запрещёнку уносит на вахту; тот, кто прятал, под подозрением.
+		// Запрещёнку уносит на вахту. Кто прятал, комендант не знает: в жилой комнате виноваты её жильцы.
 		APlayerState* Hider = Contraband->GetLastHiddenBy();
 		Contraband->ReleaseToWorld(GetEvidenceLocation(), FVector::ZeroVector);
 
-		if (UGameEventSubsystem* Bus = UGameEventSubsystem::Get(this))
+		const ARoomVolume* Room = ARoomVolume::FindRoomAt(this, Spot->GetActorLocation() + FVector(0.f, 0.f, 50.f));
+		const FName RoomId = Room ? Room->RoomId : NAME_None;
+		UGameEventSubsystem* Bus = UGameEventSubsystem::Get(this);
+		if (Bus)
 		{
 			FGameEvent Event;
 			Event.Type = EGameEventType::ContrabandConfiscated;
 			Event.Instigator = Hider;
 			Event.Item = Contraband;
-			const ARoomVolume* Room = ARoomVolume::FindRoomAt(this, Spot->GetActorLocation() + FVector(0.f, 0.f, 50.f));
-			Event.RoomId = Room ? Room->RoomId : NAME_None;
+			Event.RoomId = RoomId;
 			Bus->Publish(Event);
 		}
 
-		if (const AObshagaPlayerState* HiderState = Cast<AObshagaPlayerState>(Hider))
+		TArray<AObshagaPlayerState*> Residents;
+		if (Room && Room->RoomType == ERoomType::Bedroom)
 		{
-			HiderState->GetSuspicionComponent()->AddSuspicion(Config->HiddenContrabandSuspicion);
-			NotifyPlayer(HiderState, LOCTEXT("ConfiscatedNotice", "Комендант нашёл твою запрещёнку!"));
+			for (APlayerState* Player : GetWorld()->GetGameState<AObshagaGameState>()->PlayerArray)
+			{
+				AObshagaPlayerState* Resident = Cast<AObshagaPlayerState>(Player);
+				if (Resident && Resident->GetHomeRoomId() == RoomId && !Resident->IsEvicted())
+				{
+					Residents.Add(Resident);
+				}
+			}
+		}
+
+		AObshagaPlayerState* HiderState = Cast<AObshagaPlayerState>(Hider);
+		if (Residents.IsEmpty() || Residents.Contains(HiderState))
+		{
+			// Общая комната или своя собственная: отвечает тот, кто прятал.
+			if (HiderState)
+			{
+				HiderState->GetSuspicionComponent()->AddSuspicion(Config->HiddenContrabandSuspicion);
+				NotifyPlayer(HiderState, LOCTEXT("ConfiscatedNotice", "Комендант нашёл твою запрещёнку!"));
+			}
+		}
+		else
+		{
+			// Подбросили в чужую комнату: попадает жильцам, а не тому, кто прятал.
+			for (AObshagaPlayerState* Resident : Residents)
+			{
+				Resident->GetSuspicionComponent()->AddSuspicion(Config->HiddenContrabandSuspicion);
+				NotifyPlayer(Resident, LOCTEXT("FramedNotice", "Комендант нашёл запрещёнку в твоей комнате! Но ты её туда не клал..."));
+				if (Bus && HiderState)
+				{
+					FGameEvent Event;
+					Event.Type = EGameEventType::PlayerFramed;
+					Event.Instigator = HiderState;
+					Event.Target = Resident;
+					Event.Item = Contraband;
+					Event.RoomId = RoomId;
+					Bus->Publish(Event);
+				}
+			}
+			NotifyPlayer(HiderState, LOCTEXT("FrameWorked", "Подстава удалась: комендант нашёл твой «подарок»"));
 		}
 	}
 

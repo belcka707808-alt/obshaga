@@ -233,7 +233,11 @@ void AHidingSpot::FinishSearch(AObshagaCharacter* By)
 	{
 		HiddenItem = nullptr;
 		UGameEventSubsystem::PublishFrom(By, EGameEventType::ItemFound, Item);
-		Notify(By, FText::Format(LOCTEXT("Found", "Нашёл: {0}"), Item->GetDisplayName()));
+		// Записку игрок сразу читает — её текст важнее, чем «нашёл».
+		if (!Item->GetItemData()->bReadable)
+		{
+			Notify(By, FText::Format(LOCTEXT("Found", "Нашёл: {0}"), Item->GetDisplayName()));
+		}
 		UE_LOG(LogObshaga, Verbose, TEXT("%s took %s out of %s"), *By->GetName(), *Item->GetName(), *GetName());
 	}
 }

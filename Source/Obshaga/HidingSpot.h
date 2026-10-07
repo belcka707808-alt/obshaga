@@ -53,7 +53,7 @@ protected:
 	void FinishTimedAction();
 	void FinishHidingItem(AObshagaCharacter* By);
 	void FinishSearch(AObshagaCharacter* By);
-	void EjectHiddenPlayer();
+	virtual void EjectHiddenPlayer();
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "HidingSpot")
 	TObjectPtr<UStaticMeshComponent> Mesh;

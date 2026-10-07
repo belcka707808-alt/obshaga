@@ -33,6 +33,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item")
 	bool bContraband = false;
 
+	/** Записка: её можно прочитать (F), и в ней написан слух. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item")
+	bool bReadable = false;
+
 	/** С какой скоростью предмет вылетает из рук при броске. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Throw", meta = (ClampMin = "0", Units = "cm/s"))
 	float ThrowSpeed = 900.f;

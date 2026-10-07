@@ -85,6 +85,8 @@ bool UCarryComponent::PickUp(AItemActor* Item)
 	SetCarriedItem(Item);
 	UE_LOG(LogObshaga, Verbose, TEXT("%s picked up %s"), *Character->GetName(), *Item->GetName());
 	UGameEventSubsystem::PublishFrom(Character, EGameEventType::ItemPickedUp, Item);
+	// Взял записку в руки — заодно и прочитал.
+	Item->ReadBy(Character);
 	return true;
 }
 

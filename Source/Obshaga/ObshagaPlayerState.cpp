@@ -22,6 +22,18 @@ void AObshagaPlayerState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& 
 	DOREPLIFETIME_CONDITION(AObshagaPlayerState, RatIntel, COND_OwnerOnly);
 	DOREPLIFETIME_CONDITION(AObshagaPlayerState, SmsMessages, COND_OwnerOnly);
 	DOREPLIFETIME_CONDITION(AObshagaPlayerState, bUsedTip, COND_OwnerOnly);
+	// По этим флагам можно угадать задание — тоже только владельцу.
+	DOREPLIFETIME_CONDITION(AObshagaPlayerState, bCanAccuse, COND_OwnerOnly);
+	DOREPLIFETIME_CONDITION(AObshagaPlayerState, bCanTipRoom, COND_OwnerOnly);
+}
+
+void AObshagaPlayerState::SetTaskAbilities(bool bNewCanAccuse, bool bNewCanTipRoom)
+{
+	if (HasAuthority())
+	{
+		bCanAccuse = bNewCanAccuse;
+		bCanTipRoom = bNewCanTipRoom;
+	}
 }
 
 void AObshagaPlayerState::SetHomeRoomId(FName NewRoomId)
@@ -87,6 +99,8 @@ void AObshagaPlayerState::ResetForRound()
 	RatTarget.Reset();
 	SmsMessages.Reset();
 	bUsedTip = false;
+	bCanAccuse = false;
+	bCanTipRoom = false;
 	bEvicted = false;
 	TaskComponent->ClearTasks();
 	SuspicionComponent->ResetAll();

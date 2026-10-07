@@ -53,6 +53,8 @@ public:
 	void ResetForRound();
 	/** Крыса настучала: сходить и посмотреть, что происходит в этой точке. */
 	void InvestigateTip(const FVector& Location);
+	/** На комнату настучали: при первой возможности обыскать в ней все тайники. */
+	void InspectRoom(FName RoomId);
 
 protected:
 	virtual void OnPossess(APawn* InPawn) override;

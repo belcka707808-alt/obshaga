@@ -1,6 +1,7 @@
 #include "ObshagaHUD.h"
 
 #include "CarryComponent.h"
+#include "DeviceActor.h"
 #include "InteractionComponent.h"
 #include "ItemActor.h"
 #include "KomendantCharacter.h"
@@ -212,6 +213,22 @@ void AObshagaHUD::DrawCharacterInfo(const AObshagaCharacter* Character)
 	if (!SecondaryPrompt.IsEmpty())
 	{
 		DrawCentered(FText::Format(LOCTEXT("SecondaryFormat", "[F] {0}"), SecondaryPrompt).ToString(), FLinearColor::Yellow, 0.77f);
+	}
+
+	// Клавиши, которые дают задания: показать на вора и настучать на комнату.
+	const AObshagaPlayerController* Controller = Cast<AObshagaPlayerController>(GetOwningPlayerController());
+	const AObshagaPlayerState* MyState = Controller ? Controller->GetPlayerState<AObshagaPlayerState>() : nullptr;
+	const AObshagaCharacter* Suspect = Controller ? Controller->FindAccuseTarget() : nullptr;
+	if (Suspect && Suspect->GetPlayerState())
+	{
+		const FText Line = FText::Format(LOCTEXT("AccusePrompt", "[R] Сказать коменданту: вор — {0}"), FText::FromString(Suspect->GetPlayerState()->GetPlayerName()));
+		DrawCentered(Line.ToString(), FLinearColor(1.f, 0.6f, 0.6f), 0.82f);
+	}
+	const ARoomVolume* TipRoom = Character->GetCurrentRoom();
+	if (MyState && MyState->CanTipRoom() && TipRoom && TipRoom->RoomType == ERoomType::Bedroom && TipRoom->RoomId != MyState->GetHomeRoomId())
+	{
+		const FText Line = FText::Format(LOCTEXT("RoomTipPrompt", "[B] Настучать коменданту: {0}"), TipRoom->DisplayName);
+		DrawCentered(Line.ToString(), FLinearColor(1.f, 0.6f, 0.6f), 0.87f);
 	}
 
 	if (const AItemActor* Item = Character->GetCarryComponent()->GetCarriedItem())
@@ -440,6 +457,28 @@ void AObshagaHUD::DrawKomendantLabels(const FVector& MyLocation)
 		float Height = 0.f;
 		GetTextSize(Label.ToString(), Width, Height, Font, Scale);
 		DrawText(Label.ToString(), Color, Screen.X - Width * 0.5f, Screen.Y - Height, Font, Scale);
+	}
+
+	// Сломанный прибор видно издалека — тоже только при прямой видимости.
+	for (TActorIterator<ADeviceActor> It(GetWorld()); It; ++It)
+	{
+		const ADeviceActor* Device = *It;
+		if (!Device->IsBroken() || FVector::Dist(Device->GetActorLocation(), MyLocation) > 1500.f || !Controller->LineOfSightTo(Device))
+		{
+			continue;
+		}
+
+		const FVector Screen = Canvas->Project(Device->GetLabelLocation());
+		if (Screen.Z <= 0.f)
+		{
+			continue;
+		}
+
+		const FString Label = FText::Format(LOCTEXT("DeviceBroken", "{0}: СЛОМАНО"), Device->GetDisplayName()).ToString();
+		float Width = 0.f;
+		float Height = 0.f;
+		GetTextSize(Label, Width, Height, Font, Scale);
+		DrawText(Label, FLinearColor(1.f, 0.4f, 0.2f), Screen.X - Width * 0.5f, Screen.Y - Height, Font, Scale);
 	}
 }
 

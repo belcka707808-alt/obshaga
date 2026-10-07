@@ -171,6 +171,39 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Interrogation", meta = (ClampMin = "0", ClampMax = "1"))
 	float ContrabandLiePenalty = 0.25f;
 
+	// --- Задания ---
+
+	/** Сколько секунд до и после поступка игрока не должен видеть комендант, чтобы считалось «незаметно». */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tasks", meta = (ClampMin = "0", Units = "s"))
+	float UnseenWindowSeconds = 10.f;
+
+	/** Сколько нужно пробыть на улице, чтобы ночная вылазка засчиталась. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tasks", meta = (ClampMin = "0", Units = "s"))
+	float CurfewOutsideSeconds = 10.f;
+
+	/** Подозрение вору, которого верно назвали коменданту. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tasks", meta = (ClampMin = "0"))
+	float AccusationSuspicion = 40.f;
+
+	/** Подозрение тому, кто обвинил невиновного. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tasks", meta = (ClampMin = "0"))
+	float FalseAccusationSuspicion = 25.f;
+
+	/** С какого расстояния можно указать коменданту на вора. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tasks", meta = (ClampMin = "0", Units = "cm"))
+	float AccuseDistance = 1200.f;
+
+	/** Если чинить некому нечего: через сколько секунд от старта прибор ломается сам (от и до). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tasks", meta = (ClampMin = "0", Units = "s"))
+	float SelfBreakMinSeconds = 20.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tasks", meta = (ClampMin = "0", Units = "s"))
+	float SelfBreakMaxSeconds = 90.f;
+
+	/** Для разработки: основные задания по порядку игрокам (первому — первое и т.д.). Пусто — обычная раздача. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tasks")
+	TArray<FName> DebugMainTasks;
+
 	float GetTotalSeconds() const { return EveningSeconds + NightSeconds + MorningSeconds; }
 
 	/** Таблица секретных заданий (строки FTaskRow). */

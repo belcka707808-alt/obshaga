@@ -38,8 +38,13 @@ public:
 	const TArray<FText>& GetSmsMessages() const { return SmsMessages; }
 	bool IsEvicted() const { return bEvicted; }
 	bool HasUsedTip() const { return bUsedTip; }
+	/** Может ли игрок прямо сейчас назвать коменданту вора (есть такое задание, и он ещё не называл). */
+	bool CanAccuse() const { return bCanAccuse; }
+	/** Может ли настучать на комнату (есть такое задание, и он ещё не стучал). */
+	bool CanTipRoom() const { return bCanTipRoom; }
 
 	// Только сервер.
+	void SetTaskAbilities(bool bNewCanAccuse, bool bNewCanTipRoom);
 	void SetHomeRoomId(FName NewRoomId);
 	void SetRole(EPlayerRole NewRole);
 	void SetRatIntel(const FText& Intel, APlayerState* Target);
@@ -71,6 +76,12 @@ protected:
 
 	UPROPERTY(Replicated)
 	bool bUsedTip = false;
+
+	UPROPERTY(Replicated)
+	bool bCanAccuse = false;
+
+	UPROPERTY(Replicated)
+	bool bCanTipRoom = false;
 
 	/** Выселен: это видят все. */
 	UPROPERTY(Replicated)

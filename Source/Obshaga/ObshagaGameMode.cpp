@@ -1,9 +1,11 @@
 #include "ObshagaGameMode.h"
 
 #include "CarryComponent.h"
+#include "DeviceActor.h"
 #include "DoorActor.h"
 #include "GameEventSubsystem.h"
 #include "HidingSpot.h"
+#include "InteractionComponent.h"
 #include "ItemActor.h"
 #include "KomendantAIController.h"
 #include "Obshaga.h"
@@ -18,7 +20,13 @@
 #include "SuspicionComponent.h"
 #include "TaskComponent.h"
 #include "TaskDirector.h"
+#include "Dom/JsonObject.h"
 #include "EngineUtils.h"
+#include "HAL/FileManager.h"
+#include "Misc/FileHelper.h"
+#include "Misc/Paths.h"
+#include "Serialization/JsonSerializer.h"
+#include "Serialization/JsonWriter.h"
 #include "TimerManager.h"
 
 #define LOCTEXT_NAMESPACE "ObshagaGameMode"
@@ -44,6 +52,7 @@ void AObshagaGameMode::BeginPlay()
 
 	TaskDirector = NewObject<UTaskDirector>(this);
 	TaskDirector->Initialize(GetRoundConfig()->TasksTable);
+	TaskDirector->DebugMainTasks = GetRoundConfig()->DebugMainTasks;
 
 	if (GetRoundConfig()->bAutoStart)
 	{
@@ -103,7 +112,27 @@ void AObshagaGameMode::HandleStartingNewPlayer_Implementation(APlayerController*
 	if (State && State->GetRoundState() == ERoundState::InProgress)
 	{
 		TaskDirector->AssignTasksTo(PlayerState, GetNumPlayers());
+		GrantTaskAbilities(PlayerState);
 		NotifyPlayer(PlayerState, LOCTEXT("NewTask", "Новые секретные задания — открой телефон [Tab]"));
+	}
+}
+
+void AObshagaGameMode::GrantTaskAbilities(AObshagaPlayerState* PlayerState) const
+{
+	const UTaskComponent* Tasks = PlayerState->GetTaskComponent();
+	PlayerState->SetTaskAbilities(Tasks->FindRowByCondition(ETaskCondition::CorrectAccusation) != nullptr,
+		Tasks->FindRowByCondition(ETaskCondition::InspectionFoundContrabandInRoom) != nullptr);
+}
+
+void AObshagaGameMode::BreakDeviceByItself()
+{
+	for (TActorIterator<ADeviceActor> It(GetWorld()); It; ++It)
+	{
+		if (!It->IsBroken())
+		{
+			It->BreakByItself();
+			return;
+		}
 	}
 }
 
@@ -207,10 +236,24 @@ void AObshagaGameMode::StartRound()
 	for (AObshagaPlayerState* PlayerState : Players)
 	{
 		TaskDirector->AssignTasksTo(PlayerState, Players.Num());
+		GrantTaskAbilities(PlayerState);
 		if (PlayerState->GetTrueRole() != EPlayerRole::Rat)
 		{
 			NotifyPlayer(PlayerState, LOCTEXT("NewTask", "Новые секретные задания — открой телефон [Tab]"));
 		}
+	}
+
+	// Если кому-то выпало чинить, а ломать некому, прибор сломается сам.
+	auto AnyoneHas = [&Players](ETaskCondition Condition)
+	{
+		return Players.ContainsByPredicate([Condition](const AObshagaPlayerState* PlayerState)
+			{ return PlayerState->GetTaskComponent()->FindRowByCondition(Condition) != nullptr; });
+	};
+	GetWorldTimerManager().ClearTimer(SelfBreakTimer);
+	if (AnyoneHas(ETaskCondition::DeviceRepaired) && !AnyoneHas(ETaskCondition::DeviceBrokenAndNotSeen))
+	{
+		const float Delay = FMath::FRandRange(Config->SelfBreakMinSeconds, FMath::Max(Config->SelfBreakMinSeconds, Config->SelfBreakMaxSeconds));
+		GetWorldTimerManager().SetTimer(SelfBreakTimer, this, &AObshagaGameMode::BreakDeviceByItself, FMath::Max(Delay, 0.1f), false);
 	}
 
 	// Крыса заранее знает одно чужое основное задание.
@@ -239,7 +282,7 @@ void AObshagaGameMode::StartRound()
 		It->ResetForRound();
 	}
 
-	State->StartRound(Config->AlibiRadius);
+	State->StartRound(Config->AlibiRadius, Config->AccuseDistance);
 	BeginPhase(ERoundPhase::Evening);
 
 	GetWorldTimerManager().SetTimer(LiveStatusTimer, this, &AObshagaGameMode::UpdateLiveTaskStatus, 1.f, true);
@@ -432,6 +475,80 @@ void AObshagaGameMode::TipOff(AObshagaPlayerState* Rat)
 	NotifyPlayer(Rat, LOCTEXT("TipDone", "Ты настучал. Комендант пошёл проверять"));
 }
 
+void AObshagaGameMode::Accuse(AObshagaPlayerState* Accuser, AObshagaCharacter* Suspect)
+{
+	const AObshagaGameState* State = GetGameState<AObshagaGameState>();
+	const UObshagaRoundConfig* Config = GetRoundConfig();
+	AObshagaCharacter* AccuserCharacter = Accuser ? Cast<AObshagaCharacter>(Accuser->GetPawn()) : nullptr;
+	AObshagaPlayerState* SuspectState = Suspect ? Suspect->GetPlayerState<AObshagaPlayerState>() : nullptr;
+	if (!State || State->GetRoundState() != ERoundState::InProgress || !AccuserCharacter || !SuspectState || SuspectState == Accuser
+		|| !Accuser->CanAccuse() || Accuser->IsEvicted() || AccuserCharacter->IsHiding() || AccuserCharacter->IsFrozen()
+		|| Suspect->IsHiding() || Suspect->IsGhost())
+	{
+		return;
+	}
+
+	// Клиенту не верим: показать можно только на того, кто рядом и на виду.
+	const float MaxDistance = Config->AccuseDistance + UInteractionComponent::ServerRangeSlack;
+	const FTaskRow* Row = Accuser->GetTaskComponent()->FindRowByCondition(ETaskCondition::CorrectAccusation);
+	if (!Row || FVector::Dist(AccuserCharacter->GetActorLocation(), Suspect->GetActorLocation()) > MaxDistance
+		|| !AccuserCharacter->GetInteractionComponent()->HasLineOfSight(Suspect))
+	{
+		return;
+	}
+
+	// Обвинить можно один раз за раунд.
+	Accuser->SetTaskAbilities(false, Accuser->CanTipRoom());
+	UGameEventSubsystem::PublishFrom(AccuserCharacter, EGameEventType::Accusation, nullptr, Suspect);
+
+	if (UTaskComponent::HasStolen(this, SuspectState, *Row, GetWorld()->GetTimeSeconds()))
+	{
+		SuspectState->GetSuspicionComponent()->AddSuspicion(Config->AccusationSuspicion);
+		for (TActorIterator<AKomendantAIController> It(GetWorld()); It; ++It)
+		{
+			It->InvestigateTip(Suspect->GetActorLocation());
+		}
+		NotifyPlayer(Accuser, LOCTEXT("AccuseRight", "Комендант поверил и пошёл разбираться"));
+	}
+	else
+	{
+		Accuser->GetSuspicionComponent()->AddSuspicion(Config->FalseAccusationSuspicion);
+		NotifyPlayer(Accuser, LOCTEXT("AccuseWrong", "Комендант не поверил. Теперь он косится на тебя"));
+	}
+}
+
+void AObshagaGameMode::TipOffRoom(AObshagaPlayerState* By)
+{
+	const AObshagaGameState* State = GetGameState<AObshagaGameState>();
+	AObshagaCharacter* Character = By ? Cast<AObshagaCharacter>(By->GetPawn()) : nullptr;
+	if (!State || State->GetRoundState() != ERoundState::InProgress || !Character || !By->CanTipRoom() || By->IsEvicted()
+		|| Character->IsHiding() || Character->IsFrozen() || Character->IsGhost())
+	{
+		return;
+	}
+
+	const ARoomVolume* Room = Character->GetCurrentRoom();
+	if (!Room || Room->RoomType != ERoomType::Bedroom)
+	{
+		NotifyPlayer(By, LOCTEXT("RoomTipNotBedroom", "Стучать можно только на жилую комнату — зайди в неё"));
+		return;
+	}
+	if (Room->RoomId == By->GetHomeRoomId())
+	{
+		NotifyPlayer(By, LOCTEXT("RoomTipOwn", "На свою комнату стучать незачем"));
+		return;
+	}
+
+	// Настучать можно один раз за раунд.
+	By->SetTaskAbilities(By->CanAccuse(), false);
+	for (TActorIterator<AKomendantAIController> It(GetWorld()); It; ++It)
+	{
+		It->InspectRoom(Room->RoomId);
+	}
+	UGameEventSubsystem::PublishFrom(Character, EGameEventType::RoomTipOff);
+	NotifyPlayer(By, FText::Format(LOCTEXT("RoomTipDone", "Ты настучал: {0}. Комендант придёт с обыском"), Room->DisplayName));
+}
+
 void AObshagaGameMode::Evict(AObshagaPlayerState* PlayerState, AObshagaCharacter* Character)
 {
 	PlayerState->SetEvicted(true);
@@ -457,7 +574,8 @@ bool AObshagaGameMode::StartInterrogation(AObshagaCharacter* Suspect, const FVec
 	// Что было в руках: запрещёнку комендант забирает на вахту, остальное падает на месте.
 	bSuspectHadContraband = false;
 	UCarryComponent* Carry = Suspect->GetCarryComponent();
-	if (AItemActor* Item = Carry->GetCarriedItem())
+	AItemActor* CaughtWith = Carry->GetCarriedItem();
+	if (AItemActor* Item = CaughtWith)
 	{
 		bSuspectHadContraband = Item->GetItemData()->bContraband;
 		if (bSuspectHadContraband)
@@ -485,7 +603,7 @@ bool AObshagaGameMode::StartInterrogation(AObshagaCharacter* Suspect, const FVec
 	State->SetInterrogation(Info);
 
 	GetWorldTimerManager().SetTimer(InterrogationTimer, this, &AObshagaGameMode::ResolveInterrogation, Duration, false);
-	UGameEventSubsystem::PublishFrom(Suspect, EGameEventType::PlayerCaught);
+	UGameEventSubsystem::PublishFrom(Suspect, EGameEventType::PlayerCaught, CaughtWith);
 	UE_LOG(LogObshaga, Verbose, TEXT("Interrogation started: %s (contraband=%d)"), *PlayerState->GetPlayerName(), bSuspectHadContraband ? 1 : 0);
 
 	// Поймали того, на кого недавно стучала Крыса, — ей бонус.
@@ -653,6 +771,7 @@ void AObshagaGameMode::EndRound()
 	GetWorldTimerManager().ClearTimer(PhaseTimer);
 	GetWorldTimerManager().ClearTimer(LiveStatusTimer);
 	GetWorldTimerManager().ClearTimer(SmsTimer);
+	GetWorldTimerManager().ClearTimer(SelfBreakTimer);
 
 	// Подводим итоги и раскрываем всем, кто кем был и что делал.
 	const TArray<AObshagaPlayerState*> Players = GetObshagaPlayers();
@@ -680,6 +799,7 @@ void AObshagaGameMode::EndRound()
 		Revealed.bEvicted = PlayerState->IsEvicted();
 	}
 	AssignTitles(RevealedPlayers, Players);
+	WriteTelemetry(Players);
 
 	State->FinishRound(RevealedTasks, RevealedPlayers, BuildChronicle());
 	if (UGameEventSubsystem* Bus = UGameEventSubsystem::Get(this))
@@ -843,6 +963,40 @@ TArray<FText> AObshagaGameMode::BuildChronicle() const
 			Line.Priority = 6;
 			Line.Text = FText::Format(LOCTEXT("ChrEvicted", "{0} выселен из общаги"), Who);
 			break;
+		case EGameEventType::PlayerFramed:
+			Line.Priority = 6;
+			Line.Text = FText::Format(LOCTEXT("ChrFramed", "У {1} нашли запрещёнку. Её подбросил {0}"), Who, Whom);
+			break;
+		case EGameEventType::Accusation:
+			Line.Priority = 4;
+			Line.Text = FText::Format(LOCTEXT("ChrAccusation", "{0} показал коменданту на {1}: «Это он украл!»"), Who, Whom);
+			break;
+		case EGameEventType::RoomTipOff:
+			Line.Priority = 4;
+			Line.Text = FText::Format(LOCTEXT("ChrRoomTip", "{0} настучал коменданту: «Обыщите — {1}»"), Who, RoomName);
+			break;
+		case EGameEventType::NoteRead:
+			Line.Priority = 1;
+			Line.Text = FText::Format(LOCTEXT("ChrNoteRead", "{0} прочитал записку со слухом ({1})"), Who, RoomName);
+			break;
+		case EGameEventType::DeviceBroken:
+			Line.Priority = 3;
+			Line.Text = Event.Instigator
+				? FText::Format(LOCTEXT("ChrBroke", "{0} что-то сломал ({1})"), Who, RoomName)
+				: FText::Format(LOCTEXT("ChrBrokeItself", "Что-то сломалось само ({0}). Общага, что с неё взять"), RoomName);
+			break;
+		case EGameEventType::DeviceRepaired:
+			Line.Priority = 3;
+			Line.Text = FText::Format(LOCTEXT("ChrRepaired", "{0} всё починил ({1}). Золотые руки"), Who, RoomName);
+			break;
+		case EGameEventType::LeftBuilding:
+			Line.Priority = 3;
+			Line.Text = FText::Format(LOCTEXT("ChrLeft", "{0} после отбоя ушёл в ночь"), Who);
+			break;
+		case EGameEventType::ReturnedToBuilding:
+			Line.Priority = 2;
+			Line.Text = FText::Format(LOCTEXT("ChrReturned", "{0} вернулся с улицы как ни в чём не бывало"), Who);
+			break;
 		default:
 			continue;
 		}
@@ -869,6 +1023,94 @@ TArray<FText> AObshagaGameMode::BuildChronicle() const
 	return Result;
 }
 
+void AObshagaGameMode::WriteTelemetry(const TArray<AObshagaPlayerState*>& Players) const
+{
+	const UGameEventSubsystem* Bus = UGameEventSubsystem::Get(this);
+	if (!Bus)
+	{
+		return;
+	}
+
+	auto NameOf = [](const APlayerState* Who) { return Who ? Who->GetPlayerName() : FString(); };
+	auto EnumName = [](const UEnum* Enum, int64 Value) { return Enum->GetNameStringByValue(Value); };
+
+	const TSharedRef<FJsonObject> Root = MakeShared<FJsonObject>();
+	Root->SetStringField(TEXT("time"), FDateTime::Now().ToIso8601());
+	Root->SetNumberField(TEXT("durationSeconds"), GetWorld()->GetTimeSeconds() - RoundStartWorldTime);
+	Root->SetNumberField(TEXT("numPlayers"), Players.Num());
+
+	TArray<TSharedPtr<FJsonValue>> PlayersJson;
+	for (const AObshagaPlayerState* PlayerState : Players)
+	{
+		const TSharedRef<FJsonObject> PlayerJson = MakeShared<FJsonObject>();
+		PlayerJson->SetStringField(TEXT("name"), PlayerState->GetPlayerName());
+		PlayerJson->SetStringField(TEXT("role"), EnumName(StaticEnum<EPlayerRole>(), static_cast<int64>(PlayerState->GetTrueRole())));
+		PlayerJson->SetStringField(TEXT("homeRoom"), PlayerState->GetHomeRoomId().ToString());
+		PlayerJson->SetNumberField(TEXT("score"), FMath::RoundToInt32(PlayerState->GetScore()));
+		PlayerJson->SetNumberField(TEXT("strikes"), PlayerState->GetSuspicionComponent()->GetStrikes());
+		PlayerJson->SetBoolField(TEXT("evicted"), PlayerState->IsEvicted());
+
+		TArray<TSharedPtr<FJsonValue>> TasksJson;
+		for (const FTaskState& Task : PlayerState->GetTaskComponent()->GetTasks())
+		{
+			const TSharedRef<FJsonObject> TaskJson = MakeShared<FJsonObject>();
+			TaskJson->SetStringField(TEXT("id"), Task.TaskId.ToString());
+			TaskJson->SetBoolField(TEXT("main"), Task.bMain);
+			TaskJson->SetBoolField(TEXT("completed"), Task.Status == ETaskStatus::Completed);
+			TaskJson->SetNumberField(TEXT("reward"), Task.Reward);
+			TasksJson.Add(MakeShared<FJsonValueObject>(TaskJson));
+		}
+		PlayerJson->SetArrayField(TEXT("tasks"), TasksJson);
+		PlayersJson.Add(MakeShared<FJsonValueObject>(PlayerJson));
+	}
+	Root->SetArrayField(TEXT("players"), PlayersJson);
+
+	// Весь журнал событий: по нему видно и поимки, и подставы, и кто куда ходил.
+	int32 NumCaught = 0;
+	TArray<TSharedPtr<FJsonValue>> EventsJson;
+	for (const FGameEvent& Event : Bus->GetEventLog())
+	{
+		NumCaught += Event.Type == EGameEventType::PlayerCaught ? 1 : 0;
+
+		const TSharedRef<FJsonObject> EventJson = MakeShared<FJsonObject>();
+		EventJson->SetNumberField(TEXT("t"), FMath::RoundToInt32(Event.Time - RoundStartWorldTime));
+		EventJson->SetStringField(TEXT("type"), EnumName(StaticEnum<EGameEventType>(), static_cast<int64>(Event.Type)));
+		if (Event.Instigator)
+		{
+			EventJson->SetStringField(TEXT("by"), NameOf(Event.Instigator));
+		}
+		if (Event.Target)
+		{
+			EventJson->SetStringField(TEXT("target"), NameOf(Event.Target));
+		}
+		if (Event.Item)
+		{
+			EventJson->SetStringField(TEXT("item"), Event.Item->GetItemData()->ItemId.ToString());
+		}
+		if (!Event.RoomId.IsNone())
+		{
+			EventJson->SetStringField(TEXT("room"), Event.RoomId.ToString());
+		}
+		EventsJson.Add(MakeShared<FJsonValueObject>(EventJson));
+	}
+	Root->SetNumberField(TEXT("numCaught"), NumCaught);
+	Root->SetArrayField(TEXT("events"), EventsJson);
+
+	FString Text;
+	const TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&Text);
+	FJsonSerializer::Serialize(Root, Writer);
+
+	const FString Path = FPaths::ProjectSavedDir() / TEXT("Telemetry") / FString::Printf(TEXT("round_%s.json"), *FDateTime::Now().ToString(TEXT("%Y%m%d_%H%M%S")));
+	if (FFileHelper::SaveStringToFile(Text, *Path, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM))
+	{
+		UE_LOG(LogObshaga, Log, TEXT("Telemetry saved: %s"), *Path);
+	}
+	else
+	{
+		UE_LOG(LogObshaga, Warning, TEXT("Telemetry: cannot write %s"), *Path);
+	}
+}
+
 void AObshagaGameMode::ResetWorldForRematch()
 {
 	UWorld* World = GetWorld();
@@ -889,6 +1131,10 @@ void AObshagaGameMode::ResetWorldForRematch()
 	for (TActorIterator<ADoorActor> It(World); It; ++It)
 	{
 		It->ResetDoor();
+	}
+	for (TActorIterator<ADeviceActor> It(World); It; ++It)
+	{
+		It->ResetDevice();
 	}
 
 	// Все игроки появляются заново (и заново получают домашнюю комнату).

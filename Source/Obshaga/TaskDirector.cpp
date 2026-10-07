@@ -1,10 +1,15 @@
 #include "TaskDirector.h"
 
+#include "DeviceActor.h"
+#include "ItemActor.h"
+#include "NightExitDoor.h"
 #include "Obshaga.h"
+#include "ObshagaItemData.h"
 #include "ObshagaPlayerState.h"
 #include "TaskComponent.h"
 #include "TaskTypes.h"
 #include "Engine/DataTable.h"
+#include "EngineUtils.h"
 
 void UTaskDirector::Initialize(UDataTable* InTasksTable)
 {
@@ -15,6 +20,34 @@ void UTaskDirector::Initialize(UDataTable* InTasksTable)
 void UTaskDirector::Reset()
 {
 	DealtMainIds.Reset();
+	NumDealt = 0;
+}
+
+bool UTaskDirector::IsFeasible(const UWorld* World, const FTaskRow& Row)
+{
+	// Задание раздаётся, только если на карте есть то, без чего его не выполнить.
+	switch (Row.SuccessCondition)
+	{
+	case ETaskCondition::DeviceBrokenAndNotSeen:
+	case ETaskCondition::DeviceRepaired:
+		return static_cast<bool>(TActorIterator<ADeviceActor>(World));
+
+	case ETaskCondition::LeftBuildingAndReturnedUnseen:
+		return static_cast<bool>(TActorIterator<ANightExitDoor>(World));
+
+	case ETaskCondition::NoteReadByDistinctPlayers:
+		for (TActorIterator<AItemActor> It(World); It; ++It)
+		{
+			if (It->GetItemData()->bReadable)
+			{
+				return true;
+			}
+		}
+		return false;
+
+	default:
+		return true;
+	}
 }
 
 const FTaskRow* UTaskDirector::FindRow(FName TaskId) const
@@ -42,7 +75,8 @@ void UTaskDirector::AssignTasksTo(AObshagaPlayerState* PlayerState, int32 NumPla
 	for (const FName& RowName : TasksTable->GetRowNames())
 	{
 		const FTaskRow* Row = FindRow(RowName);
-		if (Row && Row->bEnabled && Row->MinPlayers <= NumPlayers && UTaskComponent::IsConditionImplemented(Row->SuccessCondition))
+		if (Row && Row->bEnabled && Row->MinPlayers <= NumPlayers && UTaskComponent::IsConditionImplemented(Row->SuccessCondition)
+			&& IsFeasible(PlayerState->GetWorld(), *Row))
 		{
 			Candidates.Add(RowName);
 		}
@@ -71,7 +105,14 @@ void UTaskDirector::AssignTasksTo(AObshagaPlayerState* PlayerState, int32 NumPla
 		}
 	}
 	const TArray<FName>& MainPool = !FreshConflicting.IsEmpty() ? FreshConflicting : (!Fresh.IsEmpty() ? Fresh : Mains);
-	const FName MainId = MainPool[FMath::RandRange(0, MainPool.Num() - 1)];
+	FName MainId = MainPool[FMath::RandRange(0, MainPool.Num() - 1)];
+
+	// Для разработки: основные задания по списку, по порядку игроков.
+	if (DebugMainTasks.IsValidIndex(NumDealt) && FindRow(DebugMainTasks[NumDealt]))
+	{
+		MainId = DebugMainTasks[NumDealt];
+	}
+	++NumDealt;
 
 	PlayerState->GetTaskComponent()->AssignTask(MainId, *FindRow(MainId), true);
 	DealtMainIds.Add(MainId);

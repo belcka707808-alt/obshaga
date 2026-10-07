@@ -51,6 +51,11 @@ public:
 	//~ IInteractable
 	virtual FText GetInteractionPrompt(const AObshagaCharacter* By) const override;
 	virtual void Interact(AObshagaCharacter* By) override;
+	virtual FText GetSecondaryPrompt(const AObshagaCharacter* By) const override;
+	virtual void SecondaryInteract(AObshagaCharacter* By) override;
+
+	/** Сервер: игрок читает записку. Текст слуха уходит только ему. */
+	void ReadBy(AObshagaCharacter* By);
 
 	/** Паспорт предмета; если не назначен — значения по умолчанию. */
 	const UObshagaItemData* GetItemData() const;
@@ -100,6 +105,8 @@ private:
 	/** Кто последним держал предмет: он считается виновником шума. */
 	TWeakObjectPtr<AObshagaCharacter> LastCarrier;
 	TWeakObjectPtr<APlayerState> LastHiddenBy;
+	/** Слух в записке; сочиняется при первом чтении и живёт до конца раунда. Только сервер. */
+	FText NoteText;
 	float LastNoiseTime = -100.f;
 	FTransform InitialTransform;
 };

@@ -44,7 +44,22 @@ enum class EGameEventType : uint8
 	/** Крыса (Instigator) настучала на Target. */
 	TipOff,
 	/** После стука Крысы (Instigator) жертву (Target) поймали. */
-	TipSucceeded
+	TipSucceeded,
+	/** Комендант нашёл у Target запрещёнку, которую подбросил Instigator. */
+	PlayerFramed,
+	/** Instigator назвал коменданту вором Target. */
+	Accusation,
+	/** Instigator настучал на комнату RoomId. */
+	RoomTipOff,
+	/** Instigator прочитал записку Item. */
+	NoteRead,
+	/** Прибор в комнате RoomId сломан; Instigator пуст, если сломался сам. */
+	DeviceBroken,
+	DeviceRepaired,
+	/** Instigator вышел на улицу через ночной выход. */
+	LeftBuilding,
+	/** Instigator вернулся с улицы, пробыв там достаточно долго. */
+	ReturnedToBuilding
 };
 
 /** Одна запись на «доске объявлений»: кто, что сделал, с каким предметом, где и когда. */

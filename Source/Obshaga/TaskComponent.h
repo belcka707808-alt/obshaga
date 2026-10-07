@@ -31,6 +31,10 @@ public:
 	void ClearTasks();
 	const FTaskState* GetMainTask() const;
 	bool HasTask(FName TaskId) const;
+	/** Строка задания игрока с таким условием; nullptr, если такого задания у него нет. */
+	const FTaskRow* FindRowByCondition(ETaskCondition Condition) const;
+	/** Брал ли игрок предмет задания в его «родной» комнате не позже указанного времени. */
+	static bool HasStolen(const UObject* WorldContextObject, const APlayerState* Who, const FTaskRow& Row, float BeforeTime);
 	/** Обновляет пометку «выполнено прямо сейчас» для телефона. */
 	void UpdateLiveStatus();
 	/** Конец раунда: фиксирует успех или провал, возвращает заработанные очки. */

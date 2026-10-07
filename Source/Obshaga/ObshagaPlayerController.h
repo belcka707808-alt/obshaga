@@ -37,6 +37,8 @@ public:
 	const FText& GetNotice() const { return Notice; }
 	float GetNoticeTime() const { return NoticeTime; }
 	bool IsPhoneOpen() const { return bPhoneOpen; }
+	/** Игрок, на которого локальный игрок сейчас может показать коменданту (смотрит на него и стоит рядом). */
+	AObshagaCharacter* FindAccuseTarget() const;
 
 protected:
 	virtual void SetupInputComponent() override;
@@ -57,8 +59,16 @@ protected:
 	UFUNCTION(Server, Reliable)
 	void ServerTipOff();
 
+	/** Игрок называет коменданту вора. Сервер сам проверит, что тот рядом и на виду. */
+	UFUNCTION(Server, Reliable)
+	void ServerAccuse(AObshagaCharacter* Suspect);
+
+	/** Игрок стучит на жилую комнату, в которой стоит. */
+	UFUNCTION(Server, Reliable)
+	void ServerTipOffRoom();
+
 private:
-	/** Раскладка MVP задаётся в коде: WASD, мышь, Shift, Ctrl, пробел, E, F, G, Tab, 1/2/3, Y, T, Enter, левая кнопка мыши. */
+	/** Раскладка MVP задаётся в коде: WASD, мышь, Shift, Ctrl, пробел, E, F, G, Tab, 1/2/3, Y, T, R, B, Enter, левая кнопка мыши. */
 	void CreateDefaultInput();
 
 	void OnMoveForward(const FInputActionValue& Value);
@@ -81,6 +91,8 @@ private:
 	void OnAlibi();
 	void OnStart();
 	void OnTipOff();
+	void OnAccuse();
+	void OnTipOffRoom();
 	bool IsLocalPlayerInterrogated() const;
 
 	AObshagaCharacter* GetObshagaCharacter() const;
@@ -138,6 +150,12 @@ private:
 
 	UPROPERTY(Transient)
 	TObjectPtr<UInputAction> TipAction;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UInputAction> AccuseAction;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UInputAction> RoomTipAction;
 
 	/** Телефон открыт только у локального игрока; мир при этом не останавливается. */
 	bool bPhoneOpen = false;

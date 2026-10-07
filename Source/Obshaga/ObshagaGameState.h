@@ -78,9 +78,11 @@ public:
 	float GetInterrogationRemainingSeconds() const;
 	/** Радиус, в котором можно подтвердить алиби (приходит с сервера из DA_RoundConfig). */
 	float GetAlibiRadius() const { return AlibiRadius; }
+	/** С какого расстояния можно показать коменданту на вора (тоже из DA_RoundConfig). */
+	float GetAccuseDistance() const { return AccuseDistance; }
 
 	// Только сервер. Вызывает AObshagaGameMode.
-	void StartRound(float InAlibiRadius);
+	void StartRound(float InAlibiRadius, float InAccuseDistance);
 	void SetPhase(ERoundPhase NewPhase, float DurationSeconds);
 	void FinishRound(const TArray<FRevealedTask>& Tasks, const TArray<FRevealedPlayer>& Players, const TArray<FText>& InChronicle);
 	void SetInterrogation(const FInterrogationInfo& NewInfo);
@@ -110,4 +112,7 @@ protected:
 
 	UPROPERTY(Replicated)
 	float AlibiRadius = 800.f;
+
+	UPROPERTY(Replicated)
+	float AccuseDistance = 1200.f;
 };

@@ -40,6 +40,10 @@ public:
 	void ConfirmAlibi(AObshagaCharacter* By);
 	/** Крыса стучит коменданту на свою жертву. */
 	void TipOff(AObshagaPlayerState* Rat);
+	/** Игрок называет коменданту вора (задание «расследуй кражу»). */
+	void Accuse(AObshagaPlayerState* Accuser, AObshagaCharacter* Suspect);
+	/** Игрок стучит на жилую комнату, в которой стоит: комендант придёт её обыскивать. */
+	void TipOffRoom(AObshagaPlayerState* By);
 
 	/** Кого комендант ловил в прошлом раунде (для мстительной личности). */
 	const TArray<TWeakObjectPtr<APlayerState>>& GetCaughtLastRound() const { return CaughtLastRound; }
@@ -58,6 +62,11 @@ protected:
 	FText MakeSmsFor(const AObshagaPlayerState* Reader, const TArray<AObshagaPlayerState*>& Players) const;
 	void Evict(AObshagaPlayerState* PlayerState, AObshagaCharacter* Character);
 	void ResolveInterrogation();
+	/** Включает игроку клавиши, которые нужны его заданиям (обвинить, настучать на комнату). */
+	void GrantTaskAbilities(AObshagaPlayerState* PlayerState) const;
+	void BreakDeviceByItself();
+	/** Пишет итоги раунда в Saved/Telemetry — для правки баланса после плейтестов. */
+	void WriteTelemetry(const TArray<AObshagaPlayerState*>& Players) const;
 
 	TArray<FText> BuildChronicle() const;
 	void AssignTitles(TArray<FRevealedPlayer>& Players, const TArray<AObshagaPlayerState*>& States) const;
@@ -77,6 +86,7 @@ private:
 	FTimerHandle LiveStatusTimer;
 	FTimerHandle SmsTimer;
 	FTimerHandle InterrogationTimer;
+	FTimerHandle SelfBreakTimer;
 
 	float RoundStartWorldTime = 0.f;
 	int32 SmsSent = 0;

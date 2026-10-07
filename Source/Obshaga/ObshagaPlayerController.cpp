@@ -14,6 +14,9 @@
 
 namespace
 {
+	// Насколько точно надо смотреть на игрока, чтобы показать на него: косинус угла (около 20°).
+	constexpr float AccuseAimDot = 0.94f;
+
 	UInputAction* MakeAction(UObject* Outer, FName Name, EInputActionValueType ValueType)
 	{
 		UInputAction* Action = NewObject<UInputAction>(Outer, Name);
@@ -50,6 +53,8 @@ void AObshagaPlayerController::CreateDefaultInput()
 	AlibiAction = MakeAction(this, TEXT("IA_Alibi"), EInputActionValueType::Boolean);
 	StartAction = MakeAction(this, TEXT("IA_Start"), EInputActionValueType::Boolean);
 	TipAction = MakeAction(this, TEXT("IA_Tip"), EInputActionValueType::Boolean);
+	AccuseAction = MakeAction(this, TEXT("IA_Accuse"), EInputActionValueType::Boolean);
+	RoomTipAction = MakeAction(this, TEXT("IA_RoomTip"), EInputActionValueType::Boolean);
 
 	DefaultMappingContext = NewObject<UInputMappingContext>(this, TEXT("IMC_Obshaga"));
 	DefaultMappingContext->MapKey(MoveForwardAction, EKeys::W);
@@ -72,6 +77,8 @@ void AObshagaPlayerController::CreateDefaultInput()
 	DefaultMappingContext->MapKey(AlibiAction, EKeys::Y);
 	DefaultMappingContext->MapKey(StartAction, EKeys::Enter);
 	DefaultMappingContext->MapKey(TipAction, EKeys::T);
+	DefaultMappingContext->MapKey(AccuseAction, EKeys::R);
+	DefaultMappingContext->MapKey(RoomTipAction, EKeys::B);
 }
 
 void AObshagaPlayerController::SetupInputComponent()
@@ -111,6 +118,8 @@ void AObshagaPlayerController::SetupInputComponent()
 	Input->BindAction(AlibiAction, ETriggerEvent::Started, this, &AObshagaPlayerController::OnAlibi);
 	Input->BindAction(StartAction, ETriggerEvent::Started, this, &AObshagaPlayerController::OnStart);
 	Input->BindAction(TipAction, ETriggerEvent::Started, this, &AObshagaPlayerController::OnTipOff);
+	Input->BindAction(AccuseAction, ETriggerEvent::Started, this, &AObshagaPlayerController::OnAccuse);
+	Input->BindAction(RoomTipAction, ETriggerEvent::Started, this, &AObshagaPlayerController::OnTipOffRoom);
 }
 
 AObshagaCharacter* AObshagaPlayerController::GetObshagaCharacter() const
@@ -282,6 +291,76 @@ void AObshagaPlayerController::OnTipOff()
 	if (MyState && MyState->GetVisibleRole() == EPlayerRole::Rat && !MyState->HasUsedTip())
 	{
 		ServerTipOff();
+	}
+}
+
+AObshagaCharacter* AObshagaPlayerController::FindAccuseTarget() const
+{
+	const AObshagaPlayerState* MyState = GetPlayerState<AObshagaPlayerState>();
+	const AObshagaCharacter* Me = GetObshagaCharacter();
+	const AObshagaGameState* GameState = GetWorld()->GetGameState<AObshagaGameState>();
+	if (!MyState || !MyState->CanAccuse() || !Me || Me->IsHiding() || Me->IsFrozen() || !GameState)
+	{
+		return nullptr;
+	}
+
+	FVector ViewLocation;
+	FRotator ViewRotation;
+	GetPlayerViewPoint(ViewLocation, ViewRotation);
+	const FVector ViewDirection = ViewRotation.Vector();
+
+	// Из тех, кто рядом и на виду, берём того, кто ближе всего к центру экрана.
+	AObshagaCharacter* Best = nullptr;
+	float BestDot = AccuseAimDot;
+	for (APlayerState* OtherState : GameState->PlayerArray)
+	{
+		AObshagaCharacter* Other = OtherState ? Cast<AObshagaCharacter>(OtherState->GetPawn()) : nullptr;
+		if (!Other || Other == Me || Other->IsHiding() || Other->IsGhost()
+			|| FVector::Dist(Other->GetActorLocation(), Me->GetActorLocation()) > GameState->GetAccuseDistance())
+		{
+			continue;
+		}
+
+		const float Dot = FVector::DotProduct(ViewDirection, (Other->GetActorLocation() - ViewLocation).GetSafeNormal());
+		if (Dot > BestDot && Me->GetInteractionComponent()->HasLineOfSight(Other))
+		{
+			BestDot = Dot;
+			Best = Other;
+		}
+	}
+	return Best;
+}
+
+void AObshagaPlayerController::OnAccuse()
+{
+	if (AObshagaCharacter* Suspect = FindAccuseTarget())
+	{
+		ServerAccuse(Suspect);
+	}
+}
+
+void AObshagaPlayerController::OnTipOffRoom()
+{
+	const AObshagaPlayerState* MyState = GetPlayerState<AObshagaPlayerState>();
+	if (MyState && MyState->CanTipRoom())
+	{
+		ServerTipOffRoom();
+	}
+}
+
+void AObshagaPlayerController::ServerAccuse_Implementation(AObshagaCharacter* Suspect)
+{
+	if (AObshagaGameMode* GameMode = GetWorld()->GetAuthGameMode<AObshagaGameMode>())
+	{
+		GameMode->Accuse(GetPlayerState<AObshagaPlayerState>(), Suspect);
+	}
+}
+
+void AObshagaPlayerController::ServerTipOffRoom_Implementation()
+{
+	if (AObshagaGameMode* GameMode = GetWorld()->GetAuthGameMode<AObshagaGameMode>())
+	{
+		GameMode->TipOffRoom(GetPlayerState<AObshagaPlayerState>());
 	}
 }
 

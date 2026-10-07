@@ -6,6 +6,7 @@
 
 class AObshagaPlayerState;
 class UDataTable;
+class UWorld;
 struct FTaskRow;
 
 /**
@@ -33,6 +34,12 @@ private:
 
 	const FTaskRow* FindRow(FName TaskId) const;
 	bool AreInConflict(FName A, FName B) const;
+	static bool IsFeasible(const UWorld* World, const FTaskRow& Row);
 
 	TArray<FName> DealtMainIds;
+	int32 NumDealt = 0;
+
+public:
+	/** Для разработки: основные задания по порядку игрокам (из DA_RoundConfig). */
+	TArray<FName> DebugMainTasks;
 };

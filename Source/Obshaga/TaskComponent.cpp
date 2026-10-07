@@ -1,10 +1,13 @@
 #include "TaskComponent.h"
 
+#include "DeviceActor.h"
 #include "GameEventSubsystem.h"
 #include "ItemActor.h"
 #include "Obshaga.h"
+#include "ObshagaGameMode.h"
 #include "ObshagaItemData.h"
 #include "ObshagaPlayerState.h"
+#include "ObshagaRoundConfig.h"
 #include "EngineUtils.h"
 #include "Net/UnrealNetwork.h"
 
@@ -37,10 +40,39 @@ bool UTaskComponent::IsConditionImplemented(ETaskCondition Condition)
 	case ETaskCondition::AlibiConfirmedSuccessfully:
 	case ETaskCondition::NeverSpottedWholeRound:
 	case ETaskCondition::NoiseLuredKomendantAndUnseen:
+	case ETaskCondition::ItemPlantedInRoomOfPlayer:
+	case ETaskCondition::PlayerCaughtWithItem:
+	case ETaskCondition::LeftBuildingAndReturnedUnseen:
+	case ETaskCondition::InspectionFoundContrabandInRoom:
+	case ETaskCondition::NoteReadByDistinctPlayers:
+	case ETaskCondition::DeviceBrokenAndNotSeen:
+	case ETaskCondition::DeviceRepaired:
+	case ETaskCondition::CorrectAccusation:
 		return true;
 	default:
 		return false;
 	}
+}
+
+const FTaskRow* UTaskComponent::FindRowByCondition(ETaskCondition Condition) const
+{
+	return Rows.FindByPredicate([Condition](const FTaskRow& Row) { return Row.SuccessCondition == Condition; });
+}
+
+bool UTaskComponent::HasStolen(const UObject* WorldContextObject, const APlayerState* Who, const FTaskRow& Row, float BeforeTime)
+{
+	// «Украл» = взял нужный предмет в комнате, где тот должен лежать.
+	const UGameEventSubsystem* Bus = UGameEventSubsystem::Get(WorldContextObject);
+	if (!Bus || !Who)
+	{
+		return false;
+	}
+	return Bus->GetEventLog().ContainsByPredicate([&](const FGameEvent& Event)
+	{
+		return Event.Type == EGameEventType::ItemPickedUp && Event.Instigator == Who && Event.Item && Event.Time <= BeforeTime
+			&& (Row.ItemId.IsNone() || Event.Item->GetItemData()->ItemId == Row.ItemId)
+			&& (Row.RoomId.IsNone() || Event.RoomId == Row.RoomId);
+	});
 }
 
 bool UTaskComponent::HasTask(FName TaskId) const
@@ -131,6 +163,17 @@ bool UTaskComponent::EvaluateCondition(const FTaskRow& Row) const
 	{
 		return Events.FindByPredicate([=](const FGameEvent& Event) { return Event.Type == Type && Event.Instigator == OwnerState && Event.Time > AfterTime; });
 	};
+	// «Незаметно» = комендант не видел и не ловил игрока в этом промежутке времени.
+	auto WasSeenBetween = [&Events, OwnerState](float From, float To)
+	{
+		return Events.ContainsByPredicate([=](const FGameEvent& Event)
+		{
+			return (Event.Type == EGameEventType::PlayerSpotted || Event.Type == EGameEventType::PlayerCaught)
+				&& Event.Instigator == OwnerState && Event.Time >= From && Event.Time <= To;
+		});
+	};
+	const AObshagaGameMode* GameMode = World->GetAuthGameMode<AObshagaGameMode>();
+	const float UnseenWindow = GameMode ? GameMode->GetRoundConfig()->UnseenWindowSeconds : 10.f;
 
 	switch (Row.SuccessCondition)
 	{
@@ -179,6 +222,135 @@ bool UTaskComponent::EvaluateCondition(const FTaskRow& Row) const
 		// Комендант пошёл на шум этого игрока, и после этого игрока не поймали.
 		const FGameEvent* Lure = FindOwnEvent(EGameEventType::KomendantAlerted);
 		return Lure && FindOwnEvent(EGameEventType::PlayerCaught, Lure->Time) == nullptr;
+	}
+
+	case ETaskCondition::ItemPlantedInRoomOfPlayer:
+	case ETaskCondition::PlayerCaughtWithItem:
+	{
+		// Первый путь: комендант нашёл у соседа запрещёнку, которую спрятал этот игрок.
+		if (FindOwnEvent(EGameEventType::PlayerFramed))
+		{
+			return true;
+		}
+		// Второй: игрок оставил вещь в чужой комнате, и хозяина комнаты потом поймали с ней в руках.
+		for (const FGameEvent& Plant : Events)
+		{
+			const bool bPlanted = Plant.Type == EGameEventType::ItemDropped || Plant.Type == EGameEventType::ItemHidden;
+			if (!bPlanted || Plant.Instigator != OwnerState || !Plant.Item || Plant.RoomId.IsNone())
+			{
+				continue;
+			}
+			for (const FGameEvent& Caught : Events)
+			{
+				const AObshagaPlayerState* Victim = Cast<AObshagaPlayerState>(Caught.Instigator);
+				if (Caught.Type == EGameEventType::PlayerCaught && Caught.Item == Plant.Item && Caught.Time > Plant.Time
+					&& Victim && Victim != OwnerState && Victim->GetHomeRoomId() == Plant.RoomId)
+				{
+					return true;
+				}
+			}
+		}
+		return false;
+	}
+
+	case ETaskCondition::LeftBuildingAndReturnedUnseen:
+	{
+		// Вышел, погулял, вернулся — и комендант не видел его ни до, ни после.
+		float LeftTime = -1.f;
+		for (const FGameEvent& Event : Events)
+		{
+			if (Event.Instigator != OwnerState)
+			{
+				continue;
+			}
+			if (Event.Type == EGameEventType::LeftBuilding)
+			{
+				LeftTime = Event.Time;
+			}
+			else if (Event.Type == EGameEventType::ReturnedToBuilding && LeftTime >= 0.f
+				&& !WasSeenBetween(LeftTime - UnseenWindow, Event.Time + UnseenWindow))
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	case ETaskCondition::InspectionFoundContrabandInRoom:
+	{
+		// Настучал на комнату, и после этого комендант изъял там запрещёнку.
+		for (const FGameEvent& Tip : Events)
+		{
+			if (Tip.Type != EGameEventType::RoomTipOff || Tip.Instigator != OwnerState)
+			{
+				continue;
+			}
+			if (Events.ContainsByPredicate([&Tip](const FGameEvent& Event)
+				{ return Event.Type == EGameEventType::ContrabandConfiscated && Event.RoomId == Tip.RoomId && Event.Time > Tip.Time; }))
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	case ETaskCondition::NoteReadByDistinctPlayers:
+	{
+		// Игрок оставил записку, и после этого её прочитали разные люди (сам он не в счёт).
+		for (const FGameEvent& Plant : Events)
+		{
+			const bool bPlanted = Plant.Type == EGameEventType::ItemDropped || Plant.Type == EGameEventType::ItemThrown || Plant.Type == EGameEventType::ItemHidden;
+			if (!bPlanted || Plant.Instigator != OwnerState || !Plant.Item || !Plant.Item->GetItemData()->bReadable)
+			{
+				continue;
+			}
+			TSet<const APlayerState*> Readers;
+			for (const FGameEvent& Read : Events)
+			{
+				if (Read.Type == EGameEventType::NoteRead && Read.Item == Plant.Item && Read.Time > Plant.Time && Read.Instigator && Read.Instigator != OwnerState)
+				{
+					Readers.Add(Read.Instigator.Get());
+				}
+			}
+			if (Readers.Num() >= FMath::Max(Row.Count, 1))
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	case ETaskCondition::DeviceBrokenAndNotSeen:
+	case ETaskCondition::DeviceRepaired:
+	{
+		for (TActorIterator<ADeviceActor> It(World); It; ++It)
+		{
+			if (!Row.RoomId.IsNone() && It->GetRoomId() != Row.RoomId)
+			{
+				continue;
+			}
+			if (Row.SuccessCondition == ETaskCondition::DeviceRepaired)
+			{
+				// Починил то, что сломал не сам, и оно до сих пор работает.
+				if (!It->IsBroken() && It->GetRepairedBy() == OwnerState && It->GetBrokenBy() != OwnerState)
+				{
+					return true;
+				}
+			}
+			else if (It->IsBroken() && It->GetBrokenBy() == OwnerState
+				&& !WasSeenBetween(It->GetBrokenTime() - UnseenWindow, It->GetBrokenTime() + UnseenWindow))
+			{
+				// Сломал, комендант в это время его не видел, и прибор до сих пор сломан.
+				return true;
+			}
+		}
+		return false;
+	}
+
+	case ETaskCondition::CorrectAccusation:
+	{
+		const FGameEvent* Accusation = FindOwnEvent(EGameEventType::Accusation);
+		return Accusation && HasStolen(this, Accusation->Target, Row, Accusation->Time);
 	}
 
 	default:

@@ -14,6 +14,7 @@ void AObshagaGameState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& Ou
 	DOREPLIFETIME(AObshagaGameState, Chronicle);
 	DOREPLIFETIME(AObshagaGameState, Interrogation);
 	DOREPLIFETIME(AObshagaGameState, AlibiRadius);
+	DOREPLIFETIME(AObshagaGameState, AccuseDistance);
 }
 
 float AObshagaGameState::GetPhaseRemainingSeconds() const
@@ -38,11 +39,12 @@ void AObshagaGameState::SetInterrogation(const FInterrogationInfo& NewInfo)
 	}
 }
 
-void AObshagaGameState::StartRound(float InAlibiRadius)
+void AObshagaGameState::StartRound(float InAlibiRadius, float InAccuseDistance)
 {
 	if (HasAuthority())
 	{
 		AlibiRadius = InAlibiRadius;
+		AccuseDistance = InAccuseDistance;
 		RevealedTasks.Reset();
 		RevealedPlayers.Reset();
 		Chronicle.Reset();
