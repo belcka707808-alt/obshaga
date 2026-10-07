@@ -38,6 +38,10 @@ namespace
 	constexpr float StuckSeconds = 2.5f;
 	constexpr float DirectChaseDistance = 900.f;
 	constexpr float SameFloorHeight = 150.f;
+	// Обыск: с какого расстояния начинает рыться, сколько секунд подходит и дальше чего не дотянется.
+	constexpr float InspectApproachDistance = 170.f;
+	constexpr float InspectApproachSeconds = 4.f;
+	constexpr float InspectReachDistance = 250.f;
 
 	void NotifyPlayer(const APlayerState* TargetState, const FText& Text)
 	{
@@ -126,6 +130,7 @@ void AKomendantAIController::ResetForRound()
 	LastSpottedEventTime.Reset();
 	InspectionQueue.Reset();
 	QueuedSpot.Reset();
+	InterruptedQueuedSpot.Reset();
 	ChaseTarget.Reset();
 	if (bGraphReady)
 	{
@@ -147,13 +152,20 @@ void AKomendantAIController::ResetForRound()
 	}
 }
 
-void AKomendantAIController::InvestigateTip(const FVector& Location)
+bool AKomendantAIController::CanTakeTip() const
 {
 	const bool bBusy = State == EKomendantState::Chase || State == EKomendantState::Interrogate;
-	if (bGraphReady && IsRoundInProgress() && !bBusy)
+	return bGraphReady && Komendant && IsRoundInProgress() && !bBusy;
+}
+
+bool AKomendantAIController::InvestigateTip(const FVector& Location)
+{
+	if (!CanTakeTip())
 	{
-		StartInvestigate(Location);
+		return false;
 	}
+	StartInvestigate(Location);
+	return true;
 }
 
 void AKomendantAIController::InspectRoom(FName RoomId)
@@ -193,9 +205,10 @@ void AKomendantAIController::OnPhaseChanged()
 		for (AHidingSpot* Spot : HidingSpots)
 		{
 			const ARoomVolume* Room = ARoomVolume::FindRoomAt(this, Spot->GetActorLocation() + FVector(0.f, 0.f, 50.f));
-			if (Room && Room->RoomType == ERoomType::Bedroom)
+			// В начало списка: он разбирается с конца, и комнаты, на которые настучали, идут первыми.
+			if (Room && Room->RoomType == ERoomType::Bedroom && !InspectionQueue.Contains(Spot))
 			{
-				InspectionQueue.AddUnique(Spot);
+				InspectionQueue.Insert(Spot, 0);
 			}
 		}
 		UE_LOG(LogObshaga, Verbose, TEXT("Komendant morning inspection: %d hiding spots"), InspectionQueue.Num());
@@ -287,6 +300,19 @@ void AKomendantAIController::BuildGraph()
 
 void AKomendantAIController::SetState(EKomendantState NewState)
 {
+	// Обыск тайника из списка прервали до того, как он порылся, — тайник возвращается в список.
+	if (AHidingSpot* Interrupted = InterruptedQueuedSpot.Get())
+	{
+		InspectionQueue.Add(Interrupted);
+	}
+	InterruptedQueuedSpot.Reset();
+
+	// Погоня кончилась без допроса — цель больше не цель, её подозрение снова спадает.
+	if (NewState != EKomendantState::Chase && NewState != EKomendantState::Interrogate)
+	{
+		ChaseTarget.Reset();
+	}
+
 	State = NewState;
 	StateTime = 0.f;
 	Path.Reset();
@@ -384,13 +410,25 @@ void AKomendantAIController::Tick(float DeltaSeconds)
 
 void AKomendantAIController::UpdateVision(float DeltaSeconds)
 {
+	const UObshagaRoundConfig* Config = GetRoundConfig();
+	const float Now = GetWorld()->GetTimeSeconds();
+
+	// «Заметил» записываем всегда, даже на допросе и про тех, кого сейчас не трогаем:
+	// задания «сделай незаметно» смотрят именно на эти записи. Не чаще раза в несколько секунд на игрока.
+	for (AObshagaCharacter* Player : SeenPlayers)
+	{
+		float& LastEvent = LastSpottedEventTime.FindOrAdd(Player, -100.f);
+		if (Now - LastEvent > 5.f)
+		{
+			LastEvent = Now;
+			UGameEventSubsystem::PublishFrom(Player, EGameEventType::PlayerSpotted);
+		}
+	}
+
 	if (State == EKomendantState::Interrogate)
 	{
 		return;
 	}
-
-	const UObshagaRoundConfig* Config = GetRoundConfig();
-	const float Now = GetWorld()->GetTimeSeconds();
 
 	for (AObshagaCharacter* Player : SeenPlayers)
 	{
@@ -398,14 +436,6 @@ void AKomendantAIController::UpdateVision(float DeltaSeconds)
 		if (!TargetState || Player->IsFrozen() || ImmuneUntil.FindRef(Player) > Now)
 		{
 			continue;
-		}
-
-		// Событие «заметил» — не чаще раза в несколько секунд на игрока.
-		float& LastEvent = LastSpottedEventTime.FindOrAdd(Player, -100.f);
-		if (Now - LastEvent > 5.f)
-		{
-			LastEvent = Now;
-			UGameEventSubsystem::PublishFrom(Player, EGameEventType::PlayerSpotted);
 		}
 
 		// Подозрительно всё, что несут в руках: запрещёнка — сразу, тяжёлое — быстро, мелочь — понемногу.
@@ -518,11 +548,15 @@ void AKomendantAIController::TickPatrol(float DeltaSeconds)
 		return;
 	}
 
-	// Утренняя проверка важнее обычного обхода: идёт к следующему тайнику из списка.
-	if (Path.IsEmpty() && !QueuedSpot.IsValid() && !InspectionQueue.IsEmpty())
+	// Обыск по списку важнее обычного обхода. Если по дороге к тайнику отвлекли (шум, погоня),
+	// сначала возвращается к нему же, и только потом берёт следующий.
+	if (Path.IsEmpty() && (QueuedSpot.IsValid() || !InspectionQueue.IsEmpty()))
 	{
-		QueuedSpot = InspectionQueue.Pop();
-		if (QueuedSpot.IsValid() && !PlanPathTo(QueuedSpot->GetActorLocation()))
+		if (!QueuedSpot.IsValid())
+		{
+			QueuedSpot = InspectionQueue.Pop();
+		}
+		if (!QueuedSpot.IsValid() || !PlanPathTo(QueuedSpot->GetActorLocation()))
 		{
 			QueuedSpot.Reset();
 		}
@@ -551,6 +585,7 @@ void AKomendantAIController::TickPatrol(float DeltaSeconds)
 		QueuedSpot.Reset();
 		SetState(EKomendantState::Inspect);
 		InspectSpot = Queued;
+		InterruptedQueuedSpot = Queued;
 		return;
 	}
 	if (FMath::FRand() < Personality->BluffChance)
@@ -686,10 +721,20 @@ void AKomendantAIController::TickInspect(float DeltaSeconds)
 
 	// Сначала подходит к тайнику (не дольше нескольких секунд), потом роется.
 	const FVector SpotLocation = Spot->GetActorLocation();
-	const float Distance = FVector::Dist2D(SpotLocation, Komendant->GetActorLocation());
-	if (SearchTime <= 0.f && Distance > 170.f && StateTime < 4.f)
+	const FVector ToSpot = SpotLocation - Komendant->GetActorLocation();
+	const float Distance = ToSpot.Size2D();
+	if (SearchTime <= 0.f && Distance > InspectApproachDistance && StateTime < InspectApproachSeconds)
 	{
 		MoveToward(SpotLocation, Personality->PatrolSpeed * 1.4f);
+		return;
+	}
+
+	// Сквозь стены и с другого этажа не обыскивает: не дошёл — бросает этот тайник.
+	if (SearchTime <= 0.f && (Distance > InspectReachDistance || FMath::Abs(ToSpot.Z) > ArriveHeight))
+	{
+		UE_LOG(LogObshaga, Verbose, TEXT("Komendant could not reach %s, skipping"), *Spot->GetName());
+		InterruptedQueuedSpot.Reset();
+		SetState(EKomendantState::Patrol);
 		return;
 	}
 
@@ -705,6 +750,7 @@ void AKomendantAIController::SearchSpot(AHidingSpot* Spot)
 {
 	const UObshagaRoundConfig* Config = GetRoundConfig();
 
+	InterruptedQueuedSpot.Reset();
 	AObshagaCharacter* FoundPlayer = nullptr;
 	AItemActor* Contraband = Spot->KomendantSearch(FoundPlayer);
 	UE_LOG(LogObshaga, Verbose, TEXT("Komendant searched %s: contraband=%s player=%s"), *Spot->GetName(), *GetNameSafe(Contraband), *GetNameSafe(FoundPlayer));
@@ -742,7 +788,10 @@ void AKomendantAIController::SearchSpot(AHidingSpot* Spot)
 		}
 
 		AObshagaPlayerState* HiderState = Cast<AObshagaPlayerState>(Hider);
-		if (Residents.IsEmpty() || Residents.Contains(HiderState))
+		// Прятал у себя (даже если его уже выселили) или сам попался в этом же тайнике — отвечает он.
+		const bool bHiderLivesHere = HiderState && HiderState->GetHomeRoomId() == RoomId;
+		const bool bCaughtInside = HiderState && FoundPlayer && FoundPlayer->GetPlayerState() == HiderState;
+		if (Residents.IsEmpty() || bHiderLivesHere || bCaughtInside)
 		{
 			// Общая комната или своя собственная: отвечает тот, кто прятал.
 			if (HiderState)

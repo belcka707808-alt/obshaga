@@ -52,7 +52,10 @@ public:
 	/** Новый раунд: вернуться на вахту, выбрать личность, всё забыть. Вызывает AObshagaGameMode. */
 	void ResetForRound();
 	/** Крыса настучала: сходить и посмотреть, что происходит в этой точке. */
-	void InvestigateTip(const FVector& Location);
+	/** false — коменданту некогда (погоня, допрос), и он никуда не пошёл. */
+	bool InvestigateTip(const FVector& Location);
+	/** Может ли комендант прямо сейчас отвлечься на донос. */
+	bool CanTakeTip() const;
 	/** На комнату настучали: при первой возможности обыскать в ней все тайники. */
 	void InspectRoom(FName RoomId);
 
@@ -162,6 +165,8 @@ private:
 	/** Утренняя проверка: тайники жилых комнат, которые осталось обыскать. */
 	TArray<TWeakObjectPtr<AHidingSpot>> InspectionQueue;
 	TWeakObjectPtr<AHidingSpot> QueuedSpot;
+	/** Тайник из списка, который он обыскивает прямо сейчас; если отвлекут — вернётся в список. */
+	TWeakObjectPtr<AHidingSpot> InterruptedQueuedSpot;
 
 	FTransform SpawnTransform;
 	uint8 LastPhase = 255;
