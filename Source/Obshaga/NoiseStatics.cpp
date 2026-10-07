@@ -1,5 +1,7 @@
 #include "NoiseStatics.h"
 
+#include "GameEventSubsystem.h"
+#include "ItemActor.h"
 #include "Obshaga.h"
 #include "ObshagaCharacter.h"
 #include "ObshagaCharacterConfig.h"
@@ -17,6 +19,11 @@ void UNoiseStatics::MakeGameNoise(const UObject* WorldContextObject, FVector Loc
 	}
 
 	UE_LOG(LogObshaga, Verbose, TEXT("Noise %.2f at %s by %s"), Loudness, *Location.ToCompactString(), *GetNameSafe(NoiseInstigator));
+
+	if (AObshagaCharacter* Culprit = Cast<AObshagaCharacter>(NoiseInstigator))
+	{
+		UGameEventSubsystem::PublishFrom(Culprit, EGameEventType::Noise);
+	}
 
 	// Комендант (M4) услышит это через AI Perception.
 	UAISense_Hearing::ReportNoiseEvent(World, Location, Loudness, NoiseInstigator);

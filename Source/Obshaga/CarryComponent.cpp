@@ -1,5 +1,6 @@
 #include "CarryComponent.h"
 
+#include "GameEventSubsystem.h"
 #include "ItemActor.h"
 #include "Obshaga.h"
 #include "ObshagaCharacter.h"
@@ -83,6 +84,7 @@ bool UCarryComponent::PickUp(AItemActor* Item)
 	Item->SetCarriedBy(Character);
 	SetCarriedItem(Item);
 	UE_LOG(LogObshaga, Verbose, TEXT("%s picked up %s"), *Character->GetName(), *Item->GetName());
+	UGameEventSubsystem::PublishFrom(Character, EGameEventType::ItemPickedUp, Item);
 	return true;
 }
 
@@ -100,6 +102,7 @@ void UCarryComponent::Drop()
 	SetCarriedItem(nullptr);
 	Item->ReleaseToWorld(Location, FVector::ZeroVector);
 	UE_LOG(LogObshaga, Verbose, TEXT("%s dropped %s"), *Character->GetName(), *Item->GetName());
+	UGameEventSubsystem::PublishFrom(Character, EGameEventType::ItemDropped, Item);
 }
 
 void UCarryComponent::Throw()
@@ -124,6 +127,7 @@ void UCarryComponent::Throw()
 	SetCarriedItem(nullptr);
 	Item->ReleaseToWorld(Location, Velocity);
 	UE_LOG(LogObshaga, Verbose, TEXT("%s threw %s"), *Character->GetName(), *Item->GetName());
+	UGameEventSubsystem::PublishFrom(Character, EGameEventType::ItemThrown, Item);
 }
 
 AItemActor* UCarryComponent::ReleaseForHiding()

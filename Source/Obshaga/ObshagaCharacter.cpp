@@ -1,6 +1,7 @@
 #include "ObshagaCharacter.h"
 
 #include "CarryComponent.h"
+#include "GameEventSubsystem.h"
 #include "HidingSpot.h"
 #include "InteractionComponent.h"
 #include "Obshaga.h"
@@ -201,7 +202,7 @@ void AObshagaCharacter::NotifyActorBeginOverlap(AActor* OtherActor)
 	if (ARoomVolume* Room = Cast<ARoomVolume>(OtherActor))
 	{
 		OverlappingRooms.AddUnique(Room);
-		UE_LOG(LogObshaga, Verbose, TEXT("[%s] %s entered room %s"), *GetNameSafe(GetWorld()), *GetName(), *Room->RoomId.ToString());
+		PublishRoomEvent(EGameEventType::RoomEntered, Room);
 	}
 }
 
@@ -212,7 +213,24 @@ void AObshagaCharacter::NotifyActorEndOverlap(AActor* OtherActor)
 	if (ARoomVolume* Room = Cast<ARoomVolume>(OtherActor))
 	{
 		OverlappingRooms.Remove(Room);
-		UE_LOG(LogObshaga, Verbose, TEXT("[%s] %s left room %s"), *GetNameSafe(GetWorld()), *GetName(), *Room->RoomId.ToString());
+		PublishRoomEvent(EGameEventType::RoomLeft, Room);
+	}
+}
+
+void AObshagaCharacter::PublishRoomEvent(EGameEventType Type, const ARoomVolume* Room)
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+
+	if (UGameEventSubsystem* Bus = UGameEventSubsystem::Get(this))
+	{
+		FGameEvent Event;
+		Event.Type = Type;
+		Event.Instigator = GetPlayerState();
+		Event.RoomId = Room->RoomId;
+		Bus->Publish(Event);
 	}
 }
 

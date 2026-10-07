@@ -1,5 +1,6 @@
 #include "DoorActor.h"
 
+#include "GameEventSubsystem.h"
 #include "NoiseStatics.h"
 #include "Obshaga.h"
 #include "ObshagaCharacter.h"
@@ -91,6 +92,7 @@ void ADoorActor::Interact(AObshagaCharacter* By)
 
 	UE_LOG(LogObshaga, Verbose, TEXT("%s %s by %s"), *GetName(), IsOpen() ? TEXT("opened") : TEXT("closed"), *GetNameSafe(By));
 	OnRep_DoorState();
+	UGameEventSubsystem::PublishFrom(By, IsOpen() ? EGameEventType::DoorOpened : EGameEventType::DoorClosed);
 
 	// Скрип двери слышно рядом.
 	UNoiseStatics::MakeGameNoise(this, DoorMesh->GetComponentLocation(), NoiseLoudness, By);

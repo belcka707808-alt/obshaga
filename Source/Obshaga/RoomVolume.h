@@ -31,6 +31,10 @@ public:
 
 	UBoxComponent* GetBox() const { return Box; }
 
+	/** Комната, внутри которой лежит точка; nullptr, если точка вне всех комнат. */
+	static ARoomVolume* FindRoomAt(const UObject* WorldContextObject, const FVector& Location);
+	static ARoomVolume* FindRoomById(const UObject* WorldContextObject, FName InRoomId);
+
 	/** Короткий код зоны для логики и заданий: Kitchen, Room201... */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Room")
 	FName RoomId;

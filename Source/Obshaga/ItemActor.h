@@ -7,6 +7,7 @@
 
 class AHidingSpot;
 class AObshagaCharacter;
+class APlayerState;
 class UObshagaItemData;
 class UStaticMeshComponent;
 
@@ -60,7 +61,12 @@ public:
 	// Только сервер. Вызывают UCarryComponent и AHidingSpot.
 	void SetCarriedBy(AObshagaCharacter* Carrier);
 	void ReleaseToWorld(const FVector& Location, const FVector& Velocity);
-	void SetHiddenIn(AHidingSpot* Spot);
+	void SetHiddenIn(AHidingSpot* Spot, AObshagaCharacter* By);
+
+	/** Сервер: id комнаты, где предмет сейчас (лежит, спрятан или его несут). */
+	FName GetCurrentRoomId() const;
+	/** Сервер: кто последним спрятал предмет в тайник. */
+	APlayerState* GetLastHiddenBy() const { return LastHiddenBy.Get(); }
 
 protected:
 	virtual void BeginPlay() override;
@@ -90,5 +96,6 @@ protected:
 private:
 	/** Кто последним держал предмет: он считается виновником шума. */
 	TWeakObjectPtr<AObshagaCharacter> LastCarrier;
+	TWeakObjectPtr<APlayerState> LastHiddenBy;
 	float LastNoiseTime = -100.f;
 };

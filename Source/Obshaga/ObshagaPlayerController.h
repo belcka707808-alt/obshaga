@@ -36,12 +36,13 @@ public:
 	const TArray<FHeardNoise>& GetRecentNoises() const { return RecentNoises; }
 	const FText& GetNotice() const { return Notice; }
 	float GetNoticeTime() const { return NoticeTime; }
+	bool IsPhoneOpen() const { return bPhoneOpen; }
 
 protected:
 	virtual void SetupInputComponent() override;
 
 private:
-	/** Раскладка MVP задаётся в коде: WASD, мышь, Shift, Ctrl, пробел, E, F, G, левая кнопка мыши. */
+	/** Раскладка MVP задаётся в коде: WASD, мышь, Shift, Ctrl, пробел, E, F, G, Tab, левая кнопка мыши. */
 	void CreateDefaultInput();
 
 	void OnMoveForward(const FInputActionValue& Value);
@@ -57,6 +58,7 @@ private:
 	void OnSecondaryInteract();
 	void OnDrop();
 	void OnThrow();
+	void OnTogglePhone();
 
 	AObshagaCharacter* GetObshagaCharacter() const;
 
@@ -92,6 +94,12 @@ private:
 
 	UPROPERTY(Transient)
 	TObjectPtr<UInputAction> ThrowAction;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UInputAction> PhoneAction;
+
+	/** Телефон открыт только у локального игрока; мир при этом не останавливается. */
+	bool bPhoneOpen = false;
 
 	TArray<FHeardNoise> RecentNoises;
 	FText Notice;

@@ -6,6 +6,8 @@
 #include "Obshaga.h"
 #include "ObshagaCharacter.h"
 #include "ObshagaItemData.h"
+#include "RoomVolume.h"
+#include "GameFramework/PlayerState.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/StaticMesh.h"
 #include "Net/UnrealNetwork.h"
@@ -139,10 +141,11 @@ void AItemActor::ReleaseToWorld(const FVector& Location, const FVector& Velocity
 	ForceNetUpdate();
 }
 
-void AItemActor::SetHiddenIn(AHidingSpot* Spot)
+void AItemActor::SetHiddenIn(AHidingSpot* Spot, AObshagaCharacter* By)
 {
 	check(HasAuthority());
 
+	LastHiddenBy = By ? By->GetPlayerState() : nullptr;
 	// Клиентам не сообщаем, в каком тайнике предмет: ни ссылкой, ни координатами.
 	HidingSpot = Spot;
 	Placement.State = EItemState::Hidden;
@@ -150,6 +153,30 @@ void AItemActor::SetHiddenIn(AHidingSpot* Spot)
 	ApplyPlacement();
 	SetActorLocation(HiddenItemsLocation, false, nullptr, ETeleportType::TeleportPhysics);
 	ForceNetUpdate();
+}
+
+FName AItemActor::GetCurrentRoomId() const
+{
+	const ARoomVolume* Room = nullptr;
+	switch (Placement.State)
+	{
+	case EItemState::Carried:
+		if (const AObshagaCharacter* Carrier = Cast<AObshagaCharacter>(Placement.Holder))
+		{
+			Room = Carrier->GetCurrentRoom();
+		}
+		break;
+	case EItemState::Hidden:
+		if (HidingSpot)
+		{
+			Room = ARoomVolume::FindRoomAt(this, HidingSpot->GetActorLocation() + FVector(0.f, 0.f, 50.f));
+		}
+		break;
+	default:
+		Room = ARoomVolume::FindRoomAt(this, GetActorLocation());
+		break;
+	}
+	return Room ? Room->RoomId : NAME_None;
 }
 
 void AItemActor::OnRep_Placement()

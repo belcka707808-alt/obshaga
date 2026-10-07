@@ -11,6 +11,10 @@ class OBSHAGA_API UObshagaItemData : public UDataAsset
 	GENERATED_BODY()
 
 public:
+	/** Короткий код вида предмета для заданий: TV, Contraband... */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item")
+	FName ItemId;
+
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item")
 	FText DisplayName;
 

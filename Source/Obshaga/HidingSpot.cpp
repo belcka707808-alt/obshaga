@@ -1,6 +1,7 @@
 #include "HidingSpot.h"
 
 #include "CarryComponent.h"
+#include "GameEventSubsystem.h"
 #include "InteractionComponent.h"
 #include "ItemActor.h"
 #include "Obshaga.h"
@@ -146,6 +147,7 @@ void AHidingSpot::SecondaryInteract(AObshagaCharacter* By)
 
 	HiddenPlayer = By;
 	By->EnterHidingSpot(this);
+	UGameEventSubsystem::PublishFrom(By, EGameEventType::PlayerHid);
 	UE_LOG(LogObshaga, Verbose, TEXT("%s hid in %s"), *By->GetName(), *GetName());
 }
 
@@ -202,8 +204,9 @@ void AHidingSpot::FinishHidingItem(AObshagaCharacter* By)
 	}
 
 	AItemActor* Item = Carry->ReleaseForHiding();
-	Item->SetHiddenIn(this);
+	Item->SetHiddenIn(this, By);
 	HiddenItem = Item;
+	UGameEventSubsystem::PublishFrom(By, EGameEventType::ItemHidden, Item);
 	Notify(By, FText::Format(LOCTEXT("Hid", "Спрятано: {0}"), Item->GetDisplayName()));
 	UE_LOG(LogObshaga, Verbose, TEXT("%s hid %s in %s"), *By->GetName(), *Item->GetName(), *GetName());
 }
@@ -213,6 +216,7 @@ void AHidingSpot::FinishSearch(AObshagaCharacter* By)
 	if (HiddenPlayer)
 	{
 		Notify(By, LOCTEXT("FoundPlayer", "Тут кто-то прятался!"));
+		UGameEventSubsystem::PublishFrom(By, EGameEventType::PlayerFoundHiding, nullptr, HiddenPlayer);
 		EjectHiddenPlayer();
 		return;
 	}
@@ -227,6 +231,7 @@ void AHidingSpot::FinishSearch(AObshagaCharacter* By)
 	if (By->GetCarryComponent()->PickUp(Item))
 	{
 		HiddenItem = nullptr;
+		UGameEventSubsystem::PublishFrom(By, EGameEventType::ItemFound, Item);
 		Notify(By, FText::Format(LOCTEXT("Found", "Нашёл: {0}"), Item->GetDisplayName()));
 		UE_LOG(LogObshaga, Verbose, TEXT("%s took %s out of %s"), *By->GetName(), *Item->GetName(), *GetName());
 	}
@@ -238,6 +243,7 @@ void AHidingSpot::EjectHiddenPlayer()
 	{
 		HiddenPlayer = nullptr;
 		Player->ExitHidingSpot(ExitPoint->GetComponentLocation());
+		UGameEventSubsystem::PublishFrom(Player, EGameEventType::PlayerLeftHiding);
 		Notify(Player, LOCTEXT("Ejected", "Ты вышел из укрытия"));
 		UE_LOG(LogObshaga, Verbose, TEXT("%s left hiding spot %s"), *Player->GetName(), *GetName());
 	}

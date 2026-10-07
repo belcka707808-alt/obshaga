@@ -40,6 +40,7 @@ void AObshagaPlayerController::CreateDefaultInput()
 	SecondaryInteractAction = MakeAction(this, TEXT("IA_SecondaryInteract"), EInputActionValueType::Boolean);
 	DropAction = MakeAction(this, TEXT("IA_Drop"), EInputActionValueType::Boolean);
 	ThrowAction = MakeAction(this, TEXT("IA_Throw"), EInputActionValueType::Boolean);
+	PhoneAction = MakeAction(this, TEXT("IA_Phone"), EInputActionValueType::Boolean);
 
 	DefaultMappingContext = NewObject<UInputMappingContext>(this, TEXT("IMC_Obshaga"));
 	DefaultMappingContext->MapKey(MoveForwardAction, EKeys::W);
@@ -55,6 +56,7 @@ void AObshagaPlayerController::CreateDefaultInput()
 	DefaultMappingContext->MapKey(SecondaryInteractAction, EKeys::F);
 	DefaultMappingContext->MapKey(DropAction, EKeys::G);
 	DefaultMappingContext->MapKey(ThrowAction, EKeys::LeftMouseButton);
+	DefaultMappingContext->MapKey(PhoneAction, EKeys::Tab);
 }
 
 void AObshagaPlayerController::SetupInputComponent()
@@ -87,6 +89,7 @@ void AObshagaPlayerController::SetupInputComponent()
 	Input->BindAction(SecondaryInteractAction, ETriggerEvent::Started, this, &AObshagaPlayerController::OnSecondaryInteract);
 	Input->BindAction(DropAction, ETriggerEvent::Started, this, &AObshagaPlayerController::OnDrop);
 	Input->BindAction(ThrowAction, ETriggerEvent::Started, this, &AObshagaPlayerController::OnThrow);
+	Input->BindAction(PhoneAction, ETriggerEvent::Started, this, &AObshagaPlayerController::OnTogglePhone);
 }
 
 AObshagaCharacter* AObshagaPlayerController::GetObshagaCharacter() const
@@ -197,6 +200,11 @@ void AObshagaPlayerController::OnThrow()
 	{
 		ObshagaCharacter->GetCarryComponent()->TryThrow();
 	}
+}
+
+void AObshagaPlayerController::OnTogglePhone()
+{
+	bPhoneOpen = !bPhoneOpen;
 }
 
 void AObshagaPlayerController::ClientHeardNoise_Implementation(FVector_NetQuantize Location, float Loudness)

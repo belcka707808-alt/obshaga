@@ -6,6 +6,7 @@
 
 class AHidingSpot;
 class ARoomVolume;
+enum class EGameEventType : uint8;
 class UCameraComponent;
 class UCarryComponent;
 class UInteractionComponent;
@@ -65,6 +66,7 @@ protected:
 
 	void UpdateMovementSpeed();
 	void ApplyHiding();
+	void PublishRoomEvent(EGameEventType Type, const ARoomVolume* Room);
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Camera")
 	TObjectPtr<USpringArmComponent> CameraBoom;
