@@ -5,6 +5,7 @@
 #include "TaskTypes.h"
 #include "TaskComponent.generated.h"
 
+class AItemActor;
 class AObshagaPlayerState;
 
 /**
@@ -33,8 +34,8 @@ public:
 	bool HasTask(FName TaskId) const;
 	/** Строка задания игрока с таким условием; nullptr, если такого задания у него нет. */
 	const FTaskRow* FindRowByCondition(ETaskCondition Condition) const;
-	/** Брал ли игрок предмет задания в его «родной» комнате не позже указанного времени. */
-	static bool HasStolen(const UObject* WorldContextObject, const APlayerState* Who, const FTaskRow& Row, float BeforeTime);
+	/** Предмет задания, который игрок вынес из его «родной» комнаты; nullptr, если он ничего не крал. */
+	static AItemActor* FindStolenItem(const UObject* WorldContextObject, const APlayerState* Who, const FTaskRow& Row);
 	/** Обновляет пометку «выполнено прямо сейчас» для телефона. */
 	void UpdateLiveStatus();
 	/** Конец раунда: фиксирует успех или провал, возвращает заработанные очки. */

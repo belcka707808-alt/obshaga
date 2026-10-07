@@ -50,6 +50,7 @@ protected:
 	virtual void BeginPlay() override;
 
 	void ApplySize();
+	bool IsRoundInProgress() const;
 	void StartTimedAction(AObshagaCharacter* By, bool bBreak);
 	void FinishTimedAction();
 	void SetBroken(bool bNewBroken, AObshagaCharacter* By);

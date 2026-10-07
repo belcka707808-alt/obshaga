@@ -242,6 +242,19 @@ void AHidingSpot::FinishSearch(AObshagaCharacter* By)
 	}
 }
 
+void AHidingSpot::ForgetHiddenPlayer(const AObshagaCharacter* Player)
+{
+	if (HasAuthority() && HiddenPlayer == Player)
+	{
+		HiddenPlayer = nullptr;
+	}
+}
+
+FVector AHidingSpot::GetHiddenPlayerLocation(float HalfHeight) const
+{
+	return GetActorLocation() + FVector(0.f, 0.f, HalfHeight + 2.f);
+}
+
 void AHidingSpot::ResetSpot()
 {
 	if (HasAuthority())

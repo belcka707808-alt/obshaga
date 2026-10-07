@@ -5,6 +5,7 @@
 #include "NoiseStatics.h"
 #include "Obshaga.h"
 #include "ObshagaCharacter.h"
+#include "ObshagaGameState.h"
 #include "ObshagaPlayerController.h"
 #include "RoomVolume.h"
 #include "Components/StaticMeshComponent.h"
@@ -89,9 +90,16 @@ FName ADeviceActor::GetRoomId() const
 	return Room ? Room->RoomId : NAME_None;
 }
 
+bool ADeviceActor::IsRoundInProgress() const
+{
+	// В лобби и на экране итогов прибор не трогают: иначе задания засчитывались бы заранее.
+	const AObshagaGameState* GameState = GetWorld()->GetGameState<AObshagaGameState>();
+	return GameState && GameState->GetRoundState() == ERoundState::InProgress;
+}
+
 FText ADeviceActor::GetInteractionPrompt(const AObshagaCharacter* By) const
 {
-	if (!By || !bBroken)
+	if (!By || !bBroken || !IsRoundInProgress())
 	{
 		return FText::GetEmpty();
 	}
@@ -104,7 +112,7 @@ FText ADeviceActor::GetInteractionPrompt(const AObshagaCharacter* By) const
 
 FText ADeviceActor::GetSecondaryPrompt(const AObshagaCharacter* By) const
 {
-	if (!By || bBroken)
+	if (!By || bBroken || !IsRoundInProgress())
 	{
 		return FText::GetEmpty();
 	}
@@ -117,7 +125,7 @@ FText ADeviceActor::GetSecondaryPrompt(const AObshagaCharacter* By) const
 
 void ADeviceActor::Interact(AObshagaCharacter* By)
 {
-	if (HasAuthority() && By && bBroken && !bBusy)
+	if (HasAuthority() && By && bBroken && !bBusy && IsRoundInProgress())
 	{
 		StartTimedAction(By, false);
 	}
@@ -125,7 +133,7 @@ void ADeviceActor::Interact(AObshagaCharacter* By)
 
 void ADeviceActor::SecondaryInteract(AObshagaCharacter* By)
 {
-	if (HasAuthority() && By && !bBroken && !bBusy)
+	if (HasAuthority() && By && !bBroken && !bBusy && IsRoundInProgress())
 	{
 		StartTimedAction(By, true);
 	}

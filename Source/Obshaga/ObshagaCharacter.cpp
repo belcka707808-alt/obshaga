@@ -1,6 +1,8 @@
 #include "ObshagaCharacter.h"
 
 #include "CarryComponent.h"
+#include "DoorActor.h"
+#include "EngineUtils.h"
 #include "GameEventSubsystem.h"
 #include "HidingSpot.h"
 #include "InteractionComponent.h"
@@ -85,6 +87,21 @@ void AObshagaCharacter::BeginPlay()
 	}
 }
 
+void AObshagaCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	// Игрок вышел из игры: то, что он нёс, падает на пол, а его укрытие освобождается.
+	if (HasAuthority() && EndPlayReason == EEndPlayReason::Destroyed)
+	{
+		CarryComponent->Drop();
+		if (HidingSpot)
+		{
+			HidingSpot->ForgetHiddenPlayer(this);
+		}
+	}
+
+	Super::EndPlay(EndPlayReason);
+}
+
 const UObshagaCharacterConfig* AObshagaCharacter::GetConfig() const
 {
 	return Config ? Config.Get() : GetDefault<UObshagaCharacterConfig>();
@@ -148,7 +165,7 @@ void AObshagaCharacter::EnterHidingSpot(AHidingSpot* Spot)
 	HidingSpot = Spot;
 
 	const float HalfHeight = GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
-	SetActorLocation(Spot->GetActorLocation() + FVector(0.f, 0.f, HalfHeight + 2.f), false, nullptr, ETeleportType::TeleportPhysics);
+	SetActorLocation(Spot->GetHiddenPlayerLocation(HalfHeight), false, nullptr, ETeleportType::TeleportPhysics);
 	ApplyHiding();
 	ForceNetUpdate();
 }
@@ -212,6 +229,12 @@ void AObshagaCharacter::ApplyHiding()
 
 	// Призрак проходит сквозь людей и не мешает им.
 	GetCapsuleComponent()->SetCollisionResponseToChannel(ECC_Pawn, bIsGhost ? ECR_Ignore : ECR_Block);
+
+	// И сквозь двери: открыть их он не может, а запереть выселенного в комнате было бы нечестно.
+	for (TActorIterator<ADoorActor> It(GetWorld()); It; ++It)
+	{
+		GetCapsuleComponent()->IgnoreActorWhenMoving(*It, bIsGhost);
+	}
 
 	// В укрытии персонаж стоит на месте; столкновения не трогаем, чтобы он оставался «в комнате».
 	UCharacterMovementComponent* Movement = GetCharacterMovement();

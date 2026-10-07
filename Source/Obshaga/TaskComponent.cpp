@@ -9,6 +9,7 @@
 #include "ObshagaPlayerState.h"
 #include "ObshagaRoundConfig.h"
 #include "EngineUtils.h"
+#include "GameFramework/Pawn.h"
 #include "Net/UnrealNetwork.h"
 
 UTaskComponent::UTaskComponent()
@@ -59,20 +60,49 @@ const FTaskRow* UTaskComponent::FindRowByCondition(ETaskCondition Condition) con
 	return Rows.FindByPredicate([Condition](const FTaskRow& Row) { return Row.SuccessCondition == Condition; });
 }
 
-bool UTaskComponent::HasStolen(const UObject* WorldContextObject, const APlayerState* Who, const FTaskRow& Row, float BeforeTime)
+AItemActor* UTaskComponent::FindStolenItem(const UObject* WorldContextObject, const APlayerState* Who, const FTaskRow& Row)
 {
-	// «Украл» = взял нужный предмет в комнате, где тот должен лежать.
+	// «Украл» = взял нужный предмет в его «родной» комнате и вынес оттуда: держит его в руках в другой комнате
+	// либо уже положил, бросил, спрятал или попался с ним за её пределами. Переложить вещь внутри комнаты — не кража.
 	const UGameEventSubsystem* Bus = UGameEventSubsystem::Get(WorldContextObject);
 	if (!Bus || !Who)
 	{
-		return false;
+		return nullptr;
 	}
-	return Bus->GetEventLog().ContainsByPredicate([&](const FGameEvent& Event)
+
+	const TArray<FGameEvent>& Events = Bus->GetEventLog();
+	for (const FGameEvent& Pick : Events)
 	{
-		return Event.Type == EGameEventType::ItemPickedUp && Event.Instigator == Who && Event.Item && Event.Time <= BeforeTime
-			&& (Row.ItemId.IsNone() || Event.Item->GetItemData()->ItemId == Row.ItemId)
-			&& (Row.RoomId.IsNone() || Event.RoomId == Row.RoomId);
-	});
+		AItemActor* Item = Pick.Item;
+		if (Pick.Type != EGameEventType::ItemPickedUp || Pick.Instigator != Who || !Item
+			|| (!Row.ItemId.IsNone() && Item->GetItemData()->ItemId != Row.ItemId)
+			|| (!Row.RoomId.IsNone() && Pick.RoomId != Row.RoomId))
+		{
+			continue;
+		}
+		if (Row.RoomId.IsNone())
+		{
+			return Item;
+		}
+
+		const APawn* Holder = Cast<APawn>(Item->GetHolder());
+		if (Item->GetItemState() == EItemState::Carried && Holder && Holder->GetPlayerState() == Who && Item->GetCurrentRoomId() != Row.RoomId)
+		{
+			return Item;
+		}
+
+		const bool bCarriedOut = Events.ContainsByPredicate([&](const FGameEvent& Event)
+		{
+			const bool bLetGo = Event.Type == EGameEventType::ItemDropped || Event.Type == EGameEventType::ItemThrown
+				|| Event.Type == EGameEventType::ItemHidden || Event.Type == EGameEventType::PlayerCaught;
+			return bLetGo && Event.Instigator == Who && Event.Item == Item && Event.Time >= Pick.Time && Event.RoomId != Row.RoomId;
+		});
+		if (bCarriedOut)
+		{
+			return Item;
+		}
+	}
+	return nullptr;
 }
 
 bool UTaskComponent::HasTask(FName TaskId) const
@@ -220,7 +250,10 @@ bool UTaskComponent::EvaluateCondition(const FTaskRow& Row) const
 	case ETaskCondition::NoiseLuredKomendantAndUnseen:
 	{
 		// Комендант пошёл на шум этого игрока, и после этого игрока не поймали.
-		const FGameEvent* Lure = FindOwnEvent(EGameEventType::KomendantAlerted);
+		// Считается последняя приманка: ранняя неудача не портит более позднюю удачу.
+		const int32 LureIndex = Events.FindLastByPredicate([OwnerState](const FGameEvent& Event)
+			{ return Event.Type == EGameEventType::KomendantAlerted && Event.Instigator == OwnerState; });
+		const FGameEvent* Lure = Events.IsValidIndex(LureIndex) ? &Events[LureIndex] : nullptr;
 		return Lure && FindOwnEvent(EGameEventType::PlayerCaught, Lure->Time) == nullptr;
 	}
 
@@ -236,7 +269,14 @@ bool UTaskComponent::EvaluateCondition(const FTaskRow& Row) const
 		for (const FGameEvent& Plant : Events)
 		{
 			const bool bPlanted = Plant.Type == EGameEventType::ItemDropped || Plant.Type == EGameEventType::ItemHidden;
-			if (!bPlanted || Plant.Instigator != OwnerState || !Plant.Item || Plant.RoomId.IsNone())
+			if (!bPlanted || Plant.Instigator != OwnerState || !Plant.Item || Plant.RoomId.IsNone()
+				|| Plant.RoomId == OwnerState->GetHomeRoomId())
+			{
+				continue;
+			}
+			// Годится не любая вещь: запрещёнка или предмет, названный в задании.
+			const UObshagaItemData* PlantedData = Plant.Item->GetItemData();
+			if (Row.ItemId.IsNone() ? !PlantedData->bContraband : PlantedData->ItemId != Row.ItemId)
 			{
 				continue;
 			}
@@ -349,8 +389,9 @@ bool UTaskComponent::EvaluateCondition(const FTaskRow& Row) const
 
 	case ETaskCondition::CorrectAccusation:
 	{
+		// Верно ли обвинение, сервер решил в момент обвинения и записал украденный предмет в событие.
 		const FGameEvent* Accusation = FindOwnEvent(EGameEventType::Accusation);
-		return Accusation && HasStolen(this, Accusation->Target, Row, Accusation->Time);
+		return Accusation && Accusation->Item != nullptr;
 	}
 
 	default:

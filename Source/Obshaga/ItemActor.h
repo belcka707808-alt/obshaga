@@ -62,6 +62,8 @@ public:
 	FText GetDisplayName() const;
 	bool IsHeavy() const;
 	EItemState GetItemState() const { return Placement.State; }
+	/** Кто несёт предмет; nullptr, если он не в руках. */
+	AActor* GetHolder() const { return Placement.Holder; }
 
 	// Только сервер. Вызывают UCarryComponent и AHidingSpot.
 	void SetCarriedBy(AObshagaCharacter* Carrier);

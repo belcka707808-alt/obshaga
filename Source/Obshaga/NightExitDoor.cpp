@@ -66,11 +66,32 @@ void ANightExitDoor::SecondaryInteract(AObshagaCharacter* By)
 {
 }
 
+FVector ANightExitDoor::GetHiddenPlayerLocation(float HalfHeight) const
+{
+	// «Лицо» двери (+X) смотрит в общагу, улица — с обратной стороны.
+	return GetActorLocation() - GetActorForwardVector() * (BoxSize.X * 0.5f + 60.f) + FVector(0.f, 0.f, HalfHeight + 2.f);
+}
+
+void ANightExitDoor::ForceReturn()
+{
+	if (HasAuthority() && HiddenPlayer)
+	{
+		Notify(HiddenPlayer, LOCTEXT("ForcedBack", "Светает — пора обратно в общагу"));
+		EjectHiddenPlayer();
+	}
+}
+
 void ANightExitDoor::Interact(AObshagaCharacter* By)
 {
 	if (!HasAuthority() || !By)
 	{
 		return;
+	}
+
+	// Тот, кто был на улице, вышел из игры — дверь снова свободна.
+	if (HiddenPlayer && !IsValid(HiddenPlayer))
+	{
+		HiddenPlayer = nullptr;
 	}
 
 	if (HiddenPlayer == By)

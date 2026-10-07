@@ -26,6 +26,7 @@ public:
 
 	virtual void BeginPlay() override;
 	virtual void HandleStartingNewPlayer_Implementation(APlayerController* NewPlayer) override;
+	virtual AActor* ChoosePlayerStart_Implementation(AController* Player) override;
 
 	const UObshagaRoundConfig* GetRoundConfig() const;
 
@@ -65,6 +66,7 @@ protected:
 	/** Включает игроку клавиши, которые нужны его заданиям (обвинить, настучать на комнату). */
 	void GrantTaskAbilities(AObshagaPlayerState* PlayerState) const;
 	void BreakDeviceByItself();
+	void ScheduleSelfBreakIfNeeded();
 	/** Пишет итоги раунда в Saved/Telemetry — для правки баланса после плейтестов. */
 	void WriteTelemetry(const TArray<AObshagaPlayerState*>& Players) const;
 

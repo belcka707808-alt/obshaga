@@ -4,6 +4,7 @@
 #include "ItemActor.h"
 #include "NightExitDoor.h"
 #include "Obshaga.h"
+#include "ObshagaGameState.h"
 #include "ObshagaItemData.h"
 #include "ObshagaPlayerState.h"
 #include "TaskComponent.h"
@@ -23,11 +24,34 @@ void UTaskDirector::Reset()
 	NumDealt = 0;
 }
 
-bool UTaskDirector::IsFeasible(const UWorld* World, const FTaskRow& Row)
+bool UTaskDirector::IsFeasible(const AObshagaPlayerState* PlayerState, const FTaskRow& Row, ERoundPhase CurrentPhase)
 {
+	const UWorld* World = PlayerState->GetWorld();
+
+	// Фаза задания уже прошла (например, ночная вылазка для вошедшего утром) — не раздаём.
+	const UEnum* PhaseEnum = StaticEnum<ERoundPhase>();
+	const int64 TaskPhase = Row.Phase.IsNone() ? INDEX_NONE : PhaseEnum->GetValueByNameString(Row.Phase.ToString());
+	if (TaskPhase != INDEX_NONE && TaskPhase < static_cast<int64>(CurrentPhase))
+	{
+		return false;
+	}
+
 	// Задание раздаётся, только если на карте есть то, без чего его не выполнить.
 	switch (Row.SuccessCondition)
 	{
+	case ETaskCondition::ItemPlantedInRoomOfPlayer:
+	case ETaskCondition::PlayerCaughtWithItem:
+	{
+		// Подставить можно только того, кто живёт в другой комнате.
+		const AGameStateBase* GameState = World->GetGameState();
+		return GameState && GameState->PlayerArray.ContainsByPredicate([PlayerState](const APlayerState* Other)
+		{
+			const AObshagaPlayerState* OtherState = Cast<AObshagaPlayerState>(Other);
+			return OtherState && OtherState != PlayerState && !OtherState->GetHomeRoomId().IsNone()
+				&& OtherState->GetHomeRoomId() != PlayerState->GetHomeRoomId();
+		});
+	}
+
 	case ETaskCondition::DeviceBrokenAndNotSeen:
 	case ETaskCondition::DeviceRepaired:
 		return static_cast<bool>(TActorIterator<ADeviceActor>(World));
@@ -62,7 +86,7 @@ bool UTaskDirector::AreInConflict(FName A, FName B) const
 	return (RowA && RowA->ConflictsWith.Contains(B)) || (RowB && RowB->ConflictsWith.Contains(A));
 }
 
-void UTaskDirector::AssignTasksTo(AObshagaPlayerState* PlayerState, int32 NumPlayers)
+void UTaskDirector::AssignTasksTo(AObshagaPlayerState* PlayerState, int32 NumPlayers, ERoundPhase CurrentPhase)
 {
 	if (!TasksTable || !PlayerState)
 	{
@@ -76,7 +100,7 @@ void UTaskDirector::AssignTasksTo(AObshagaPlayerState* PlayerState, int32 NumPla
 	{
 		const FTaskRow* Row = FindRow(RowName);
 		if (Row && Row->bEnabled && Row->MinPlayers <= NumPlayers && UTaskComponent::IsConditionImplemented(Row->SuccessCondition)
-			&& IsFeasible(PlayerState->GetWorld(), *Row))
+			&& IsFeasible(PlayerState, *Row, CurrentPhase))
 		{
 			Candidates.Add(RowName);
 		}
@@ -98,7 +122,11 @@ void UTaskDirector::AssignTasksTo(AObshagaPlayerState* PlayerState, int32 NumPla
 	if (DealtMainIds.IsEmpty())
 	{
 		// Первому игроку — задание, у которого вообще есть противник, чтобы второму досталась конфликтующая пара.
-		const TArray<FName> WithRivals = Fresh.FilterByPredicate([this](const FName& Id) { return !FindRow(Id)->ConflictsWith.IsEmpty(); });
+		// Противник должен быть таким, которого реально можно выдать основным заданием.
+		const TArray<FName> WithRivals = Fresh.FilterByPredicate([&](const FName& Id)
+		{
+			return Mains.ContainsByPredicate([&](const FName& Other) { return Other != Id && AreInConflict(Id, Other); });
+		});
 		if (!WithRivals.IsEmpty())
 		{
 			Fresh = WithRivals;

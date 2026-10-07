@@ -48,7 +48,11 @@ public:
 	void SetHomeRoomId(FName NewRoomId);
 	void SetRole(EPlayerRole NewRole);
 	void SetRatIntel(const FText& Intel, APlayerState* Target);
-	APlayerState* GetRatTarget() const { return RatTarget.Get(); }
+	/** Жертва Крысы; у Крысы есть и на её клиенте, у остальных пусто. */
+	APlayerState* GetRatTarget() const { return RatTarget; }
+	/** Бонус Крысы за удачный стук копится здесь и попадает в очки только на итогах: иначе скачок очков выдал бы её. */
+	void AddPendingRatBonus(int32 Bonus) { PendingRatBonus += Bonus; }
+	int32 TakePendingRatBonus();
 	void AddSms(const FText& Message);
 	void SetEvicted(bool bNewEvicted);
 	void MarkTipUsed();
@@ -72,6 +76,9 @@ protected:
 	FText RatIntel;
 
 	UPROPERTY(Replicated)
+	TObjectPtr<APlayerState> RatTarget;
+
+	UPROPERTY(Replicated)
 	TArray<FText> SmsMessages;
 
 	UPROPERTY(Replicated)
@@ -89,5 +96,5 @@ protected:
 
 private:
 	EPlayerRole TrueRole = EPlayerRole::Resident;
-	TWeakObjectPtr<APlayerState> RatTarget;
+	int32 PendingRatBonus = 0;
 };

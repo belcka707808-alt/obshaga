@@ -6,7 +6,7 @@
 
 class AObshagaPlayerState;
 class UDataTable;
-class UWorld;
+enum class ERoundPhase : uint8;
 struct FTaskRow;
 
 /**
@@ -25,8 +25,8 @@ public:
 	/** Новый раунд: забыть, что было роздано. */
 	void Reset();
 
-	/** Выдаёт игроку основное и побочное задания. */
-	void AssignTasksTo(AObshagaPlayerState* PlayerState, int32 NumPlayers);
+	/** Выдаёт игроку основное и побочное задания. CurrentPhase — фаза, в которую он их получает. */
+	void AssignTasksTo(AObshagaPlayerState* PlayerState, int32 NumPlayers, ERoundPhase CurrentPhase);
 
 private:
 	UPROPERTY()
@@ -34,7 +34,7 @@ private:
 
 	const FTaskRow* FindRow(FName TaskId) const;
 	bool AreInConflict(FName A, FName B) const;
-	static bool IsFeasible(const UWorld* World, const FTaskRow& Row);
+	static bool IsFeasible(const AObshagaPlayerState* PlayerState, const FTaskRow& Row, ERoundPhase CurrentPhase);
 
 	TArray<FName> DealtMainIds;
 	int32 NumDealt = 0;

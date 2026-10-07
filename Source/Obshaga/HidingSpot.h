@@ -42,6 +42,12 @@ public:
 	 */
 	AItemActor* KomendantSearch(AObshagaCharacter*& OutFoundPlayer);
 
+	/** Сервер: игрок, сидевший внутри, исчез из игры (вышел) — тайник снова свободен. */
+	void ForgetHiddenPlayer(const AObshagaCharacter* Player);
+
+	/** Где стоит спрятавшийся игрок. HalfHeight — половина роста его капсулы. */
+	virtual FVector GetHiddenPlayerLocation(float HalfHeight) const;
+
 	/** Сервер: опустошить тайник (реванш). Предметы и игроков возвращает на место тот, кто вызывает. */
 	void ResetSpot();
 
