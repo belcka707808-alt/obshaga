@@ -2,7 +2,7 @@
 # PIE запускается через unreal-mcp (EditorAppToolset.StartPIE), этот скрипт только смотрит и жмёт кнопки.
 #   -Action list                                 — окна UnrealEditor
 #   -Action shot -Match "Client 1" -Out x.png    — скриншот окна (работает, даже если окно перекрыто)
-#   -Action key  -Match "Unreal Editor" -Key W -Ms 2000 — клик в центр окна и удержание клавиши
+#   -Action key  -Match "Unreal Editor" -Key W -Ms 2000 — клик в центр окна и удержание клавиши (или сочетания: Shift+W)
 param([string]$Action, [string]$Out, [string]$Key = "W", [int]$Ms = 1500, [string]$Match = "")
 Add-Type -AssemblyName System.Drawing
 Add-Type @"
@@ -17,6 +17,8 @@ public class U {
  [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
  [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr h, IntPtr dc, uint f);
  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
+ [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+ [DllImport("user32.dll")] public static extern uint MapVirtualKey(uint code, uint mapType);
  [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int c);
  [DllImport("user32.dll")] public static extern void keybd_event(byte vk, byte sc, uint f, UIntPtr e);
  [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
@@ -40,10 +42,21 @@ if($Action -eq "shot"){
   $bmp.Save($Out,[Drawing.Imaging.ImageFormat]::Png); "$($w.T) $($bmp.Width)x$($bmp.Height)"
 }
 if($Action -eq "key"){
-  [U]::ShowWindow($w.H,9)|Out-Null; [U]::SetForegroundWindow($w.H)|Out-Null; Start-Sleep -Milliseconds 300
-  $r = New-Object U+RECT; [U]::GetWindowRect($w.H,[ref]$r)|Out-Null; [U]::SetCursorPos([int](($r.L+$r.R)/2),[int](($r.T+$r.B)/2))|Out-Null
-  [U]::mouse_event(2,0,0,0,[UIntPtr]::Zero); Start-Sleep -Milliseconds 50; [U]::mouse_event(4,0,0,0,[UIntPtr]::Zero); Start-Sleep -Milliseconds 300
-  $vk=[byte][char]$Key.ToUpper()
-  [U]::keybd_event($vk,0,0,[UIntPtr]::Zero); Start-Sleep -Milliseconds $Ms; [U]::keybd_event($vk,0,2,[UIntPtr]::Zero)
+  # Если окно уже активно, не кликаем: движение курсора игра приняла бы за поворот камеры.
+  if([U]::GetForegroundWindow() -ne $w.H){
+    # Нажатие Alt снимает запрет Windows на смену активного окна из фонового процесса.
+    [U]::keybd_event(0x12,0,0,[UIntPtr]::Zero); [U]::keybd_event(0x12,0,2,[UIntPtr]::Zero)
+    [U]::ShowWindow($w.H,9)|Out-Null; [U]::SetForegroundWindow($w.H)|Out-Null; Start-Sleep -Milliseconds 300
+    if([U]::GetForegroundWindow() -ne $w.H){ "could not activate $($w.T)"; exit 1 }
+    $r = New-Object U+RECT; [U]::GetWindowRect($w.H,[ref]$r)|Out-Null; [U]::SetCursorPos([int](($r.L+$r.R)/2),[int](($r.T+$r.B)/2))|Out-Null
+    [U]::mouse_event(2,0,0,0,[UIntPtr]::Zero); Start-Sleep -Milliseconds 50; [U]::mouse_event(4,0,0,0,[UIntPtr]::Zero); Start-Sleep -Milliseconds 300
+  }
+  # -Key понимает сочетания: "Shift+W", "Ctrl+W", "Space"
+  # Скан-код обязателен: по нему движок отличает левый Shift/Ctrl от правого.
+  $names = @{ SHIFT = 0x10; CTRL = 0x11; SPACE = 0x20 }
+  $vks = @($Key.ToUpper().Split('+') | ForEach-Object { if($names.ContainsKey($_)){ [byte]$names[$_] } else { [byte][char]$_ } })
+  foreach($vk in $vks){ [U]::keybd_event($vk,[byte][U]::MapVirtualKey($vk,0),0,[UIntPtr]::Zero); Start-Sleep -Milliseconds 40 }
+  Start-Sleep -Milliseconds $Ms
+  [array]::Reverse($vks); foreach($vk in $vks){ [U]::keybd_event($vk,[byte][U]::MapVirtualKey($vk,0),2,[UIntPtr]::Zero) }
   "pressed $Key ${Ms}ms in $($w.T)"
 }
