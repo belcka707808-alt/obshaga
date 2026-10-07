@@ -711,6 +711,7 @@ bool AObshagaGameMode::StartInterrogation(AObshagaCharacter* Suspect, const FVec
 		{
 			Carry->ReleaseForHiding();
 			Item->ReleaseToWorld(EvidenceLocation, FVector::ZeroVector);
+			Item->ForgetCarrier();
 			UGameEventSubsystem::PublishFrom(Suspect, EGameEventType::ContrabandConfiscated, Item);
 		}
 		else

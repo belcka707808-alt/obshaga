@@ -13,7 +13,7 @@
 
 namespace
 {
-	void Notify(AObshagaCharacter* Character, const FText& Text)
+	void NotifyWalker(AObshagaCharacter* Character, const FText& Text)
 	{
 		if (AObshagaPlayerController* Controller = Character ? Cast<AObshagaPlayerController>(Character->GetController()) : nullptr)
 		{
@@ -76,7 +76,7 @@ void ANightExitDoor::ForceReturn()
 {
 	if (HasAuthority() && HiddenPlayer)
 	{
-		Notify(HiddenPlayer, LOCTEXT("ForcedBack", "Светает — пора обратно в общагу"));
+		NotifyWalker(HiddenPlayer, LOCTEXT("ForcedBack", "Светает — пора обратно в общагу"));
 		EjectHiddenPlayer();
 	}
 }
@@ -105,7 +105,7 @@ void ANightExitDoor::Interact(AObshagaCharacter* By)
 	}
 	if (HiddenPlayer)
 	{
-		Notify(By, LOCTEXT("Occupied", "На улице уже кто-то есть — подожди"));
+		NotifyWalker(By, LOCTEXT("Occupied", "На улице уже кто-то есть — подожди"));
 		return;
 	}
 
@@ -114,7 +114,7 @@ void ANightExitDoor::Interact(AObshagaCharacter* By)
 	// Событие — до входа в укрытие, пока персонаж ещё числится в комнате выхода.
 	UGameEventSubsystem::PublishFrom(By, EGameEventType::LeftBuilding);
 	By->EnterHidingSpot(this);
-	Notify(By, LOCTEXT("Out", "Ты на улице. Погуляй и возвращайся [E]"));
+	NotifyWalker(By, LOCTEXT("Out", "Ты на улице. Погуляй и возвращайся [E]"));
 	UE_LOG(LogObshaga, Verbose, TEXT("%s left the building"), *By->GetName());
 }
 
@@ -133,11 +133,11 @@ void ANightExitDoor::EjectHiddenPlayer()
 	if (GetWorld()->GetTimeSeconds() - LeftTime >= Needed)
 	{
 		UGameEventSubsystem::PublishFrom(Player, EGameEventType::ReturnedToBuilding);
-		Notify(Player, LOCTEXT("Back", "Ты вернулся с улицы. Теперь не попадись"));
+		NotifyWalker(Player, LOCTEXT("Back", "Ты вернулся с улицы. Теперь не попадись"));
 	}
 	else
 	{
-		Notify(Player, FText::Format(LOCTEXT("TooFast", "Слишком быстро вернулся: гулять надо {0} с"), FText::AsNumber(FMath::RoundToInt32(Needed))));
+		NotifyWalker(Player, FText::Format(LOCTEXT("TooFast", "Слишком быстро вернулся: гулять надо {0} с"), FText::AsNumber(FMath::RoundToInt32(Needed))));
 	}
 }
 

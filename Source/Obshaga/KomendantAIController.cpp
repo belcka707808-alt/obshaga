@@ -556,7 +556,7 @@ void AKomendantAIController::TickPatrol(float DeltaSeconds)
 		{
 			QueuedSpot = InspectionQueue.Pop();
 		}
-		if (!QueuedSpot.IsValid() || !PlanPathTo(QueuedSpot->GetActorLocation()))
+		if (!QueuedSpot.IsValid() || !PlanPathTo(GetSpotStandLocation(QueuedSpot.Get())))
 		{
 			QueuedSpot.Reset();
 		}
@@ -720,7 +720,7 @@ void AKomendantAIController::TickInspect(float DeltaSeconds)
 	}
 
 	// Сначала подходит к тайнику (не дольше нескольких секунд), потом роется.
-	const FVector SpotLocation = Spot->GetActorLocation();
+	const FVector SpotLocation = GetSpotStandLocation(Spot);
 	const FVector ToSpot = SpotLocation - Komendant->GetActorLocation();
 	const float Distance = ToSpot.Size2D();
 	if (SearchTime <= 0.f && Distance > InspectApproachDistance && StateTime < InspectApproachSeconds)
@@ -730,7 +730,7 @@ void AKomendantAIController::TickInspect(float DeltaSeconds)
 	}
 
 	// Сквозь стены и с другого этажа не обыскивает: не дошёл — бросает этот тайник.
-	if (SearchTime <= 0.f && (Distance > InspectReachDistance || FMath::Abs(ToSpot.Z) > ArriveHeight))
+	if (SearchTime <= 0.f && (Distance > InspectReachDistance || FMath::Abs(ToSpot.Z) > SameFloorHeight))
 	{
 		UE_LOG(LogObshaga, Verbose, TEXT("Komendant could not reach %s, skipping"), *Spot->GetName());
 		InterruptedQueuedSpot.Reset();
@@ -760,6 +760,7 @@ void AKomendantAIController::SearchSpot(AHidingSpot* Spot)
 		// Запрещёнку уносит на вахту. Кто прятал, комендант не знает: в жилой комнате виноваты её жильцы.
 		APlayerState* Hider = Contraband->GetLastHiddenBy();
 		Contraband->ReleaseToWorld(GetEvidenceLocation(), FVector::ZeroVector);
+		Contraband->ForgetCarrier();
 
 		const ARoomVolume* Room = ARoomVolume::FindRoomAt(this, Spot->GetActorLocation() + FVector(0.f, 0.f, 50.f));
 		const FName RoomId = Room ? Room->RoomId : NAME_None;
@@ -1037,13 +1038,20 @@ AHidingSpot* AKomendantAIController::PickSpotNear(const FVector& Location) const
 	TArray<AHidingSpot*> Near;
 	for (AHidingSpot* Spot : HidingSpots)
 	{
-		const FVector Delta = Spot->GetActorLocation() - Location;
-		if (Delta.Size2D() < 600.f && FMath::Abs(Delta.Z) < ArriveHeight)
+		const FVector Delta = GetSpotStandLocation(Spot) - Location;
+		if (Delta.Size2D() < 600.f && FMath::Abs(Delta.Z) < SameFloorHeight)
 		{
 			Near.Add(Spot);
 		}
 	}
 	return Near.IsEmpty() ? nullptr : Near[FMath::RandRange(0, Near.Num() - 1)];
+}
+
+FVector AKomendantAIController::GetSpotStandLocation(const AHidingSpot* Spot) const
+{
+	// Тайник стоит на полу, а комендант и точки маршрута — на высоте пояса. Без этой поправки тайник
+	// второго этажа оказывался «ближе» к точке первого этажа под ним, и комендант шёл не на тот этаж.
+	return Spot->GetActorLocation() + FVector(0.f, 0.f, Komendant->GetSimpleCollisionHalfHeight());
 }
 
 void AKomendantAIController::OpenDoorsNearby()

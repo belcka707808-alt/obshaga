@@ -19,7 +19,7 @@
 
 namespace
 {
-	void Notify(AObshagaCharacter* Character, const FText& Text)
+	void NotifyDeviceUser(AObshagaCharacter* Character, const FText& Text)
 	{
 		if (AObshagaPlayerController* Controller = Character ? Cast<AObshagaPlayerController>(Character->GetController()) : nullptr)
 		{
@@ -165,12 +165,12 @@ void ADeviceActor::FinishTimedAction()
 	if (!By || By->IsHiding() || By->IsFrozen() || By->IsGhost()
 		|| !By->GetInteractionComponent()->IsInRange(this, UInteractionComponent::ServerRangeSlack))
 	{
-		Notify(By, LOCTEXT("Interrupted", "Не успел: отошёл слишком рано"));
+		NotifyDeviceUser(By, LOCTEXT("Interrupted", "Не успел: отошёл слишком рано"));
 		return;
 	}
 
 	SetBroken(bPendingBreak, By);
-	Notify(By, FText::Format(bPendingBreak ? LOCTEXT("Broke", "Сломано: {0}") : LOCTEXT("Repaired", "Починено: {0}"), DisplayName));
+	NotifyDeviceUser(By, FText::Format(bPendingBreak ? LOCTEXT("Broke", "Сломано: {0}") : LOCTEXT("Repaired", "Починено: {0}"), DisplayName));
 }
 
 void ADeviceActor::SetBroken(bool bNewBroken, AObshagaCharacter* By)

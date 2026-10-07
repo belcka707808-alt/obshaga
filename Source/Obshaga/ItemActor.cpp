@@ -218,6 +218,13 @@ void AItemActor::SetHiddenIn(AHidingSpot* Spot, AObshagaCharacter* By)
 	ForceNetUpdate();
 }
 
+void AItemActor::ForgetCarrier()
+{
+	LastCarrier.Reset();
+	// Пока изъятое укладывается на место, оно не шумит.
+	LastNoiseTime = GetWorld()->GetTimeSeconds() + SettleGraceSeconds;
+}
+
 void AItemActor::ResetToInitial()
 {
 	check(HasAuthority());

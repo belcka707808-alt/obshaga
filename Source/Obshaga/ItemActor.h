@@ -70,6 +70,9 @@ public:
 	void ReleaseToWorld(const FVector& Location, const FVector& Velocity);
 	void SetHiddenIn(AHidingSpot* Spot, AObshagaCharacter* By);
 
+	/** Сервер: предмет забрал комендант. Его стук о стол на вахте — не шум игрока, который нёс его последним. */
+	void ForgetCarrier();
+
 	/** Сервер: вернуть предмет туда, где он лежал в начале игры (реванш). */
 	void ResetToInitial();
 

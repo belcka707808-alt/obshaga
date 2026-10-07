@@ -103,6 +103,8 @@ private:
 	AKomendantWaypoint* FindNearestWaypoint(const FVector& Location) const;
 	AKomendantWaypoint* PickPatrolTarget() const;
 	AHidingSpot* PickSpotNear(const FVector& Location) const;
+	/** Точка тайника на высоте, на которой ходит комендант. */
+	FVector GetSpotStandLocation(const AHidingSpot* Spot) const;
 	void OpenDoorsNearby();
 	void LookAround();
 	void FaceLocation(const FVector& Location);
