@@ -6,20 +6,88 @@
 
 class UDataTable;
 
-/** Настройки раунда. Правятся в ассете DA_RoundConfig. Фазы «вечер / ночь / утро» добавятся на M5. */
+/** Настройки раунда. Правятся в ассете DA_RoundConfig. */
 UCLASS(BlueprintType)
 class OBSHAGA_API UObshagaRoundConfig : public UDataAsset
 {
 	GENERATED_BODY()
 
 public:
-	/** Сколько длится раунд. */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Round", meta = (ClampMin = "5", Units = "s"))
-	float RoundSeconds = 300.f;
+	// --- Фазы раунда ---
 
-	/** Пауза между запуском карты и началом раунда, чтобы все успели войти. */
+	/** Вечер: комендант расслаблен. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Round", meta = (ClampMin = "5", Units = "s"))
+	float EveningSeconds = 240.f;
+
+	/** Ночь: отбой, комендант строже. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Round", meta = (ClampMin = "5", Units = "s"))
+	float NightSeconds = 300.f;
+
+	/** Утро: комендант проверяет жилые комнаты. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Round", meta = (ClampMin = "5", Units = "s"))
+	float MorningSeconds = 180.f;
+
+	/** Для разработки: начинать раунд самому, не дожидаясь Enter от хоста. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Round")
+	bool bAutoStart = false;
+
+	/** Пауза перед автостартом, чтобы все успели войти. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Round", meta = (ClampMin = "0", Units = "s"))
 	float StartDelaySeconds = 5.f;
+
+	/** Сколько раз за раунд приходят СМС-слухи. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Round", meta = (ClampMin = "0"))
+	int32 SmsCount = 3;
+
+	/** Сколько строк хроники показывать на экране итогов. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Round", meta = (ClampMin = "1"))
+	int32 MaxChronicleLines = 8;
+
+	// --- Роли ---
+
+	/** С какого числа игроков появляются Крыса и Параноик. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Roles", meta = (ClampMin = "2"))
+	int32 MinPlayersForRoles = 4;
+
+	/** Начиная с этого числа игроков Параноик есть всегда; при меньшем — с шансом 50%. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Roles", meta = (ClampMin = "2"))
+	int32 PlayersForSureParanoid = 6;
+
+	/** Бонус Крысе, если после её стука жертву поймали. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Roles", meta = (ClampMin = "0"))
+	int32 RatTipBonus = 15;
+
+	/** В течение какого времени после стука поимка засчитывается Крысе. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Roles", meta = (ClampMin = "0", Units = "s"))
+	float RatTipWindowSeconds = 60.f;
+
+	// --- Ночь ---
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Night", meta = (ClampMin = "0.1"))
+	float NightSightMultiplier = 1.2f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Night", meta = (ClampMin = "0.1"))
+	float NightHearingMultiplier = 1.3f;
+
+	/** Во сколько раз двери шумнее ночью. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Night", meta = (ClampMin = "0.1"))
+	float NightDoorNoiseMultiplier = 2.f;
+
+	/** Рост подозрения в секунду, если ночью комендант видит игрока в запретной зоне. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Night", meta = (ClampMin = "0"))
+	float CurfewSuspicionPerSecond = 15.f;
+
+	// --- Выселение ---
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Eviction", meta = (ClampMin = "1"))
+	int32 EvictionStrikes = 3;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Eviction", meta = (ClampMin = "0"))
+	int32 EvictionPenalty = 50;
+
+	/** Стартовое подозрение у тех, кого мстительный комендант ловил в прошлом раунде. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Eviction", meta = (ClampMin = "0", ClampMax = "100"))
+	float GrudgeSuspicion = 60.f;
 
 	// --- Подозрение ---
 
@@ -103,6 +171,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Interrogation", meta = (ClampMin = "0", ClampMax = "1"))
 	float ContrabandLiePenalty = 0.25f;
 
+	float GetTotalSeconds() const { return EveningSeconds + NightSeconds + MorningSeconds; }
 
 	/** Таблица секретных заданий (строки FTaskRow). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tasks")

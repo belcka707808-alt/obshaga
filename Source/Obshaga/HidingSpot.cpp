@@ -238,6 +238,18 @@ void AHidingSpot::FinishSearch(AObshagaCharacter* By)
 	}
 }
 
+void AHidingSpot::ResetSpot()
+{
+	if (HasAuthority())
+	{
+		GetWorldTimerManager().ClearTimer(ActionTimer);
+		PendingBy.Reset();
+		bBusy = false;
+		HiddenItem = nullptr;
+		HiddenPlayer = nullptr;
+	}
+}
+
 AItemActor* AHidingSpot::KomendantSearch(AObshagaCharacter*& OutFoundPlayer)
 {
 	OutFoundPlayer = HiddenPlayer;

@@ -53,6 +53,11 @@ public:
 	/** Только сервер. */
 	void SetFrozen(bool bNewFrozen);
 
+	/** Выселен: невидимый призрак, который ходит и смотрит, но ничего не может трогать. */
+	bool IsGhost() const { return bIsGhost; }
+	/** Только сервер. */
+	void SetGhost(bool bNewGhost);
+
 	// Только сервер. Вызывает AHidingSpot.
 	void EnterHidingSpot(AHidingSpot* Spot);
 	void ExitHidingSpot(const FVector& ExitLocation);
@@ -71,6 +76,9 @@ protected:
 
 	UFUNCTION()
 	void OnRep_IsFrozen();
+
+	UFUNCTION()
+	void OnRep_IsGhost();
 
 	void UpdateMovementSpeed();
 	void ApplyHiding();
@@ -104,6 +112,9 @@ protected:
 
 	UPROPERTY(ReplicatedUsing = OnRep_IsFrozen)
 	bool bIsFrozen = false;
+
+	UPROPERTY(ReplicatedUsing = OnRep_IsGhost)
+	bool bIsGhost = false;
 
 private:
 	TArray<TWeakObjectPtr<ARoomVolume>> OverlappingRooms;

@@ -14,48 +14,73 @@ void UTaskDirector::Initialize(UDataTable* InTasksTable)
 
 void UTaskDirector::Reset()
 {
-	DealtTaskIds.Reset();
+	DealtMainIds.Reset();
 }
 
-FName UTaskDirector::AssignTaskTo(AObshagaPlayerState* PlayerState, int32 NumPlayers)
+const FTaskRow* UTaskDirector::FindRow(FName TaskId) const
+{
+	return TasksTable ? TasksTable->FindRow<FTaskRow>(TaskId, TEXT("TaskDirector")) : nullptr;
+}
+
+bool UTaskDirector::AreInConflict(FName A, FName B) const
+{
+	const FTaskRow* RowA = FindRow(A);
+	const FTaskRow* RowB = FindRow(B);
+	return (RowA && RowA->ConflictsWith.Contains(B)) || (RowB && RowB->ConflictsWith.Contains(A));
+}
+
+void UTaskDirector::AssignTasksTo(AObshagaPlayerState* PlayerState, int32 NumPlayers)
 {
 	if (!TasksTable || !PlayerState)
 	{
 		UE_LOG(LogObshaga, Warning, TEXT("TaskDirector: no tasks table or player"));
-		return NAME_None;
+		return;
 	}
 
 	// Кандидаты: включённые задания, которые сервер умеет проверять и которым хватает игроков.
 	TArray<FName> Candidates;
 	for (const FName& RowName : TasksTable->GetRowNames())
 	{
-		const FTaskRow* Row = TasksTable->FindRow<FTaskRow>(RowName, TEXT("TaskDirector"));
-		if (Row && Row->bEnabled && Row->MinPlayers <= NumPlayers && UTaskComponent::IsConditionImplemented(Row->SuccessCondition)
-			&& !PlayerState->GetTaskComponent()->HasTask(RowName))
+		const FTaskRow* Row = FindRow(RowName);
+		if (Row && Row->bEnabled && Row->MinPlayers <= NumPlayers && UTaskComponent::IsConditionImplemented(Row->SuccessCondition))
 		{
 			Candidates.Add(RowName);
 		}
 	}
-	if (Candidates.IsEmpty())
+
+	// Основное: 1) ещё не выданное, которое конфликтует с чьим-то основным; 2) любое не выданное; 3) случайное.
+	TArray<FName> Mains = Candidates.FilterByPredicate([this](const FName& Id) { return FindRow(Id)->bCanBeMain; });
+	if (Mains.IsEmpty())
 	{
-		return NAME_None;
+		return;
 	}
 
-	auto ConflictsWithDealt = [this](const FName& RowName)
+	auto ConflictsWithDealt = [this](const FName& Id)
 	{
-		const FTaskRow* Row = TasksTable->FindRow<FTaskRow>(RowName, TEXT("TaskDirector"));
-		return Row && Row->ConflictsWith.ContainsByPredicate([this](const FName& Other) { return DealtTaskIds.Contains(Other); });
+		return DealtMainIds.ContainsByPredicate([this, Id](const FName& Other) { return AreInConflict(Id, Other); });
 	};
-
-	// 1) ещё не выданное задание, которое конфликтует с чьим-то; 2) любое не выданное; 3) что угодно.
-	const FName* Chosen = Candidates.FindByPredicate([&](const FName& RowName) { return !DealtTaskIds.Contains(RowName) && ConflictsWithDealt(RowName); });
-	if (!Chosen)
+	const TArray<FName> FreshConflicting = Mains.FilterByPredicate([&](const FName& Id) { return !DealtMainIds.Contains(Id) && ConflictsWithDealt(Id); });
+	TArray<FName> Fresh = Mains.FilterByPredicate([this](const FName& Id) { return !DealtMainIds.Contains(Id); });
+	if (DealtMainIds.IsEmpty())
 	{
-		Chosen = Candidates.FindByPredicate([this](const FName& RowName) { return !DealtTaskIds.Contains(RowName); });
+		// Первому игроку — задание, у которого вообще есть противник, чтобы второму досталась конфликтующая пара.
+		const TArray<FName> WithRivals = Fresh.FilterByPredicate([this](const FName& Id) { return !FindRow(Id)->ConflictsWith.IsEmpty(); });
+		if (!WithRivals.IsEmpty())
+		{
+			Fresh = WithRivals;
+		}
 	}
-	const FName TaskId = Chosen ? *Chosen : Candidates[FMath::RandRange(0, Candidates.Num() - 1)];
+	const TArray<FName>& MainPool = !FreshConflicting.IsEmpty() ? FreshConflicting : (!Fresh.IsEmpty() ? Fresh : Mains);
+	const FName MainId = MainPool[FMath::RandRange(0, MainPool.Num() - 1)];
 
-	PlayerState->GetTaskComponent()->AssignTask(TaskId, *TasksTable->FindRow<FTaskRow>(TaskId, TEXT("TaskDirector")));
-	DealtTaskIds.AddUnique(TaskId);
-	return TaskId;
+	PlayerState->GetTaskComponent()->AssignTask(MainId, *FindRow(MainId), true);
+	DealtMainIds.Add(MainId);
+
+	// Побочное: любое другое, которое не противоречит собственному основному.
+	const TArray<FName> Sides = Candidates.FilterByPredicate([&](const FName& Id) { return Id != MainId && !AreInConflict(Id, MainId); });
+	if (!Sides.IsEmpty())
+	{
+		const FName SideId = Sides[FMath::RandRange(0, Sides.Num() - 1)];
+		PlayerState->GetTaskComponent()->AssignTask(SideId, *FindRow(SideId), false);
+	}
 }

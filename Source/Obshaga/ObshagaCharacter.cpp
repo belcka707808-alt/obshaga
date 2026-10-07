@@ -54,6 +54,7 @@ void AObshagaCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& Ou
 	DOREPLIFETIME_CONDITION(AObshagaCharacter, bIsSprinting, COND_SkipOwner);
 	DOREPLIFETIME(AObshagaCharacter, HidingSpot);
 	DOREPLIFETIME(AObshagaCharacter, bIsFrozen);
+	DOREPLIFETIME(AObshagaCharacter, bIsGhost);
 }
 
 void AObshagaCharacter::PostInitializeComponents()
@@ -175,6 +176,25 @@ void AObshagaCharacter::SetFrozen(bool bNewFrozen)
 	ForceNetUpdate();
 }
 
+void AObshagaCharacter::SetGhost(bool bNewGhost)
+{
+	check(HasAuthority());
+
+	if (bNewGhost)
+	{
+		// Призрак ничего не несёт.
+		CarryComponent->Drop();
+	}
+	bIsGhost = bNewGhost;
+	ApplyHiding();
+	ForceNetUpdate();
+}
+
+void AObshagaCharacter::OnRep_IsGhost()
+{
+	ApplyHiding();
+}
+
 void AObshagaCharacter::OnRep_IsFrozen()
 {
 	ApplyHiding();
@@ -188,7 +208,10 @@ void AObshagaCharacter::OnRep_HidingSpot()
 void AObshagaCharacter::ApplyHiding()
 {
 	const bool bHide = IsHiding();
-	SetActorHiddenInGame(bHide);
+	SetActorHiddenInGame(bHide || bIsGhost);
+
+	// Призрак проходит сквозь людей и не мешает им.
+	GetCapsuleComponent()->SetCollisionResponseToChannel(ECC_Pawn, bIsGhost ? ECR_Ignore : ECR_Block);
 
 	// В укрытии персонаж стоит на месте; столкновения не трогаем, чтобы он оставался «в комнате».
 	UCharacterMovementComponent* Movement = GetCharacterMovement();

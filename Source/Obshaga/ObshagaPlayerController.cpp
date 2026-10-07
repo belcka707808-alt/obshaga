@@ -48,6 +48,8 @@ void AObshagaPlayerController::CreateDefaultInput()
 	LieAction = MakeAction(this, TEXT("IA_Lie"), EInputActionValueType::Boolean);
 	SilentAction = MakeAction(this, TEXT("IA_Silent"), EInputActionValueType::Boolean);
 	AlibiAction = MakeAction(this, TEXT("IA_Alibi"), EInputActionValueType::Boolean);
+	StartAction = MakeAction(this, TEXT("IA_Start"), EInputActionValueType::Boolean);
+	TipAction = MakeAction(this, TEXT("IA_Tip"), EInputActionValueType::Boolean);
 
 	DefaultMappingContext = NewObject<UInputMappingContext>(this, TEXT("IMC_Obshaga"));
 	DefaultMappingContext->MapKey(MoveForwardAction, EKeys::W);
@@ -68,6 +70,8 @@ void AObshagaPlayerController::CreateDefaultInput()
 	DefaultMappingContext->MapKey(LieAction, EKeys::Two);
 	DefaultMappingContext->MapKey(SilentAction, EKeys::Three);
 	DefaultMappingContext->MapKey(AlibiAction, EKeys::Y);
+	DefaultMappingContext->MapKey(StartAction, EKeys::Enter);
+	DefaultMappingContext->MapKey(TipAction, EKeys::T);
 }
 
 void AObshagaPlayerController::SetupInputComponent()
@@ -105,6 +109,8 @@ void AObshagaPlayerController::SetupInputComponent()
 	Input->BindAction(LieAction, ETriggerEvent::Started, this, &AObshagaPlayerController::OnChoiceLie);
 	Input->BindAction(SilentAction, ETriggerEvent::Started, this, &AObshagaPlayerController::OnChoiceSilent);
 	Input->BindAction(AlibiAction, ETriggerEvent::Started, this, &AObshagaPlayerController::OnAlibi);
+	Input->BindAction(StartAction, ETriggerEvent::Started, this, &AObshagaPlayerController::OnStart);
+	Input->BindAction(TipAction, ETriggerEvent::Started, this, &AObshagaPlayerController::OnTipOff);
 }
 
 AObshagaCharacter* AObshagaPlayerController::GetObshagaCharacter() const
@@ -258,6 +264,40 @@ void AObshagaPlayerController::OnAlibi()
 	if (GameState && GameState->GetInterrogation().bActive && !IsLocalPlayerInterrogated())
 	{
 		ServerConfirmAlibi();
+	}
+}
+
+void AObshagaPlayerController::OnStart()
+{
+	const AObshagaGameState* GameState = GetWorld()->GetGameState<AObshagaGameState>();
+	if (GameState && GameState->GetRoundState() != ERoundState::InProgress)
+	{
+		ServerRequestStart();
+	}
+}
+
+void AObshagaPlayerController::OnTipOff()
+{
+	const AObshagaPlayerState* MyState = GetPlayerState<AObshagaPlayerState>();
+	if (MyState && MyState->GetVisibleRole() == EPlayerRole::Rat && !MyState->HasUsedTip())
+	{
+		ServerTipOff();
+	}
+}
+
+void AObshagaPlayerController::ServerRequestStart_Implementation()
+{
+	if (AObshagaGameMode* GameMode = GetWorld()->GetAuthGameMode<AObshagaGameMode>())
+	{
+		GameMode->RequestStart(this);
+	}
+}
+
+void AObshagaPlayerController::ServerTipOff_Implementation()
+{
+	if (AObshagaGameMode* GameMode = GetWorld()->GetAuthGameMode<AObshagaGameMode>())
+	{
+		GameMode->TipOff(GetPlayerState<AObshagaPlayerState>());
 	}
 }
 

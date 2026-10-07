@@ -81,6 +81,7 @@ void AKomendantAIController::OnPossess(APawn* InPawn)
 		return;
 	}
 
+	SpawnTransform = Komendant->GetActorTransform();
 	Personality = Komendant->PickPersonality();
 	ApplyPersonality();
 	Perception->OnTargetPerceptionUpdated.AddUniqueDynamic(this, &AKomendantAIController::OnPerceptionUpdated);
@@ -92,14 +93,88 @@ void AKomendantAIController::OnPossess(APawn* InPawn)
 
 void AKomendantAIController::ApplyPersonality()
 {
-	SightConfig->SightRadius = Personality->SightRadius;
-	SightConfig->LoseSightRadius = Personality->SightRadius * 1.15f;
+	// Ночью комендант видит и слышит лучше.
+	const UObshagaRoundConfig* Config = GetRoundConfig();
+	const AObshagaGameState* GameState = GetWorld()->GetGameState<AObshagaGameState>();
+	const bool bNight = GameState && GameState->GetRoundState() == ERoundState::InProgress && GameState->GetPhase() == ERoundPhase::Night;
+	const float SightRadius = Personality->SightRadius * (bNight ? Config->NightSightMultiplier : 1.f);
+
+	SightConfig->SightRadius = SightRadius;
+	SightConfig->LoseSightRadius = SightRadius * 1.15f;
 	SightConfig->PeripheralVisionAngleDegrees = Personality->SightHalfAngle;
-	HearingConfig->HearingRange = Personality->HearingRange;
+	HearingConfig->HearingRange = Personality->HearingRange * (bNight ? Config->NightHearingMultiplier : 1.f);
 	Perception->ConfigureSense(*SightConfig);
 	Perception->ConfigureSense(*HearingConfig);
 
-	UE_LOG(LogObshaga, Log, TEXT("Komendant personality: %s"), *Personality->GetName());
+UE_LOG(LogObshaga, Log, TEXT("Komendant personality: %s (night=%d)"), *Personality->GetName(), bNight ? 1 : 0);
+}
+
+void AKomendantAIController::ResetForRound()
+{
+	if (!Komendant)
+	{
+		return;
+	}
+
+	Komendant->SetActorLocationAndRotation(SpawnTransform.GetLocation(), SpawnTransform.GetRotation(), false, nullptr, ETeleportType::TeleportPhysics);
+	Personality = Komendant->PickPersonality();
+	LastPhase = 255;
+	ApplyPersonality();
+
+	RoomHeat.Reset();
+	ImmuneUntil.Reset();
+	LastSpottedEventTime.Reset();
+	InspectionQueue.Reset();
+	QueuedSpot.Reset();
+	ChaseTarget.Reset();
+	if (bGraphReady)
+	{
+		SetState(EKomendantState::Patrol);
+	}
+
+	// Мстительный помнит, кого ловил в прошлом раунде: они с самого начала под подозрением.
+	const AObshagaGameMode* GameMode = GetWorld()->GetAuthGameMode<AObshagaGameMode>();
+	if (GameMode && Personality->bHoldsGrudge)
+	{
+		for (const TWeakObjectPtr<APlayerState>& Caught : GameMode->GetCaughtLastRound())
+		{
+			if (const AObshagaPlayerState* TargetState = Cast<AObshagaPlayerState>(Caught.Get()))
+			{
+				TargetState->GetSuspicionComponent()->SetSuspicion(GetRoundConfig()->GrudgeSuspicion);
+				RoomHeat.FindOrAdd(TargetState->GetHomeRoomId()) += 20.f;
+			}
+		}
+	}
+}
+
+void AKomendantAIController::InvestigateTip(const FVector& Location)
+{
+	const bool bBusy = State == EKomendantState::Chase || State == EKomendantState::Interrogate;
+	if (bGraphReady && IsRoundInProgress() && !bBusy)
+	{
+		StartInvestigate(Location);
+	}
+}
+
+void AKomendantAIController::OnPhaseChanged()
+{
+	ApplyPersonality();
+
+	// Утром — проверка: обойти жилые комнаты и обыскать в них все тайники.
+	InspectionQueue.Reset();
+	const AObshagaGameState* GameState = GetWorld()->GetGameState<AObshagaGameState>();
+	if (GameState->GetPhase() == ERoundPhase::Morning)
+	{
+		for (AHidingSpot* Spot : HidingSpots)
+		{
+			const ARoomVolume* Room = ARoomVolume::FindRoomAt(this, Spot->GetActorLocation() + FVector(0.f, 0.f, 50.f));
+			if (Room && Room->RoomType == ERoomType::Bedroom)
+			{
+				InspectionQueue.Add(Spot);
+			}
+		}
+		UE_LOG(LogObshaga, Verbose, TEXT("Komendant morning inspection: %d hiding spots"), InspectionQueue.Num());
+	}
 }
 
 const UObshagaRoundConfig* AKomendantAIController::GetRoundConfig() const
@@ -236,7 +311,8 @@ void AKomendantAIController::Tick(float DeltaSeconds)
 	for (AActor* Actor : Perceived)
 	{
 		AObshagaCharacter* Player = Cast<AObshagaCharacter>(Actor);
-		if (Player && !Player->IsHiding())
+		// Спрятавшихся и выселенных призраков комендант не видит.
+		if (Player && !Player->IsHiding() && !Player->IsGhost())
 		{
 			SeenPlayers.Add(Player);
 		}
@@ -316,6 +392,14 @@ void AKomendantAIController::UpdateVision(float DeltaSeconds)
 				: (Data->bHeavy ? Config->HeavyCarrySuspicionPerSecond : Config->CarrySuspicionPerSecond);
 		}
 
+		// Ночью подозрительно уже то, что ты не у себя и не в туалете.
+		const ARoomVolume* Room = Player->GetCurrentRoom();
+		const AObshagaGameState* GameState = GetWorld()->GetGameState<AObshagaGameState>();
+		if (GameState->GetPhase() == ERoundPhase::Night && Room && Room->bForbiddenAfterCurfew)
+		{
+			Rate += Config->CurfewSuspicionPerSecond;
+		}
+
 		USuspicionComponent* Suspicion = TargetState->GetSuspicionComponent();
 		if (Rate > 0.f)
 		{
@@ -332,6 +416,13 @@ void AKomendantAIController::UpdateVision(float DeltaSeconds)
 void AKomendantAIController::UpdateSlowTimers()
 {
 	const UObshagaRoundConfig* Config = GetRoundConfig();
+
+	const uint8 Phase = static_cast<uint8>(GetWorld()->GetGameState<AObshagaGameState>()->GetPhase());
+	if (Phase != LastPhase)
+	{
+		LastPhase = Phase;
+		OnPhaseChanged();
+	}
 
 	// Подозрение понемногу спадает у тех, кого комендант сейчас не видит.
 	const AObshagaGameState* GameState = GetWorld()->GetGameState<AObshagaGameState>();
@@ -402,6 +493,17 @@ void AKomendantAIController::TickPatrol(float DeltaSeconds)
 		return;
 	}
 
+	// Утренняя проверка важнее обычного обхода: идёт к следующему тайнику из списка.
+	if (Path.IsEmpty() && !QueuedSpot.IsValid() && !InspectionQueue.IsEmpty())
+	{
+		QueuedSpot = InspectionQueue.Pop();
+		if (QueuedSpot.IsValid() && !PlanPathTo(QueuedSpot->GetActorLocation()))
+		{
+			QueuedSpot.Reset();
+		}
+		return;
+	}
+
 	if (Path.IsEmpty())
 	{
 		const AKomendantWaypoint* Target = PickPatrolTarget();
@@ -419,6 +521,13 @@ void AKomendantAIController::TickPatrol(float DeltaSeconds)
 
 	// Дошёл до точки обхода: ложная тревога, обыск тайника или короткая пауза.
 	Path.Reset();
+	if (AHidingSpot* Queued = QueuedSpot.Get())
+	{
+		QueuedSpot.Reset();
+		SetState(EKomendantState::Inspect);
+		InspectSpot = Queued;
+		return;
+	}
 	if (FMath::FRand() < Personality->BluffChance)
 	{
 		SetState(EKomendantState::Bluff);

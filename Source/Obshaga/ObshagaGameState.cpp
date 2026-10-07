@@ -7,19 +7,22 @@ void AObshagaGameState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& Ou
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 
 	DOREPLIFETIME(AObshagaGameState, RoundState);
-	DOREPLIFETIME(AObshagaGameState, RoundEndServerTime);
+	DOREPLIFETIME(AObshagaGameState, Phase);
+	DOREPLIFETIME(AObshagaGameState, PhaseEndServerTime);
 	DOREPLIFETIME(AObshagaGameState, RevealedTasks);
+	DOREPLIFETIME(AObshagaGameState, RevealedPlayers);
+	DOREPLIFETIME(AObshagaGameState, Chronicle);
 	DOREPLIFETIME(AObshagaGameState, Interrogation);
 	DOREPLIFETIME(AObshagaGameState, AlibiRadius);
 }
 
-float AObshagaGameState::GetRemainingSeconds() const
+float AObshagaGameState::GetPhaseRemainingSeconds() const
 {
 	if (RoundState != ERoundState::InProgress)
 	{
 		return 0.f;
 	}
-	return FMath::Max(0.f, RoundEndServerTime - static_cast<float>(GetServerWorldTimeSeconds()));
+	return FMath::Max(0.f, PhaseEndServerTime - static_cast<float>(GetServerWorldTimeSeconds()));
 }
 
 float AObshagaGameState::GetInterrogationRemainingSeconds() const
@@ -35,22 +38,34 @@ void AObshagaGameState::SetInterrogation(const FInterrogationInfo& NewInfo)
 	}
 }
 
-void AObshagaGameState::StartRound(float DurationSeconds, float InAlibiRadius)
+void AObshagaGameState::StartRound(float InAlibiRadius)
 {
 	if (HasAuthority())
 	{
 		AlibiRadius = InAlibiRadius;
 		RevealedTasks.Reset();
-		RoundEndServerTime = static_cast<float>(GetServerWorldTimeSeconds()) + DurationSeconds;
+		RevealedPlayers.Reset();
+		Chronicle.Reset();
 		RoundState = ERoundState::InProgress;
 	}
 }
 
-void AObshagaGameState::FinishRound(const TArray<FRevealedTask>& Reveal)
+void AObshagaGameState::SetPhase(ERoundPhase NewPhase, float DurationSeconds)
 {
 	if (HasAuthority())
 	{
-		RevealedTasks = Reveal;
+		Phase = NewPhase;
+		PhaseEndServerTime = static_cast<float>(GetServerWorldTimeSeconds()) + DurationSeconds;
+	}
+}
+
+void AObshagaGameState::FinishRound(const TArray<FRevealedTask>& Tasks, const TArray<FRevealedPlayer>& Players, const TArray<FText>& InChronicle)
+{
+	if (HasAuthority())
+	{
+		RevealedTasks = Tasks;
+		RevealedPlayers = Players;
+		Chronicle = InChronicle;
 		RoundState = ERoundState::Finished;
 	}
 }

@@ -4,6 +4,9 @@
 #include "NoiseStatics.h"
 #include "Obshaga.h"
 #include "ObshagaCharacter.h"
+#include "ObshagaGameMode.h"
+#include "ObshagaGameState.h"
+#include "ObshagaRoundConfig.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/StaticMesh.h"
 #include "Net/UnrealNetwork.h"
@@ -95,7 +98,24 @@ void ADoorActor::Interact(AObshagaCharacter* By)
 	UGameEventSubsystem::PublishFrom(By, IsOpen() ? EGameEventType::DoorOpened : EGameEventType::DoorClosed);
 
 	// Скрип двери слышно рядом.
-	UNoiseStatics::MakeGameNoise(this, DoorMesh->GetComponentLocation(), NoiseLoudness, By);
+	// Ночью двери слышнее.
+	float Loudness = NoiseLoudness;
+	const AObshagaGameState* GameState = GetWorld()->GetGameState<AObshagaGameState>();
+	const AObshagaGameMode* GameMode = GetWorld()->GetAuthGameMode<AObshagaGameMode>();
+	if (GameState && GameMode && GameState->GetRoundState() == ERoundState::InProgress && GameState->GetPhase() == ERoundPhase::Night)
+	{
+		Loudness *= GameMode->GetRoundConfig()->NightDoorNoiseMultiplier;
+	}
+	UNoiseStatics::MakeGameNoise(this, DoorMesh->GetComponentLocation(), FMath::Min(Loudness, 1.f), By);
+}
+
+void ADoorActor::ResetDoor()
+{
+	if (HasAuthority() && IsOpen())
+	{
+		DoorState = EDoorState::Closed;
+		OnRep_DoorState();
+	}
 }
 
 FVector ADoorActor::GetDoorCenter() const

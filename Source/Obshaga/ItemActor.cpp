@@ -72,6 +72,7 @@ void AItemActor::BeginPlay()
 
 	if (HasAuthority())
 	{
+		InitialTransform = GetActorTransform();
 		Mesh->OnComponentHit.AddDynamic(this, &AItemActor::OnMeshHit);
 	}
 }
@@ -152,6 +153,25 @@ void AItemActor::SetHiddenIn(AHidingSpot* Spot, AObshagaCharacter* By)
 	Placement.Holder = nullptr;
 	ApplyPlacement();
 	SetActorLocation(HiddenItemsLocation, false, nullptr, ETeleportType::TeleportPhysics);
+	ForceNetUpdate();
+}
+
+void AItemActor::ResetToInitial()
+{
+	check(HasAuthority());
+
+	LastCarrier.Reset();
+	LastHiddenBy.Reset();
+	HidingSpot = nullptr;
+	Placement.State = EItemState::World;
+	Placement.Holder = nullptr;
+	ApplyPlacement();
+
+	SetActorLocationAndRotation(InitialTransform.GetLocation(), InitialTransform.GetRotation(), false, nullptr, ETeleportType::TeleportPhysics);
+	Mesh->SetPhysicsLinearVelocity(FVector::ZeroVector);
+	Mesh->SetPhysicsAngularVelocityInDegrees(FVector::ZeroVector);
+	// После возврата на место предмет ещё чуть оседает — это не шум.
+	LastNoiseTime = GetWorld()->GetTimeSeconds() + 2.f;
 	ForceNetUpdate();
 }
 

@@ -63,6 +63,9 @@ public:
 	void ReleaseToWorld(const FVector& Location, const FVector& Velocity);
 	void SetHiddenIn(AHidingSpot* Spot, AObshagaCharacter* By);
 
+	/** Сервер: вернуть предмет туда, где он лежал в начале игры (реванш). */
+	void ResetToInitial();
+
 	/** Сервер: id комнаты, где предмет сейчас (лежит, спрятан или его несут). */
 	FName GetCurrentRoomId() const;
 	/** Сервер: кто последним спрятал предмет в тайник. */
@@ -98,4 +101,5 @@ private:
 	TWeakObjectPtr<AObshagaCharacter> LastCarrier;
 	TWeakObjectPtr<APlayerState> LastHiddenBy;
 	float LastNoiseTime = -100.f;
+	FTransform InitialTransform;
 };

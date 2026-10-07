@@ -26,6 +26,14 @@ enum class ETaskCondition : uint8
 };
 
 UENUM(BlueprintType)
+enum class EPlayerRole : uint8
+{
+	Resident,
+	Rat,
+	Paranoid
+};
+
+UENUM(BlueprintType)
 enum class ETaskStatus : uint8
 {
 	InProgress,
@@ -48,6 +56,10 @@ struct FTaskRow : public FTableRowBase
 	/** Выключенные задания не раздаются. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Task")
 	bool bEnabled = true;
+
+	/** Может ли задание быть основным; иначе выдаётся только побочным. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Task")
+	bool bCanBeMain = true;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Task")
 	FName Category;
@@ -114,12 +126,41 @@ struct FTaskState
 	UPROPERTY(BlueprintReadOnly)
 	int32 Reward = 0;
 
+	/** Основное задание или побочное. */
+	UPROPERTY(BlueprintReadOnly)
+	bool bMain = true;
+
 	UPROPERTY(BlueprintReadOnly)
 	ETaskStatus Status = ETaskStatus::InProgress;
 
 	/** Условие выполнено прямо сейчас (но раунд ещё идёт, и всё может измениться). */
 	UPROPERTY(BlueprintReadOnly)
 	bool bSatisfiedNow = false;
+};
+
+/** Строка экрана итогов про игрока: настоящая роль, титул, очки. Раскрывается всем после раунда. */
+USTRUCT(BlueprintType)
+struct FRevealedPlayer
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly)
+	FString PlayerName;
+
+	UPROPERTY(BlueprintReadOnly)
+	EPlayerRole Role = EPlayerRole::Resident;
+
+	UPROPERTY(BlueprintReadOnly)
+	FText Title;
+
+	UPROPERTY(BlueprintReadOnly)
+	int32 Score = 0;
+
+	UPROPERTY(BlueprintReadOnly)
+	int32 Strikes = 0;
+
+	UPROPERTY(BlueprintReadOnly)
+	bool bEvicted = false;
 };
 
 /** Строка экрана итогов: чьё задание и чем кончилось. Раскрывается всем после раунда. */

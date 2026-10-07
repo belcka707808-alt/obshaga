@@ -1,5 +1,6 @@
 #include "TaskComponent.h"
 
+#include "GameEventSubsystem.h"
 #include "ItemActor.h"
 #include "Obshaga.h"
 #include "ObshagaItemData.h"
@@ -33,6 +34,9 @@ bool UTaskComponent::IsConditionImplemented(ETaskCondition Condition)
 	case ETaskCondition::ItemInRoomAtEnd:
 	case ETaskCondition::ItemNotMovedFromZone:
 	case ETaskCondition::ContrabandSurvivedInspection:
+	case ETaskCondition::AlibiConfirmedSuccessfully:
+	case ETaskCondition::NeverSpottedWholeRound:
+	case ETaskCondition::NoiseLuredKomendantAndUnseen:
 		return true;
 	default:
 		return false;
@@ -44,7 +48,7 @@ bool UTaskComponent::HasTask(FName TaskId) const
 	return Tasks.ContainsByPredicate([TaskId](const FTaskState& Task) { return Task.TaskId == TaskId; });
 }
 
-void UTaskComponent::AssignTask(FName TaskId, const FTaskRow& Row)
+void UTaskComponent::AssignTask(FName TaskId, const FTaskRow& Row, bool bMain)
 {
 	if (!GetOwner()->HasAuthority() || HasTask(TaskId))
 	{
@@ -56,9 +60,24 @@ void UTaskComponent::AssignTask(FName TaskId, const FTaskRow& Row)
 	State.Title = Row.Title;
 	State.Description = Row.Description;
 	State.Reward = Row.GetReward();
+	State.bMain = bMain;
 	Rows.Add(Row);
 
-	UE_LOG(LogObshaga, Verbose, TEXT("Task %s assigned to %s"), *TaskId.ToString(), *GetOwnerState()->GetPlayerName());
+	UE_LOG(LogObshaga, Verbose, TEXT("Task %s (%s) assigned to %s"), *TaskId.ToString(), bMain ? TEXT("main") : TEXT("side"), *GetOwnerState()->GetPlayerName());
+}
+
+void UTaskComponent::ClearTasks()
+{
+	if (GetOwner()->HasAuthority())
+	{
+		Tasks.Reset();
+		Rows.Reset();
+	}
+}
+
+const FTaskState* UTaskComponent::GetMainTask() const
+{
+	return Tasks.FindByPredicate([](const FTaskState& Task) { return Task.bMain; });
 }
 
 void UTaskComponent::UpdateLiveStatus()
@@ -104,6 +123,15 @@ bool UTaskComponent::EvaluateCondition(const FTaskRow& Row) const
 		return false;
 	}
 
+	// Условия «по журналу» смотрят, что этот игрок делал с начала раунда.
+	const UGameEventSubsystem* Bus = UGameEventSubsystem::Get(this);
+	static const TArray<FGameEvent> NoEvents;
+	const TArray<FGameEvent>& Events = Bus ? Bus->GetEventLog() : NoEvents;
+	auto FindOwnEvent = [&Events, OwnerState](EGameEventType Type, float AfterTime = -1.f) -> const FGameEvent*
+	{
+		return Events.FindByPredicate([=](const FGameEvent& Event) { return Event.Type == Type && Event.Instigator == OwnerState && Event.Time > AfterTime; });
+	};
+
 	switch (Row.SuccessCondition)
 	{
 	case ETaskCondition::ItemInRoomAtEnd:
@@ -127,7 +155,7 @@ bool UTaskComponent::EvaluateCondition(const FTaskRow& Row) const
 
 	case ETaskCondition::ContrabandSurvivedInspection:
 	{
-		// Пока коменданта нет: запрещёнка лежит в тайнике, и спрятал её именно этот игрок.
+		// Запрещёнка лежит в тайнике, и спрятал её именно этот игрок. Если комендант её нашёл — она уже не в тайнике.
 		for (TActorIterator<AItemActor> It(World); It; ++It)
 		{
 			const UObshagaItemData* Data = It->GetItemData();
@@ -138,6 +166,19 @@ bool UTaskComponent::EvaluateCondition(const FTaskRow& Row) const
 			}
 		}
 		return false;
+	}
+
+	case ETaskCondition::AlibiConfirmedSuccessfully:
+		return FindOwnEvent(EGameEventType::AlibiConfirmed) != nullptr;
+
+	case ETaskCondition::NeverSpottedWholeRound:
+		return FindOwnEvent(EGameEventType::PlayerSpotted) == nullptr;
+
+	case ETaskCondition::NoiseLuredKomendantAndUnseen:
+	{
+		// Комендант пошёл на шум этого игрока, и после этого игрока не поймали.
+		const FGameEvent* Lure = FindOwnEvent(EGameEventType::KomendantAlerted);
+		return Lure && FindOwnEvent(EGameEventType::PlayerCaught, Lure->Time) == nullptr;
 	}
 
 	default:

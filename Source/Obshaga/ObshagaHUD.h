@@ -4,7 +4,12 @@
 #include "GameFramework/HUD.h"
 #include "ObshagaHUD.generated.h"
 
-/** Временный HUD серого макета: подсказки, шум, телефон (Tab) и итоги раунда. На M6 заменяется виджетами. */
+class AObshagaCharacter;
+class AObshagaGameState;
+class AObshagaPlayerController;
+class AObshagaPlayerState;
+
+/** Временный HUD серого макета: всё рисуется текстом. На M6 заменяется виджетами. */
 UCLASS()
 class OBSHAGA_API AObshagaHUD : public AHUD
 {
@@ -14,10 +19,20 @@ public:
 	virtual void DrawHUD() override;
 
 private:
-	void DrawPhone(const class AObshagaCharacter* Character, UFont* Font, float Scale);
-	void DrawRoundResults(UFont* Font, float Scale);
-	void DrawInterrogation(const class AObshagaCharacter* Character, UFont* Font, float Scale);
-	void DrawKomendantLabels(const class AObshagaCharacter* Character, UFont* Font, float Scale);
+	void DrawTopStatus(const AObshagaGameState* GameState);
+	void DrawCharacterInfo(const AObshagaCharacter* Character);
+	void DrawNoise(const AObshagaPlayerController* Controller, const FVector& ListenerLocation);
+	void DrawPhone(const AObshagaPlayerState* MyState, const AObshagaGameState* GameState);
+	void DrawRoundResults(const AObshagaGameState* GameState);
+	void DrawInterrogation(const AObshagaPlayerState* MyState, const AObshagaGameState* GameState, const FVector& MyLocation);
+	void DrawKomendantLabels(const FVector& MyLocation);
+
+	void DrawCentered(const FString& Line, const FLinearColor& Color, float YFraction);
 	/** Рисует текст с переносом по словам; возвращает Y под последней строкой. */
-	float DrawWrapped(const FString& Text, const FLinearColor& Color, float X, float Y, float MaxWidth, UFont* Font, float Scale);
+	float DrawWrapped(const FString& Text, const FLinearColor& Color, float X, float Y, float MaxWidth, float LineHeight = 20.f);
+
+	UPROPERTY(Transient)
+	TObjectPtr<UFont> Font;
+
+	float Scale = 1.f;
 };

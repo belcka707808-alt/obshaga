@@ -30,6 +30,15 @@ void USuspicionComponent::SetSuspicion(float NewValue)
 	}
 }
 
+void USuspicionComponent::ResetAll()
+{
+	if (GetOwner()->HasAuthority())
+	{
+		Strikes = 0;
+		SetSuspicion(0.f);
+	}
+}
+
 void USuspicionComponent::AddStrike()
 {
 	if (GetOwner()->HasAuthority() && Strikes < 255)

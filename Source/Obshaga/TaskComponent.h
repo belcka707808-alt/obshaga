@@ -27,7 +27,9 @@ public:
 	static bool IsConditionImplemented(ETaskCondition Condition);
 
 	// Только сервер.
-	void AssignTask(FName TaskId, const FTaskRow& Row);
+	void AssignTask(FName TaskId, const FTaskRow& Row, bool bMain);
+	void ClearTasks();
+	const FTaskState* GetMainTask() const;
 	bool HasTask(FName TaskId) const;
 	/** Обновляет пометку «выполнено прямо сейчас» для телефона. */
 	void UpdateLiveStatus();

@@ -44,6 +44,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Behavior", meta = (ClampMin = "0", ClampMax = "1"))
 	float InspectChance = 0.25f;
 
+	/** Мстительный: помнит, кого ловил в прошлом раунде, и с начала нового уже подозревает их. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Behavior")
+	bool bHoldsGrudge = false;
+
 	/** Во сколько раз быстрее или медленнее у игроков растёт подозрение. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Behavior", meta = (ClampMin = "0"))
 	float SuspicionMultiplier = 1.f;

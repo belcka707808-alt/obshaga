@@ -2,12 +2,16 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/PlayerState.h"
+#include "TaskTypes.h"
 #include "ObshagaPlayerState.generated.h"
 
 class USuspicionComponent;
 class UTaskComponent;
 
-/** «Карточка игрока»: домашняя комната, очки (APlayerState::Score), секретные задания. Роль и страйки — на M4–M5. */
+/**
+ * «Карточка игрока»: домашняя комната, очки (APlayerState::Score), роль, задания, подозрение, СМС.
+ * Всё секретное уходит по сети только владельцу; настоящая роль Параноика не покидает сервер до итогов.
+ */
 UCLASS()
 class OBSHAGA_API AObshagaPlayerState : public APlayerState
 {
@@ -24,8 +28,27 @@ public:
 	/** Комната, в которой игрок живёт (ARoomVolume::RoomId). Видна всем. */
 	FName GetHomeRoomId() const { return HomeRoomId; }
 
-	/** Только сервер. */
+	/** Роль, какой её видит сам игрок: Параноик видит «Жилец». */
+	EPlayerRole GetVisibleRole() const { return VisibleRole; }
+	/** Настоящая роль; есть только на сервере. */
+	EPlayerRole GetTrueRole() const { return TrueRole; }
+
+	/** Подсказка Крысе про чужое задание; у остальных пусто. */
+	const FText& GetRatIntel() const { return RatIntel; }
+	const TArray<FText>& GetSmsMessages() const { return SmsMessages; }
+	bool IsEvicted() const { return bEvicted; }
+	bool HasUsedTip() const { return bUsedTip; }
+
+	// Только сервер.
 	void SetHomeRoomId(FName NewRoomId);
+	void SetRole(EPlayerRole NewRole);
+	void SetRatIntel(const FText& Intel, APlayerState* Target);
+	APlayerState* GetRatTarget() const { return RatTarget.Get(); }
+	void AddSms(const FText& Message);
+	void SetEvicted(bool bNewEvicted);
+	void MarkTipUsed();
+	/** Новый раунд: роль, СМС, задания, подозрение и страйки сбрасываются; очки остаются. */
+	void ResetForRound();
 
 protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Tasks")
@@ -36,4 +59,24 @@ protected:
 
 	UPROPERTY(Replicated)
 	FName HomeRoomId;
+
+	UPROPERTY(Replicated)
+	EPlayerRole VisibleRole = EPlayerRole::Resident;
+
+	UPROPERTY(Replicated)
+	FText RatIntel;
+
+	UPROPERTY(Replicated)
+	TArray<FText> SmsMessages;
+
+	UPROPERTY(Replicated)
+	bool bUsedTip = false;
+
+	/** Выселен: это видят все. */
+	UPROPERTY(Replicated)
+	bool bEvicted = false;
+
+private:
+	EPlayerRole TrueRole = EPlayerRole::Resident;
+	TWeakObjectPtr<APlayerState> RatTarget;
 };

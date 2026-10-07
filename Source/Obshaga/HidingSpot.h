@@ -42,6 +42,9 @@ public:
 	 */
 	AItemActor* KomendantSearch(AObshagaCharacter*& OutFoundPlayer);
 
+	/** Сервер: опустошить тайник (реванш). Предметы и игроков возвращает на место тот, кто вызывает. */
+	void ResetSpot();
+
 protected:
 	virtual void BeginPlay() override;
 

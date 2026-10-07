@@ -49,8 +49,16 @@ protected:
 	UFUNCTION(Server, Reliable)
 	void ServerConfirmAlibi();
 
+	/** Хост начинает раунд или реванш. От остальных сервер просьбу игнорирует. */
+	UFUNCTION(Server, Reliable)
+	void ServerRequestStart();
+
+	/** Крыса стучит коменданту на свою жертву. */
+	UFUNCTION(Server, Reliable)
+	void ServerTipOff();
+
 private:
-	/** Раскладка MVP задаётся в коде: WASD, мышь, Shift, Ctrl, пробел, E, F, G, Tab, 1/2/3, Y, левая кнопка мыши. */
+	/** Раскладка MVP задаётся в коде: WASD, мышь, Shift, Ctrl, пробел, E, F, G, Tab, 1/2/3, Y, T, Enter, левая кнопка мыши. */
 	void CreateDefaultInput();
 
 	void OnMoveForward(const FInputActionValue& Value);
@@ -71,6 +79,8 @@ private:
 	void OnChoiceLie();
 	void OnChoiceSilent();
 	void OnAlibi();
+	void OnStart();
+	void OnTipOff();
 	bool IsLocalPlayerInterrogated() const;
 
 	AObshagaCharacter* GetObshagaCharacter() const;
@@ -122,6 +132,12 @@ private:
 
 	UPROPERTY(Transient)
 	TObjectPtr<UInputAction> AlibiAction;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UInputAction> StartAction;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UInputAction> TipAction;
 
 	/** Телефон открыт только у локального игрока; мир при этом не останавливается. */
 	bool bPhoneOpen = false;

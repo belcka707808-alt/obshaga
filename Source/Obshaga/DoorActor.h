@@ -36,6 +36,9 @@ public:
 	/** Середина створки в мире. */
 	FVector GetDoorCenter() const;
 
+	/** Сервер: закрыть дверь (реванш). */
+	void ResetDoor();
+
 	/** Сервер: открыть дверь от того, кто стоит в точке FromLocation (без шума — так открывает комендант). */
 	void OpenFor(const FVector& FromLocation);
 

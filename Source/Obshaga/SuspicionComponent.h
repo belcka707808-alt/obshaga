@@ -28,6 +28,8 @@ public:
 	void AddSuspicion(float Delta);
 	void SetSuspicion(float NewValue);
 	void AddStrike();
+	/** Новый раунд: подозрение и страйки обнуляются. */
+	void ResetAll();
 
 protected:
 	UPROPERTY(Replicated)

@@ -35,7 +35,7 @@ AActor* UInteractionComponent::FindFocusedActor() const
 {
 	const AObshagaCharacter* Character = GetCharacter();
 	const AController* Controller = Character ? Character->GetController() : nullptr;
-	if (!Controller)
+	if (!Controller || Character->IsGhost() || Character->IsFrozen())
 	{
 		return nullptr;
 	}
@@ -155,7 +155,7 @@ void UInteractionComponent::ServerInteract_Implementation(AActor* Target, bool b
 	// Клиенту не верим: сервер сам перепроверяет объект и дистанцию, а условия действия проверяет сам объект.
 	AObshagaCharacter* Character = GetCharacter();
 	IInteractable* Interactable = Cast<IInteractable>(Target);
-	if (!Character || !Interactable)
+	if (!Character || !Interactable || Character->IsGhost() || Character->IsFrozen())
 	{
 		return;
 	}

@@ -6,11 +6,12 @@
 
 class AObshagaPlayerState;
 class UDataTable;
+struct FTaskRow;
 
 /**
  * «Раздающий» заданий. Живёт на сервере внутри GameMode.
- * Версия M3 простая: старается выдать задание, которое конфликтует с уже выданным,
- * иначе — первое свободное. Умный подбор (доля конфликтов, анти-повтор, веса) — на M5.
+ * Каждому — основное и побочное задание. Основные по возможности не повторяются и конфликтуют
+ * друг с другом; побочное не противоречит собственному основному.
  */
 UCLASS()
 class OBSHAGA_API UTaskDirector : public UObject
@@ -23,12 +24,15 @@ public:
 	/** Новый раунд: забыть, что было роздано. */
 	void Reset();
 
-	/** Выдаёт игроку одно задание. Возвращает id задания или NAME_None, если выдать нечего. */
-	FName AssignTaskTo(AObshagaPlayerState* PlayerState, int32 NumPlayers);
+	/** Выдаёт игроку основное и побочное задания. */
+	void AssignTasksTo(AObshagaPlayerState* PlayerState, int32 NumPlayers);
 
 private:
 	UPROPERTY()
 	TObjectPtr<UDataTable> TasksTable;
 
-	TArray<FName> DealtTaskIds;
+	const FTaskRow* FindRow(FName TaskId) const;
+	bool AreInConflict(FName A, FName B) const;
+
+	TArray<FName> DealtMainIds;
 };

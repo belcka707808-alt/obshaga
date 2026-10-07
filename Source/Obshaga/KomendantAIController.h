@@ -49,6 +49,11 @@ public:
 
 	EKomendantState GetState() const { return State; }
 
+	/** Новый раунд: вернуться на вахту, выбрать личность, всё забыть. Вызывает AObshagaGameMode. */
+	void ResetForRound();
+	/** Крыса настучала: сходить и посмотреть, что происходит в этой точке. */
+	void InvestigateTip(const FVector& Location);
+
 protected:
 	virtual void OnPossess(APawn* InPawn) override;
 
@@ -67,6 +72,7 @@ protected:
 private:
 	void BuildGraph();
 	void ApplyPersonality();
+	void OnPhaseChanged();
 	const UObshagaRoundConfig* GetRoundConfig() const;
 	bool IsRoundInProgress() const;
 
@@ -150,6 +156,13 @@ private:
 	/** До какого времени игрока не трогаем (сразу после допроса). */
 	TMap<TWeakObjectPtr<AObshagaCharacter>, float> ImmuneUntil;
 	TMap<TWeakObjectPtr<AObshagaCharacter>, float> LastSpottedEventTime;
+
+	/** Утренняя проверка: тайники жилых комнат, которые осталось обыскать. */
+	TArray<TWeakObjectPtr<AHidingSpot>> InspectionQueue;
+	TWeakObjectPtr<AHidingSpot> QueuedSpot;
+
+	FTransform SpawnTransform;
+	uint8 LastPhase = 255;
 
 	float SlowTimer = 0.f;
 	float DoorTimer = 0.f;

@@ -38,7 +38,13 @@ enum class EGameEventType : uint8
 	AlibiConfirmed,
 	ContrabandConfiscated,
 	/** Комендант пошёл на шум, который устроил Instigator. */
-	KomendantAlerted
+	KomendantAlerted,
+	PhaseChanged,
+	PlayerEvicted,
+	/** Крыса (Instigator) настучала на Target. */
+	TipOff,
+	/** После стука Крысы (Instigator) жертву (Target) поймали. */
+	TipSucceeded
 };
 
 /** Одна запись на «доске объявлений»: кто, что сделал, с каким предметом, где и когда. */

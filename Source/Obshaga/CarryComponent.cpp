@@ -75,7 +75,7 @@ void UCarryComponent::ServerThrow_Implementation()
 bool UCarryComponent::PickUp(AItemActor* Item)
 {
 	AObshagaCharacter* Character = GetCharacter();
-	if (!Character || !Character->HasAuthority() || !Item || CarriedItem || Character->IsHiding()
+	if (!Character || !Character->HasAuthority() || !Item || CarriedItem || Character->IsHiding() || Character->IsGhost()
 		|| Item->GetItemState() == EItemState::Carried)
 	{
 		return false;
