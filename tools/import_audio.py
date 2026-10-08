@@ -30,7 +30,7 @@ SLOTS = {
 
 
 def main(source_dir):
-    files = [f for f in sorted(os.listdir(source_dir)) if f.lower().endswith((".wav", ".ogg"))]
+    files = [f for f in sorted(os.listdir(source_dir)) if f.lower().endswith((".wav", ".ogg", ".mp3"))]
     tasks = []
     for name in files:
         task = unreal.AssetImportTask()
