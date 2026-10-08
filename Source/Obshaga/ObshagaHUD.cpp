@@ -12,6 +12,7 @@
 #include "ObshagaGameState.h"
 #include "ObshagaPlayerController.h"
 #include "ObshagaPlayerState.h"
+#include "ObshagaSessionSubsystem.h"
 #include "RoomVolume.h"
 #include "SuspicionComponent.h"
 #include "TaskComponent.h"
@@ -115,6 +116,21 @@ void AObshagaHUD::DrawHUD()
 		float HintHeight = 0.f;
 		GetTextSize(Hint, HintWidth, HintHeight, Font, Scale);
 		DrawText(Hint, FLinearColor(1.f, 1.f, 1.f, 0.6f), Canvas->ClipX - HintWidth - 16.f * Scale, 12.f * Scale, Font, Scale);
+	}
+
+	// Код комнаты всегда под рукой: его диктуют друзьям и по нему же заходят снова после вылета.
+	const UObshagaSessionSubsystem* Rooms = GetGameInstance() ? GetGameInstance()->GetSubsystem<UObshagaSessionSubsystem>() : nullptr;
+	if (Rooms && !Rooms->GetRoomCode().IsEmpty())
+	{
+		const FString RoomLine = FText::Format(LOCTEXT("RoomLine", "Комната {0}   [F10] выйти"), FText::FromString(Rooms->GetRoomCode())).ToString();
+		float RoomWidth = 0.f;
+		float RoomHeight = 0.f;
+		GetTextSize(RoomLine, RoomWidth, RoomHeight, Font, Scale);
+		DrawText(RoomLine, FLinearColor(1.f, 1.f, 1.f, 0.6f), Canvas->ClipX - RoomWidth - 16.f * Scale, 32.f * Scale, Font, Scale);
+		if (GameState->GetRoundState() == ERoundState::WaitingToStart)
+		{
+			DrawCentered(FText::Format(LOCTEXT("RoomCodeBig", "Код комнаты: {0} — продиктуй его друзьям"), FText::FromString(Rooms->GetRoomCode())).ToString(), FLinearColor::White, 0.09f);
+		}
 	}
 
 	// Сообщения рисуем последними, чтобы телефон их не закрывал.
@@ -241,8 +257,34 @@ void AObshagaHUD::DrawCentered(const FString& Line, const FLinearColor& Color, f
 
 float AObshagaHUD::DrawWrapped(const FString& Text, const FLinearColor& Color, float X, float Y, float MaxWidth, float LineHeight, bool bDraw)
 {
+	TArray<FString> Parsed;
+	Text.ParseIntoArray(Parsed, TEXT(" "));
+
+	// Слово шире всей строки (длинный ник без пробелов) режем на куски по буквам, иначе оно вылезет за панель.
 	TArray<FString> Words;
-	Text.ParseIntoArray(Words, TEXT(" "));
+	for (const FString& Word : Parsed)
+	{
+		float WordWidth = 0.f;
+		float WordHeight = 0.f;
+		GetTextSize(Word, WordWidth, WordHeight, Font, Scale);
+		if (WordWidth <= MaxWidth || Word.Len() < 2)
+		{
+			Words.Add(Word);
+			continue;
+		}
+		FString Piece;
+		for (const TCHAR Char : Word)
+		{
+			GetTextSize(Piece + Char, WordWidth, WordHeight, Font, Scale);
+			if (WordWidth > MaxWidth && !Piece.IsEmpty())
+			{
+				Words.Add(Piece);
+				Piece.Reset();
+			}
+			Piece.AppendChar(Char);
+		}
+		Words.Add(Piece);
+	}
 
 	const float Step = LineHeight * Scale;
 	FString Line;

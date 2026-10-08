@@ -62,6 +62,13 @@ protected:
 	virtual void BeginPlay() override;
 	virtual void SetupInputComponent() override;
 	virtual void PlayerTick(float DeltaTime) override;
+	virtual bool InputKey(const FInputKeyEventArgs& Params) override;
+	/** Хост закрыл комнату (или сервер выгнал): уходим в меню и показываем там причину. */
+	virtual void ClientReturnToMainMenuWithTextReason_Implementation(const FText& ReturnReason) override;
+
+	/** Игрок сообщает серверу своё имя (ник Steam). Сервер чистит его и следит, чтобы имена не совпадали. */
+	UFUNCTION(Server, Reliable)
+	void ServerSetDisplayName(const FString& Wanted);
 
 	/** Пойманный выбирает ответ на допросе: 1 — сознаться, 2 — соврать, 3 — молчать. */
 	UFUNCTION(Server, Reliable)
@@ -88,6 +95,10 @@ protected:
 	void ServerTipOffRoom();
 
 private:
+	/** Когда игрок в прошлый раз нажал «выйти в меню»: выход срабатывает со второго нажатия подряд. */
+	float LeavePressTime = -100.f;
+	bool bDisplayNameSet = false;
+
 	/** Раскладка MVP задаётся в коде: WASD, мышь, Shift, Ctrl, пробел, E, F, G, Tab, 1–8, Y, T, R, B, Q, H, Enter, левая кнопка мыши. */
 	void CreateDefaultInput();
 

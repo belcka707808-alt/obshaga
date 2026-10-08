@@ -18,6 +18,9 @@
 #include "ObshagaGameMode.h"
 #include "ObshagaGameState.h"
 #include "ObshagaPlayerState.h"
+#include "ObshagaSessionSubsystem.h"
+#include "GameFramework/GameStateBase.h"
+#include "GameFramework/PlayerState.h"
 #include "RoomVolume.h"
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
@@ -40,6 +43,9 @@ namespace
 	constexpr float FootstepMaxFrameStep = 120.f;
 	constexpr float MusicFadeSpeed = 1.5f;
 	constexpr float FrameLogSeconds = 5.f;
+	// Ник Steam бывает до 32 символов.
+	constexpr int32 MaxDisplayNameLength = 32;
+	constexpr float LeaveConfirmSeconds = 3.f;
 
 	// Обучение: общий предел и сколько висит последняя подсказка.
 	constexpr float TutorialMaxSeconds = 90.f;
@@ -196,11 +202,100 @@ void AObshagaPlayerController::BeginPlay()
 			Settings->GetOverallScalabilityLevel(), Settings->GetResolutionScaleNormalized() * 100.f);
 	}
 
+	// Имя для остальных игроков: ник Steam (без Steam сервер оставит «Жилец N»).
+	const UObshagaSessionSubsystem* Rooms = GetGameInstance() ? GetGameInstance()->GetSubsystem<UObshagaSessionSubsystem>() : nullptr;
+	if (IsLocalController() && Rooms)
+	{
+		const FString Name = Rooms->GetLocalPlayerName();
+		if (!Name.IsEmpty())
+		{
+			ServerSetDisplayName(Name);
+		}
+	}
+
 	if (IsLocalController() && !bTutorialDone)
 	{
 		TutorialStep = 0;
 		TutorialStartTime = TutorialStepTime = GetWorld()->GetTimeSeconds();
 	}
+}
+
+void AObshagaPlayerController::ServerSetDisplayName_Implementation(const FString& Wanted)
+{
+	APlayerState* MyState = GetPlayerState<APlayerState>();
+	const AGameStateBase* GameState = GetWorld()->GetGameState();
+	if (bDisplayNameSet || !MyState || !GameState)
+	{
+		return;
+	}
+
+	// Ник приходит от клиента, поэтому чистим его здесь: шрифт игры не умеет эмодзи, а управляющие символы ломают строки.
+	FString Clean;
+	for (const TCHAR Char : Wanted)
+	{
+		const bool bControl = Char < 0x20 || Char == 0x7F;
+		const bool bSurrogate = Char >= 0xD800 && Char <= 0xDFFF;
+		const bool bSymbol = (Char >= 0x2190 && Char <= 0x2BFF) || (Char >= 0xE000 && Char <= 0xF8FF) || (Char >= 0xFE00 && Char <= 0xFE0F) || (Char >= 0x200B && Char <= 0x200F);
+		if (!bControl && !bSurrogate && !bSymbol)
+		{
+			Clean.AppendChar(Char);
+		}
+	}
+	Clean.TrimStartAndEndInline();
+	Clean.LeftInline(MaxDisplayNameLength);
+	Clean.TrimEndInline();
+	if (Clean.IsEmpty())
+	{
+		return;
+	}
+
+	// Итоги раунда сопоставляют задания с игроком по имени, поэтому двух одинаковых имён быть не должно.
+	auto IsTaken = [GameState, MyState](const FString& Name)
+	{
+		return GameState->PlayerArray.ContainsByPredicate([&Name, MyState](const APlayerState* Other) { return Other && Other != MyState && Other->GetPlayerName() == Name; });
+	};
+	FString Unique = Clean;
+	for (int32 Number = 2; IsTaken(Unique); ++Number)
+	{
+		Unique = FString::Printf(TEXT("%s %d"), *Clean, Number);
+	}
+
+	bDisplayNameSet = true;
+	UE_LOG(LogObshaga, Verbose, TEXT("%s is now called %s"), *MyState->GetPlayerName(), *Unique);
+	MyState->SetPlayerName(Unique);
+}
+
+void AObshagaPlayerController::ClientReturnToMainMenuWithTextReason_Implementation(const FText& ReturnReason)
+{
+	if (UObshagaSessionSubsystem* Rooms = GetGameInstance() ? GetGameInstance()->GetSubsystem<UObshagaSessionSubsystem>() : nullptr)
+	{
+		Rooms->LeaveRoom(ReturnReason);
+		return;
+	}
+	Super::ClientReturnToMainMenuWithTextReason_Implementation(ReturnReason);
+}
+
+bool AObshagaPlayerController::InputKey(const FInputKeyEventArgs& Params)
+{
+	// Выход в меню — со второго нажатия F10 подряд, чтобы хост не закрыл комнату всем случайной клавишей.
+	UObshagaSessionSubsystem* Rooms = GetGameInstance() ? GetGameInstance()->GetSubsystem<UObshagaSessionSubsystem>() : nullptr;
+	if (Params.Key == EKeys::F10 && Params.Event == IE_Pressed && Rooms && !Rooms->GetRoomCode().IsEmpty())
+	{
+		const float Now = GetWorld()->GetRealTimeSeconds();
+		if (Now - LeavePressTime < LeaveConfirmSeconds)
+		{
+			Rooms->LeaveRoom();
+		}
+		else
+		{
+			LeavePressTime = Now;
+			ClientShowNotice_Implementation(GetNetMode() == NM_Client
+				? NSLOCTEXT("ObshagaRoom", "LeaveConfirm", "Нажми F10 ещё раз, чтобы выйти в меню")
+				: NSLOCTEXT("ObshagaRoom", "LeaveConfirmHost", "Нажми F10 ещё раз: комната закроется для всех"));
+		}
+		return true;
+	}
+	return Super::InputKey(Params);
 }
 
 void AObshagaPlayerController::OnToggleEmoteWheel()
