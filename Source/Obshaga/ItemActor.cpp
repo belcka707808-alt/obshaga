@@ -8,6 +8,7 @@
 #include "ObshagaCharacter.h"
 #include "ObshagaItemData.h"
 #include "ObshagaPlayerController.h"
+#include "ObshagaVisuals.h"
 #include "RoomVolume.h"
 #include "GameFramework/GameStateBase.h"
 #include "GameFramework/PlayerState.h"
@@ -72,6 +73,7 @@ void AItemActor::BeginPlay()
 
 	ApplyItemData();
 	ApplyPlacement();
+	ObshagaVisuals::Tint(Mesh, GetItemData()->Color);
 
 	if (HasAuthority())
 	{

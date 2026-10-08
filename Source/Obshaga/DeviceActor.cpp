@@ -7,6 +7,7 @@
 #include "ObshagaCharacter.h"
 #include "ObshagaGameState.h"
 #include "ObshagaPlayerController.h"
+#include "ObshagaVisuals.h"
 #include "RoomVolume.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/StaticMesh.h"
@@ -70,6 +71,7 @@ void ADeviceActor::BeginPlay()
 	Super::BeginPlay();
 
 	ApplySize();
+	ObshagaVisuals::Tint(Mesh, Color);
 }
 
 void ADeviceActor::ApplySize()

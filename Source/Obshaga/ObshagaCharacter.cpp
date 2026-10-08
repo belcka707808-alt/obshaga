@@ -65,6 +65,16 @@ void AObshagaCharacter::PostInitializeComponents()
 
 	const UObshagaCharacterConfig* Cfg = GetConfig();
 	CameraBoom->TargetArmLength = Cfg->CameraArmLength;
+
+	// Камера не подстраивается под темноту сама — иначе ночной полумрак она превратила бы обратно в день.
+	if (Cfg->FixedExposureBrightness > 0.f)
+	{
+		FPostProcessSettings& PostProcess = FollowCamera->PostProcessSettings;
+		PostProcess.bOverride_AutoExposureMinBrightness = true;
+		PostProcess.bOverride_AutoExposureMaxBrightness = true;
+		PostProcess.AutoExposureMinBrightness = Cfg->FixedExposureBrightness;
+		PostProcess.AutoExposureMaxBrightness = Cfg->FixedExposureBrightness;
+	}
 	GetCharacterMovement()->MaxWalkSpeedCrouched = Cfg->CrouchSpeed;
 	UpdateMovementSpeed();
 }

@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include "CoreMinimal.h"
 #include "Engine/DataAsset.h"
@@ -68,6 +68,21 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Night", meta = (ClampMin = "0.1"))
 	float NightHearingMultiplier = 1.3f;
+
+	/** Какая доля дневного солнца остаётся ночью. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Night", meta = (ClampMin = "0", ClampMax = "1"))
+	float NightSunScale = 0.12f;
+
+	/**
+	 * Множитель света неба ночью. Больше единицы — не ошибка: небо само темнеет вместе с солнцем,
+	 * и без усиления на закрытом первом этаже ночью не видно ничего.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Night", meta = (ClampMin = "0", ClampMax = "20"))
+	float NightSkyScale = 5.f;
+
+	/** За сколько секунд темнеет и светает. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Night", meta = (ClampMin = "0.1", Units = "s"))
+	float NightFadeSeconds = 6.f;
 
 	/** Во сколько раз двери шумнее ночью. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Night", meta = (ClampMin = "0.1"))

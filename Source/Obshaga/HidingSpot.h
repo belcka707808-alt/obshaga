@@ -75,6 +75,10 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "HidingSpot", meta = (Units = "cm"))
 	FVector BoxSize = FVector(60.f, 100.f, 200.f);
 
+	/** Цвет куба-заглушки. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "HidingSpot")
+	FLinearColor Color = FLinearColor(0.36f, 0.22f, 0.12f);
+
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "HidingSpot")
 	bool bCanHidePlayer = false;
 

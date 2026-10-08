@@ -62,7 +62,13 @@ class OBSHAGA_API AObshagaGameState : public AGameStateBase
 	GENERATED_BODY()
 
 public:
+	AObshagaGameState();
+
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
+	virtual void Tick(float DeltaSeconds) override;
+
+	/** Насколько сейчас темно: 0 — день, 1 — глубокая ночь. Считается на каждой машине по фазе раунда. */
+	float GetDarkness() const { return Darkness; }
 
 	ERoundState GetRoundState() const { return RoundState; }
 	ERoundPhase GetPhase() const { return Phase; }
@@ -83,6 +89,8 @@ public:
 
 	// Только сервер. Вызывает AObshagaGameMode.
 	void StartRound(float InAlibiRadius, float InAccuseDistance);
+	/** Настройки ночного света из DA_RoundConfig: множители солнца и неба ночью и скорость перехода. */
+	void SetNightLighting(float InSunScale, float InSkyScale, float InFadeSeconds);
 	void SetPhase(ERoundPhase NewPhase, float DurationSeconds);
 	void FinishRound(const TArray<FRevealedTask>& Tasks, const TArray<FRevealedPlayer>& Players, const TArray<FText>& InChronicle);
 	void SetInterrogation(const FInterrogationInfo& NewInfo);
@@ -115,4 +123,26 @@ protected:
 
 	UPROPERTY(Replicated)
 	float AccuseDistance = 1200.f;
+
+	UPROPERTY(Replicated)
+	float NightSunScale = 0.12f;
+
+	UPROPERTY(Replicated)
+	float NightSkyScale = 5.f;
+
+	UPROPERTY(Replicated)
+	float NightFadeSeconds = 6.f;
+
+private:
+	void ApplyDarkness();
+
+	// Свет сцены и его дневная яркость; находятся один раз на каждой машине.
+	TWeakObjectPtr<class UDirectionalLightComponent> Sun;
+	TWeakObjectPtr<class USkyLightComponent> Sky;
+	TWeakObjectPtr<AActor> DaySkySphere;
+	float SunBaseIntensity = 0.f;
+	float SkyBaseIntensity = 0.f;
+	FLinearColor SunBaseColor = FLinearColor::White;
+	bool bLightsFound = false;
+	float Darkness = 0.f;
 };

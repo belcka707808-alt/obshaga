@@ -37,6 +37,13 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Camera", meta = (ClampMin = "0", Units = "cm"))
 	float CameraArmLength = 350.f;
 
+	/**
+	 * Постоянная экспозиция камеры: к какой яркости сцены она «привыкла». 0 — автоматическая.
+	 * С автоматической ночь не выглядит ночью: камера сама высветляет потемневшую сцену.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Camera", meta = (ClampMin = "0"))
+	float FixedExposureBrightness = 1.f;
+
 	/** На каком расстоянии перед собой игрок кладёт или выпускает предмет. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Carry", meta = (ClampMin = "0", Units = "cm"))
 	float DropDistance = 70.f;

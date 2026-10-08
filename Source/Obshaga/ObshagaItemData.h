@@ -22,6 +22,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item", meta = (Units = "cm"))
 	FVector BoxSize = FVector(30.f, 30.f, 30.f);
 
+	/** Цвет куба-заглушки. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item")
+	FLinearColor Color = FLinearColor(0.35f, 0.35f, 0.4f);
+
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item", meta = (ClampMin = "0.01", Units = "kg"))
 	float Weight = 1.f;
 

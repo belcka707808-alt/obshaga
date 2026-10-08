@@ -65,6 +65,10 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Device", meta = (Units = "cm"))
 	FVector BoxSize = FVector(60.f, 60.f, 90.f);
 
+	/** Цвет куба-заглушки. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Device")
+	FLinearColor Color = FLinearColor(0.75f, 0.75f, 0.78f);
+
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Device", meta = (ClampMin = "0", Units = "s"))
 	float BreakDuration = 2.f;
 

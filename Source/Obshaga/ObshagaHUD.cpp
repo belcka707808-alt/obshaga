@@ -61,10 +61,10 @@ void AObshagaHUD::DrawHUD()
 	Scale = FMath::Max(1.f, Canvas->ClipY / 540.f);
 
 	const bool bInProgress = GameState->GetRoundState() == ERoundState::InProgress;
-	if (bInProgress && GameState->GetPhase() == ERoundPhase::Night)
+	if (GameState->GetDarkness() > 0.f)
 	{
-		// Ночь: пока просто затемняем экран; настоящий свет — на M6.
-		DrawRect(FLinearColor(0.f, 0.f, 0.06f, 0.3f), 0.f, 0.f, Canvas->ClipX, Canvas->ClipY);
+		// Ночью гаснет свет в самой сцене (AObshagaGameState); экран лишь слегка подсинён.
+		DrawRect(FLinearColor(0.f, 0.f, 0.08f, 0.1f * GameState->GetDarkness()), 0.f, 0.f, Canvas->ClipX, Canvas->ClipY);
 	}
 
 	DrawDanger(Controller);
@@ -135,14 +135,14 @@ void AObshagaHUD::DrawDanger(const AObshagaPlayerController* Controller)
 	const float Pulse = Controller->GetHeartPulse();
 	const float Strength = Level * (0.55f + 0.45f * Pulse);
 	const float MaxThickness = FMath::Min(Canvas->ClipX, Canvas->ClipY) * (0.16f + 0.10f * Level);
-	constexpr int32 NumBands = 12;
+	constexpr int32 NumBands = 28;
 	for (int32 Band = 0; Band < NumBands; ++Band)
 	{
 		// Вложенные рамки: у самого края темнее всего, к центру сходит на нет.
 		const float Inset = MaxThickness * Band / NumBands;
 		const float Thickness = MaxThickness / NumBands + 1.f;
 		const float Falloff = 1.f - static_cast<float>(Band) / NumBands;
-		const FLinearColor Color(0.18f, 0.f, 0.f, 0.6f * Strength * Falloff * Falloff);
+		const FLinearColor Color(0.18f, 0.f, 0.f, 0.5f * Strength * Falloff * Falloff);
 		DrawRect(Color, Inset, Inset, Canvas->ClipX - Inset * 2.f, Thickness);
 		DrawRect(Color, Inset, Canvas->ClipY - Inset - Thickness, Canvas->ClipX - Inset * 2.f, Thickness);
 		DrawRect(Color, Inset, Inset + Thickness, Thickness, Canvas->ClipY - (Inset + Thickness) * 2.f);

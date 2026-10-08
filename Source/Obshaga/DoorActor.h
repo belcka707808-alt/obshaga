@@ -63,6 +63,10 @@ protected:
 	UPROPERTY(EditAnywhere, Category = "Door", meta = (ClampMin = "1"))
 	float OpenSpeed = 260.f;
 
+	/** Цвет куба-заглушки. */
+	UPROPERTY(EditAnywhere, Category = "Door")
+	FLinearColor Color = FLinearColor(0.55f, 0.36f, 0.18f);
+
 	/** Громкость скрипа: 0 — тихо, 1 — грохот. */
 	UPROPERTY(EditAnywhere, Category = "Door", meta = (ClampMin = "0", ClampMax = "1"))
 	float NoiseLoudness = 0.2f;

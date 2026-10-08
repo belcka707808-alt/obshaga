@@ -27,6 +27,8 @@ ANightExitDoor::ANightExitDoor()
 	DisplayName = LOCTEXT("DefaultName", "Ночной выход");
 	BoxSize = FVector(20.f, 110.f, 210.f);
 	bCanHidePlayer = true;
+	// Зелёная, как табличка «Выход».
+	Color = FLinearColor(0.05f, 0.35f, 0.12f);
 	ApplySize();
 }
 

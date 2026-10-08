@@ -8,6 +8,7 @@
 #include "ObshagaCharacter.h"
 #include "ObshagaItemData.h"
 #include "ObshagaPlayerController.h"
+#include "ObshagaVisuals.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/StaticMesh.h"
 #include "Net/UnrealNetwork.h"
@@ -71,6 +72,7 @@ void AHidingSpot::BeginPlay()
 	Super::BeginPlay();
 
 	ApplySize();
+	ObshagaVisuals::Tint(Mesh, Color);
 }
 
 void AHidingSpot::ApplySize()

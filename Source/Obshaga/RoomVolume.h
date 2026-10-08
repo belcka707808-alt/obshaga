@@ -50,7 +50,13 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Room")
 	bool bForbiddenAfterCurfew = false;
 
+	/** Цвет пола зоны. Прозрачный (альфа 0) — пол не красится. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Room")
+	FLinearColor ZoneColor = FLinearColor(0.f, 0.f, 0.f, 0.f);
+
 protected:
+	virtual void BeginPlay() override;
+
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Room")
 	TObjectPtr<UBoxComponent> Box;
 };

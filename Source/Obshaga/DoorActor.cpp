@@ -7,6 +7,7 @@
 #include "ObshagaGameMode.h"
 #include "ObshagaGameState.h"
 #include "ObshagaRoundConfig.h"
+#include "ObshagaVisuals.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/StaticMesh.h"
 #include "Net/UnrealNetwork.h"
@@ -54,6 +55,7 @@ void ADoorActor::BeginPlay()
 	// Кто подключился позже, сразу видит дверь в нужном положении, без анимации.
 	CurrentYaw = GetTargetYaw();
 	Hinge->SetRelativeRotation(FRotator(0.f, CurrentYaw, 0.f));
+	ObshagaVisuals::Tint(DoorMesh, Color);
 }
 
 float ADoorActor::GetTargetYaw() const
