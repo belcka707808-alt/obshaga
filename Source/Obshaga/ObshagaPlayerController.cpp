@@ -12,6 +12,7 @@
 #include "Components/AudioComponent.h"
 #include "EngineUtils.h"
 #include "GameFramework/CharacterMovementComponent.h"
+#include "GameFramework/GameUserSettings.h"
 #include "Kismet/GameplayStatics.h"
 #include "Misc/ConfigCacheIni.h"
 #include "ObshagaGameMode.h"
@@ -45,6 +46,7 @@ namespace
 	constexpr float TutorialLastStepSeconds = 8.f;
 	const TCHAR* TutorialConfigSection = TEXT("Obshaga");
 	const TCHAR* TutorialConfigKey = TEXT("bTutorialDone");
+	const TCHAR* QualityConfigKey = TEXT("bQualityChosen");
 
 	UInputAction* MakeAction(UObject* Outer, FName Name, EInputActionValueType ValueType)
 	{
@@ -178,6 +180,22 @@ void AObshagaPlayerController::BeginPlay()
 	// Обучение показывается только при первом запуске игры на этом компьютере.
 	bool bTutorialDone = false;
 	GConfig->GetBool(TutorialConfigSection, TutorialConfigKey, bTutorialDone, GGameUserSettingsIni);
+	// При первом запуске игра сама меряет компьютер и подбирает качество графики: на слабой встроенной
+	// видеокарте выйдет «низкое», на игровой — «высокое». Результат сохраняется; дальше игрок правит его сам.
+	// В редакторе не трогаем: там это настройки самого редактора.
+	bool bQualityChosen = false;
+	GConfig->GetBool(TutorialConfigSection, QualityConfigKey, bQualityChosen, GGameUserSettingsIni);
+	UGameUserSettings* Settings = GEngine ? GEngine->GetGameUserSettings() : nullptr;
+	if (IsLocalController() && !GIsEditor && !bQualityChosen && Settings)
+	{
+		Settings->RunHardwareBenchmark();
+		Settings->ApplyHardwareBenchmarkResults();
+		GConfig->SetBool(TutorialConfigSection, QualityConfigKey, true, GGameUserSettingsIni);
+		GConfig->Flush(false, GGameUserSettingsIni);
+		UE_LOG(LogObshaga, Log, TEXT("Graphics quality picked by benchmark: overall level %d, resolution %.0f%%"),
+			Settings->GetOverallScalabilityLevel(), Settings->GetResolutionScaleNormalized() * 100.f);
+	}
+
 	if (IsLocalController() && !bTutorialDone)
 	{
 		TutorialStep = 0;
