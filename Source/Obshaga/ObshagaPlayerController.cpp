@@ -221,22 +221,26 @@ void AObshagaPlayerController::UpdateDanger(float DeltaTime)
 		const UObshagaCharacterConfig* Config = Me->GetConfig();
 		for (TActorIterator<AKomendantCharacter> It(GetWorld()); It; ++It)
 		{
+			// Момент начала погони ловим до отсева по этажу, иначе колокол звякал бы при каждой смене этажа.
+			const bool bChasing = It->GetAlert() == EKomendantAlert::Chasing;
+			const bool bChaseJustStarted = bChasing && !bKomendantWasChasing;
+			bKomendantWasChasing = bChasing;
+
 			const FVector Delta = It->GetActorLocation() - Me->GetActorLocation();
 			if (FMath::Abs(Delta.Z) > DangerSameFloorHeight)
 			{
 				continue;
 			}
 			float Level = 1.f - Delta.Size2D() / Config->DangerRadius;
-			if (It->GetAlert() == EKomendantAlert::Chasing)
+			if (bChasing)
 			{
 				Level *= DangerChaseBoost;
-				// Погоня только что началась — окрик коменданта слышно оттуда, где он стоит.
-				if (!bKomendantWasChasing)
-				{
-					UObshagaAudioConfig::PlayAt(this, UObshagaAudioConfig::Get()->ChaseStart, It->GetActorLocation());
-				}
 			}
-			bKomendantWasChasing = It->GetAlert() == EKomendantAlert::Chasing;
+			// Погоня только что началась на твоём этаже — колокол слышно оттуда, где стоит комендант.
+			if (bChaseJustStarted)
+			{
+				UObshagaAudioConfig::PlayAt(this, UObshagaAudioConfig::Get()->ChaseStart, It->GetActorLocation());
+			}
 			Target = FMath::Max(Target, FMath::Clamp(Level, 0.f, 1.f));
 		}
 
@@ -247,6 +251,11 @@ void AObshagaPlayerController::UpdateDanger(float DeltaTime)
 		{
 			UObshagaAudioConfig::Play2D(this, UObshagaAudioConfig::Get()->Heartbeat, DangerLevel);
 		}
+	}
+	else
+	{
+		// Вне раунда погони нет: следующий раунд начнётся с чистого листа.
+		bKomendantWasChasing = false;
 	}
 	DangerLevel = FMath::FInterpTo(DangerLevel, Target, DeltaTime, DangerInterpSpeed);
 }
@@ -287,6 +296,9 @@ void AObshagaPlayerController::UpdateFootsteps()
 		return;
 	}
 
+	FVector ListenerLocation;
+	FRotator ListenerRotation;
+	GetPlayerViewPoint(ListenerLocation, ListenerRotation);
 	for (TActorIterator<ACharacter> It(GetWorld()); It; ++It)
 	{
 		const ACharacter* Walker = *It;
@@ -296,6 +308,12 @@ void AObshagaPlayerController::UpdateFootsteps()
 
 		const float Step = FVector::Dist2D(Walker->GetActorLocation(), LastLocation);
 		LastLocation = Walker->GetActorLocation();
+		// Чужие шаги слышно только рядом: дальше радиуса слышимости их нет вовсе.
+		if (FVector::DistSquared(Walker->GetActorLocation(), ListenerLocation) > FMath::Square(Audio->WorldSoundRadius))
+		{
+			Travelled = 0.f;
+			continue;
+		}
 		// Телепорт (укрытие, реванш) и полёт шагами не считаются; призраки и спрятавшиеся не топают.
 		if (Step > FootstepMaxFrameStep || !Walker->GetCharacterMovement()->IsMovingOnGround()
 			|| (Resident && (Resident->IsGhost() || Resident->IsHiding())))

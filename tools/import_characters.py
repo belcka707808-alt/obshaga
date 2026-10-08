@@ -1,7 +1,8 @@
 # Импортирует персонажей Kenney Mini Characters в Content/Obshaga/Characters/Mini.
 # Первый персонаж приносит скелет и анимации, остальные — только меш на том же скелете.
-# Запуск (редактор закрыт):
-#   UnrealEditor-Cmd.exe <Obshaga.uproject> -run=pythonscript -script="tools/import_characters.py <папка с FBX> first,second,..."
+# Запуск (редактор закрыт). Путь к скрипту — полный: относительный движок ищет от Engine/Binaries/Win64.
+# Папку-источник можно дать относительно папки проекта.
+#   UnrealEditor-Cmd.exe <Obshaga.uproject> -run=pythonscript -script="C:/полный/путь/к/проекту/tools/import_characters.py <папка с FBX> first,second,..."
 import os
 import sys
 
@@ -56,7 +57,12 @@ def main(source_dir, names):
     unreal.log("import_characters: assets: " + ", ".join(sorted(a.split("/")[-1].split(".")[0] for a in assets)))
 
 
+def resolve(path):
+    # Относительную папку считаем от папки проекта.
+    return path if os.path.isabs(path) else os.path.join(unreal.Paths.convert_relative_path_to_full(unreal.Paths.project_dir()), path)
+
+
 if len(sys.argv) > 2:
-    main(sys.argv[1], sys.argv[2].split(","))
+    main(resolve(sys.argv[1]), sys.argv[2].split(","))
 else:
     unreal.log_error("import_characters: usage: <folder> first,second,...")

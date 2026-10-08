@@ -1,6 +1,8 @@
 # Генерирует звук сердцебиения «тук-тук» (WAV, моно, 22 кГц, около 25 КБ): два низких затухающих удара.
-# Скачивать такой звук незачем — он получается из синуса.   make-heartbeat.ps1 -Out heartbeat.wav
-param([string]$Out = "heartbeat.wav")
+# Скачивать такой звук незачем — он получается из синуса.   make-heartbeat.ps1 -Out S_Heartbeat.wav  (имя файла = ячейка Heartbeat в DA_Audio)
+param([string]$Out = "S_Heartbeat.wav")
+# .NET пишет относительный путь в свою папку, а не в текущую папку PowerShell — приводим к полному.
+$Out = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Out)
 $rate = 22050; $seconds = 0.55; $n = [int]($rate * $seconds)
 $samples = New-Object 'System.Int16[]' $n
 # Удар: синус с понижающейся частотой, быстрая атака и экспоненциальный спад.

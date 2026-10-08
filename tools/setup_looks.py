@@ -1,6 +1,7 @@
 # Создаёт или обновляет ассет DA_Looks: какие модели у жильцов и коменданта и какая анимация на что.
-# Запуск (редактор закрыт):
-#   UnrealEditor-Cmd.exe <Obshaga.uproject> -run=pythonscript -script="tools/setup_looks.py"
+# Запуск (редактор закрыт). Путь к скрипту — полный: относительный движок ищет от Engine/Binaries/Win64.
+# Папку-источник можно дать относительно папки проекта.
+#   UnrealEditor-Cmd.exe <Obshaga.uproject> -run=pythonscript -script="C:/полный/путь/к/проекту/tools/setup_looks.py"
 import unreal
 
 DIR = "/Game/Obshaga/Characters"

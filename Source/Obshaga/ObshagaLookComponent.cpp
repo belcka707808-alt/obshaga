@@ -10,14 +10,23 @@
 #include "Engine/SkeletalMesh.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
+#include "UObject/StrongObjectPtr.h"
+
+namespace
+{
+	constexpr float SpeedSmoothing = 6.f;
+}
 
 const UObshagaLookConfig* UObshagaLookConfig::Get()
 {
+	// Сильная ссылка и одна попытка загрузки — по тем же причинам, что у UObshagaAudioConfig.
 	static const TCHAR* AssetPath = TEXT("/Game/Obshaga/Characters/DA_Looks.DA_Looks");
-	static TWeakObjectPtr<const UObshagaLookConfig> Cached;
-	if (!Cached.IsValid())
+	static TStrongObjectPtr<const UObshagaLookConfig> Cached;
+	static bool bTried = false;
+	if (!bTried)
 	{
-		Cached = LoadObject<UObshagaLookConfig>(nullptr, AssetPath, nullptr, LOAD_NoWarn);
+		bTried = true;
+		Cached.Reset(LoadObject<UObshagaLookConfig>(nullptr, AssetPath, nullptr, LOAD_NoWarn));
 	}
 	return Cached.IsValid() ? Cached.Get() : GetDefault<UObshagaLookConfig>();
 }
@@ -81,7 +90,8 @@ UAnimSequenceBase* UObshagaLookComponent::PickAnimation(bool& bOutLoop)
 	const ACharacter* Character = CastChecked<ACharacter>(GetOwner());
 	const AObshagaCharacter* Resident = Cast<AObshagaCharacter>(Character);
 	const UObshagaLookConfig* Config = UObshagaLookConfig::Get();
-	const float Speed = Character->GetVelocity().Size2D();
+	// Скорость сглажена: комендант идёт рывками от точки к точке, и без этого шаг мигал бы со стойкой.
+	const float Speed = SmoothedSpeed;
 	bOutLoop = true;
 
 	if (Resident)
@@ -147,6 +157,8 @@ void UObshagaLookComponent::TickComponent(float DeltaTime, ELevelTick TickType, 
 	{
 		return;
 	}
+
+	SmoothedSpeed = FMath::FInterpTo(SmoothedSpeed, GetOwner()->GetVelocity().Size2D(), DeltaTime, SpeedSmoothing);
 
 	bool bLoop = true;
 	UAnimSequenceBase* Wanted = PickAnimation(bLoop);

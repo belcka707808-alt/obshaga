@@ -714,7 +714,8 @@ bool AObshagaGameMode::StartInterrogation(AObshagaCharacter* Suspect, const FVec
 			Carry->ReleaseForHiding();
 			Item->ReleaseToWorld(EvidenceLocation, FVector::ZeroVector);
 			Item->ForgetCarrier();
-			UGameEventSubsystem::PublishFrom(Suspect, EGameEventType::ContrabandConfiscated, Item);
+			// Target заполнен: отобрали из рук, а не нашли в тайнике (хроника пишет об этом по-разному).
+			UGameEventSubsystem::PublishFrom(Suspect, EGameEventType::ContrabandConfiscated, Item, Suspect);
 		}
 		else
 		{
@@ -1071,54 +1072,58 @@ TArray<FText> AObshagaGameMode::BuildChronicle() const
 			Line.Priority = 1;
 			Line.Text = FText::Format(Pick({
 				LOCTEXT("ChrPickedUp1", "{0} утащил: {1} ({2})"),
-				LOCTEXT("ChrPickedUp2", "{0} решил, что {1} ему нужнее ({2})"),
-				LOCTEXT("ChrPickedUp3", "{2}: {1} уходит в руках {0}. Никто ничего не видел") }), Who, ItemName, RoomName);
+				LOCTEXT("ChrPickedUp2", "{0} решил, что ему нужнее. Предмет: {1} ({2})"),
+				LOCTEXT("ChrPickedUp3", "{2}. Пропажа: {1}. Кто унёс: {0}. Никто ничего не видел") }), Who, ItemName, RoomName);
 			break;
 		case EGameEventType::ItemHidden:
 			Line.Priority = 2;
 			Line.Text = FText::Format(Pick({
 				LOCTEXT("ChrHidden1", "{0} спрятал: {1} ({2})"),
-				LOCTEXT("ChrHidden2", "{0} запихнул {1} поглубже ({2}) и сделал честное лицо"),
-				LOCTEXT("ChrHidden3", "{1} теперь живёт в тайнике ({2}). Спасибо, {0}") }), Who, ItemName, RoomName);
+				LOCTEXT("ChrHidden2", "{0} спрятал поглубже: {1} ({2}). Лицо при этом честное"),
+				LOCTEXT("ChrHidden3", "Новый жилец тайника ({2}): {1}. Поселил: {0}") }), Who, ItemName, RoomName);
 			break;
 		case EGameEventType::PlayerFoundHiding:
 			Line.Priority = 3;
 			Line.Text = FText::Format(Pick({
-				LOCTEXT("ChrFoundHiding1", "{0} открыл шкаф, а там {1}"),
-				LOCTEXT("ChrFoundHiding2", "{0} нашёл в укрытии {1}. Неловко вышло"),
+				LOCTEXT("ChrFoundHiding1", "{0} открыл шкаф, а там сюрприз: {1}"),
+				LOCTEXT("ChrFoundHiding2", "{0} заглянул в укрытие. Внутри: {1}. Неловко вышло"),
 				LOCTEXT("ChrFoundHiding3", "{1} сидел тихо, пока не пришёл {0}") }), Who, Whom);
 			break;
 		case EGameEventType::ContrabandConfiscated:
 			Line.Priority = 4;
-			Line.Text = FText::Format(Pick({
-				LOCTEXT("ChrConfiscated1", "Комендант изъял запрещёнку. Привет, {0}"),
-				LOCTEXT("ChrConfiscated2", "Комендант нашёл тайник ({1}). {0}, это было хорошее место"),
-				LOCTEXT("ChrConfiscated3", "Запрещёнка переехала на вахту. {0} скорбит") }), Who, RoomName);
+			Line.Text = Event.Target
+				? FText::Format(Pick({
+					LOCTEXT("ChrConfiscatedHands1", "Комендант отобрал запрещёнку прямо из рук. Руки: {0}"),
+					LOCTEXT("ChrConfiscated3", "Запрещёнка переехала на вахту. Скорбит: {0}") }), Who, RoomName)
+				: FText::Format(Pick({
+					LOCTEXT("ChrConfiscated1", "Комендант изъял запрещёнку. Привет, {0}"),
+					LOCTEXT("ChrConfiscated2", "Комендант нашёл тайник ({1}). {0}, это было хорошее место"),
+					LOCTEXT("ChrConfiscated3", "Запрещёнка переехала на вахту. Скорбит: {0}") }), Who, RoomName);
 			break;
 		case EGameEventType::TipOff:
 			Line.Priority = 4;
 			Line.Text = FText::Format(Pick({
-				LOCTEXT("ChrTipOff1", "{0} настучал коменданту на {1}"),
-				LOCTEXT("ChrTipOff2", "{0} шепнул коменданту пару слов про {1}"),
-				LOCTEXT("ChrTipOff3", "Анонимный звонок на вахту. Очень похоже на голос {0}") }), Who, Whom);
+				LOCTEXT("ChrTipOff1", "{0} настучал коменданту. Жертва: {1}"),
+				LOCTEXT("ChrTipOff2", "{0} шепнул коменданту пару слов. Тема разговора: {1}"),
+				LOCTEXT("ChrTipOff3", "Анонимный звонок на вахту. Голос подозрительно похож: {0}") }), Who, Whom);
 			break;
 		case EGameEventType::TipSucceeded:
 			Line.Priority = 5;
 			Line.Text = FText::Format(Pick({
-				LOCTEXT("ChrTipWorked1", "Стук сработал: {1} попался, {0} доволен"),
-				LOCTEXT("ChrTipWorked2", "{0} сдал {1} — и не прогадал") }), Who, Whom);
+				LOCTEXT("ChrTipWorked1", "Стук сработал. Попался: {1}. Доволен: {0}"),
+				LOCTEXT("ChrTipWorked2", "{0} сдал соседа и не прогадал. Сосед: {1}") }), Who, Whom);
 			break;
 		case EGameEventType::PlayerCaught:
 			Line.Priority = 5;
 			Line.Text = Event.Item
 				? FText::Format(Pick({
-					LOCTEXT("ChrCaughtItem1", "{0} пойман ({1}). В руках — {2}. Он не знает, как оно там оказалось"),
-					LOCTEXT("ChrCaughtItem2", "{0} и {2} встретили коменданта ({1})"),
-					LOCTEXT("ChrCaughtItem3", "Комендант, {0}, {2}. Немая сцена ({1})") }), Who, RoomName, ItemName)
+					LOCTEXT("ChrCaughtItem1", "{0} пойман ({1}). В руках: {2}. Как оно там оказалось — загадка"),
+					LOCTEXT("ChrCaughtItem2", "{0} встретил коменданта ({1}). При себе: {2}"),
+					LOCTEXT("ChrCaughtItem3", "Немая сцена ({1}): комендант, {0} и улика — {2}") }), Who, RoomName, ItemName)
 				: FText::Format(Pick({
 					LOCTEXT("ChrCaught1", "{0} пойман комендантом ({1})"),
 					LOCTEXT("ChrCaught2", "{0} не успел убежать ({1})"),
-					LOCTEXT("ChrCaught3", "«А ты куда собрался?» — комендант, обращаясь к {0} ({1})") }), Who, RoomName);
+					LOCTEXT("ChrCaught3", "Комендант: «А ты куда собрался?» Собрался: {0} ({1})") }), Who, RoomName);
 			break;
 		case EGameEventType::InterrogationConfessed:
 			Line.Priority = 3;
@@ -1146,14 +1151,14 @@ TArray<FText> AObshagaGameMode::BuildChronicle() const
 			Line.Text = FText::Format(Pick({
 				LOCTEXT("ChrLieFail1", "{0} соврал, но комендант не поверил"),
 				LOCTEXT("ChrLieFail2", "{0} врал вдохновенно. Комендант слушал с интересом и выписал страйк"),
-				LOCTEXT("ChrLieFail3", "Легенда {0} развалилась на втором предложении") }), Who);
+				LOCTEXT("ChrLieFail3", "{0}: легенда развалилась на втором предложении") }), Who);
 			break;
 		case EGameEventType::AlibiConfirmed:
 			Line.Priority = 5;
 			Line.Text = FText::Format(Pick({
-				LOCTEXT("ChrAlibi1", "{0} прикрыл {1}. Вот это дружба"),
-				LOCTEXT("ChrAlibi2", "«Он был со мной», — {0} про {1}. Комендант поверил обоим"),
-				LOCTEXT("ChrAlibi3", "{0} спас {1} от страйка. Должок") }), Who, Whom);
+				LOCTEXT("ChrAlibi1", "{0} подтвердил алиби, выручен: {1}. Вот это дружба"),
+				LOCTEXT("ChrAlibi2", "{0}: «Он был со мной». Речь про: {1}. Комендант поверил обоим"),
+				LOCTEXT("ChrAlibi3", "{0} спас от страйка, спасённый: {1}. Должок") }), Who, Whom);
 			break;
 		case EGameEventType::PlayerEvicted:
 			Line.Priority = 6;
@@ -1165,25 +1170,25 @@ TArray<FText> AObshagaGameMode::BuildChronicle() const
 		case EGameEventType::PlayerFramed:
 			Line.Priority = 6;
 			Line.Text = FText::Format(Pick({
-				LOCTEXT("ChrFramed1", "У {1} нашли запрещёнку. Её подбросил {0}"),
-				LOCTEXT("ChrFramed2", "{1} клянётся, что это не его. И он прав: это {0}"),
-				LOCTEXT("ChrFramed3", "{0} оставил {1} маленький подарок. Комендант оценил") }), Who, Whom);
+				LOCTEXT("ChrFramed1", "Запрещёнку нашли в чужой комнате. Пострадал: {1}. Подбросил: {0}"),
+				LOCTEXT("ChrFramed2", "{1} клянётся, что это не его. Чистая правда: подбросил {0}"),
+				LOCTEXT("ChrFramed3", "{0} оставил маленький подарок. Получатель: {1}. Комендант оценил") }), Who, Whom);
 			break;
 		case EGameEventType::Accusation:
 			Line.Priority = 4;
 			Line.Text = Event.Item
 				? FText::Format(Pick({
-					LOCTEXT("ChrAccuseRight1", "{0} показал коменданту на {1}: «Это он украл!» И не ошибся"),
+					LOCTEXT("ChrAccuseRight1", "{0} показал коменданту вора: {1}. И не ошибся"),
 					LOCTEXT("ChrAccuseRight2", "Детектив {0} раскрыл дело: вор — {1}") }), Who, Whom)
 				: FText::Format(Pick({
-					LOCTEXT("ChrAccuseWrong1", "{0} обвинил {1} в краже. Мимо"),
-					LOCTEXT("ChrAccuseWrong2", "{0} ткнул пальцем в {1}. Комендант запомнил самого {0}") }), Who, Whom);
+					LOCTEXT("ChrAccuseWrong1", "{0} обвинил в краже невиновного: {1}. Мимо"),
+					LOCTEXT("ChrAccuseWrong2", "{0} ткнул пальцем мимо (обвинён: {1}). Комендант запомнил, кто тыкал") }), Who, Whom);
 			break;
 		case EGameEventType::RoomTipOff:
 			Line.Priority = 4;
 			Line.Text = FText::Format(Pick({
 				LOCTEXT("ChrRoomTip1", "{0} настучал коменданту: «Обыщите — {1}»"),
-				LOCTEXT("ChrRoomTip2", "{0} намекнул коменданту, что {1} стоит проверить") }), Who, RoomName);
+				LOCTEXT("ChrRoomTip2", "{0} намекнул коменданту, что стоит проверить: {1}") }), Who, RoomName);
 			break;
 		case EGameEventType::NoteRead:
 			Line.Priority = 1;
@@ -1205,7 +1210,7 @@ TArray<FText> AObshagaGameMode::BuildChronicle() const
 			Line.Priority = 3;
 			Line.Text = FText::Format(Pick({
 				LOCTEXT("ChrRepaired1", "{0} всё починил ({1}). Золотые руки"),
-				LOCTEXT("ChrRepaired2", "{0} починил ({1}) изолентой и добрым словом") }), Who, RoomName);
+				LOCTEXT("ChrRepaired2", "{0} починил поломку ({1}) изолентой и добрым словом") }), Who, RoomName);
 			break;
 		case EGameEventType::LeftBuilding:
 			Line.Priority = 3;

@@ -1,6 +1,7 @@
 # Импортирует FBX-модели мебели в Content/Obshaga/Map/Furniture (без материалов и текстур: красим сами).
-# Запуск (редактор закрыт):
-#   UnrealEditor-Cmd.exe <Obshaga.uproject> -run=pythonscript -script="tools/import_models.py <папка с FBX> name1,name2,..."
+# Запуск (редактор закрыт). Путь к скрипту — полный: относительный движок ищет от Engine/Binaries/Win64.
+# Папку-источник можно дать относительно папки проекта.
+#   UnrealEditor-Cmd.exe <Obshaga.uproject> -run=pythonscript -script="C:/полный/путь/к/проекту/tools/import_models.py <папка с FBX> name1,name2,..."
 # Модель name.fbx становится ассетом SM_<Name>.
 import os
 import sys
@@ -45,7 +46,12 @@ def main(source_dir, names):
     unreal.log("import_models: " + ", ".join(done))
 
 
+def resolve(path):
+    # Относительную папку считаем от папки проекта.
+    return path if os.path.isabs(path) else os.path.join(unreal.Paths.convert_relative_path_to_full(unreal.Paths.project_dir()), path)
+
+
 if len(sys.argv) > 2:
-    main(sys.argv[1], sys.argv[2].split(","))
+    main(resolve(sys.argv[1]), sys.argv[2].split(","))
 else:
     unreal.log_error("import_models: usage: <folder> name1,name2,...")

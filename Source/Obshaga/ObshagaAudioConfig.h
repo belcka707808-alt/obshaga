@@ -36,6 +36,14 @@ public:
 	/** Играет звук «в голове» у локального игрока (интерфейс, пульс). */
 	static void Play2D(const UObject* WorldContextObject, USoundBase* Sound, float Volume = 1.f);
 
+	/** Дальше этого расстояния звуки мира (шаги, шорох, удары, колокол) не слышны совсем. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "World", meta = (ClampMin = "100", Units = "cm"))
+	float WorldSoundRadius = 2200.f;
+
+	/** Ближе этого расстояния звук мира звучит в полную громкость. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "World", meta = (ClampMin = "0", Units = "cm"))
+	float WorldSoundFullVolumeRadius = 300.f;
+
 	// --- Мир ---
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "World")

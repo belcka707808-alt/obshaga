@@ -120,6 +120,7 @@ private:
 	TObjectPtr<UAnimSequenceBase> OneShot;
 
 	float OneShotUntil = 0.f;
+	float SmoothedSpeed = 0.f;
 	bool bLookApplied = false;
 	bool bWasCarrying = false;
 	int32 LastEmote = INDEX_NONE;

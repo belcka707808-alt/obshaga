@@ -1,6 +1,7 @@
 # Импортирует звуки в Content/Obshaga/Audio и назначает их в ассет DA_Audio.
-# Запуск (редактор закрыт):
-#   UnrealEditor-Cmd.exe <Obshaga.uproject> -run=pythonscript -script="tools/import_audio.py <папка со звуками>"
+# Запуск (редактор закрыт). Путь к скрипту — полный: относительный движок ищет от Engine/Binaries/Win64.
+# Папку-источник можно дать относительно папки проекта.
+#   UnrealEditor-Cmd.exe <Obshaga.uproject> -run=pythonscript -script="C:/полный/путь/к/проекту/tools/import_audio.py <папка со звуками>"
 # Имя файла решает, куда звук попадёт: S_Heartbeat.wav -> ячейка Heartbeat, S_Door.wav -> Door и т.д.
 # Файлы с именем S_Music*.wav помечаются зацикленными.
 import os
@@ -66,7 +67,12 @@ def main(source_dir):
     unreal.log("import_audio: imported %d files, assigned: %s" % (len(files), ", ".join(assigned)))
 
 
+def resolve(path):
+    # Относительную папку считаем от папки проекта.
+    return path if os.path.isabs(path) else os.path.join(unreal.Paths.convert_relative_path_to_full(unreal.Paths.project_dir()), path)
+
+
 if len(sys.argv) > 1:
-    main(sys.argv[1])
+    main(resolve(sys.argv[1]))
 else:
     unreal.log_error("import_audio: no source folder given")
