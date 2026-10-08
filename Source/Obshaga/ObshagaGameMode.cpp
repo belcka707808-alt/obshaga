@@ -219,7 +219,8 @@ void AObshagaGameMode::AssignHomeRoom(APlayerController* Controller)
 	{
 		const ARoomVolume* Room = ARoomVolume::FindRoomAt(this, Pawn->GetActorLocation());
 		PlayerState->SetHomeRoomId(Room ? Room->RoomId : NAME_None);
-		UE_LOG(LogObshaga, Verbose, TEXT("%s lives in %s"), *PlayerState->GetPlayerName(), *PlayerState->GetHomeRoomId().ToString());
+		UE_LOG(LogObshaga, Verbose, TEXT("%s lives in %s (spawned at %s)"), *PlayerState->GetPlayerName(), *PlayerState->GetHomeRoomId().ToString(),
+			*Pawn->GetActorLocation().ToCompactString());
 	}
 }
 
