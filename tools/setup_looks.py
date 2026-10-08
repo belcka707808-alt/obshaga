@@ -8,8 +8,9 @@ DIR = "/Game/Obshaga/Characters"
 MINI = DIR + "/Mini/"
 ANIM = MINI + "SK_MaleA"  # анимации импортированы вместе с первой моделью и названы SK_MaleA<имя>
 
-RESIDENTS = ["SK_MaleA", "SK_FemaleA", "SK_MaleB", "SK_FemaleB", "SK_MaleC", "SK_FemaleC", "SK_MaleD", "SK_FemaleD"]
-KOMENDANT = "SK_MaleF"
+# Жильцы — без формы: форма в игре одна, у коменданта (SK_MaleC — в фуражке).
+RESIDENTS = ["SK_MaleB", "SK_FemaleB", "SK_MaleD", "SK_FemaleC", "SK_MaleE", "SK_FemaleD", "SK_MaleF", "SK_FemaleE", "SK_FemaleF", "SK_FemaleA"]
+KOMENDANT = "SK_MaleC"
 
 # свойство UObshagaLookConfig -> анимация из пака
 ANIMS = {

@@ -1,4 +1,4 @@
-# Импортирует FBX-модели мебели в Content/Obshaga/Map/Furniture (без материалов и текстур: красим сами).
+# Импортирует FBX-модели мебели в Content/Obshaga/Map/Furniture вместе с их материалами (родные цвета набора).
 # Запуск (редактор закрыт). Путь к скрипту — полный: относительный движок ищет от Engine/Binaries/Win64.
 # Папку-источник можно дать относительно папки проекта.
 #   UnrealEditor-Cmd.exe <Obshaga.uproject> -run=pythonscript -script="C:/полный/путь/к/проекту/tools/import_models.py <папка с FBX> name1,name2,..."
@@ -17,7 +17,7 @@ def main(source_dir, names):
         options = unreal.FbxImportUI()
         options.import_mesh = True
         options.import_as_skeletal = False
-        options.import_materials = False
+        options.import_materials = True
         options.import_textures = False
         options.import_animations = False
         options.static_mesh_import_data.combine_meshes = True
