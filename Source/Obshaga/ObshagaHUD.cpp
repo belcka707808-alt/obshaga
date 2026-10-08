@@ -274,6 +274,9 @@ void AObshagaHUD::DrawTopStatus(const AObshagaGameState* GameState)
 	case ERoundState::WaitingToStart:
 		DrawCentered((bHost ? LOCTEXT("LobbyHost", "Все зашли? Нажми [Enter], чтобы начать раунд")
 			: LOCTEXT("LobbyClient", "Ждём, пока хост начнёт раунд")).ToString(), FLinearColor::Yellow, 0.04f);
+		// Лицензия музыки (CC BY) требует назвать автора в самой игре.
+		DrawCentered(LOCTEXT("Credits", "Музыка: Kevin MacLeod (incompetech.com), CC BY 4.0. Звуки и мебель: Kenney (kenney.nl), CC0").ToString(),
+			FLinearColor(1.f, 1.f, 1.f, 0.45f), 0.95f);
 		break;
 
 	case ERoundState::InProgress:

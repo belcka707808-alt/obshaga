@@ -7,6 +7,7 @@
 
 class AItemActor;
 class AObshagaCharacter;
+class UStaticMesh;
 class UStaticMeshComponent;
 
 /**
@@ -75,7 +76,15 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "HidingSpot", meta = (Units = "cm"))
 	FVector BoxSize = FVector(60.f, 100.f, 200.f);
 
-	/** Цвет куба-заглушки. */
+	/** Модель мебели вместо куба; пусто — остаётся куб. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "HidingSpot")
+	TObjectPtr<UStaticMesh> Model;
+
+	/** Поворот модели, если её «лицо» смотрит не туда (кратно 90). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "HidingSpot", meta = (Units = "deg"))
+	float ModelYaw = 0.f;
+
+	/** Цвет куба-заглушки или модели. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "HidingSpot")
 	FLinearColor Color = FLinearColor(0.36f, 0.22f, 0.12f);
 

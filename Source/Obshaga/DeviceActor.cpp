@@ -72,6 +72,7 @@ void ADeviceActor::BeginPlay()
 
 	ApplySize();
 	ObshagaVisuals::Tint(Mesh, Color);
+	ObshagaVisuals::Dress(Mesh, Model, ModelYaw, Color);
 }
 
 void ADeviceActor::ApplySize()

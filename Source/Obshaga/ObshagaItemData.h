@@ -22,7 +22,14 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item", meta = (Units = "cm"))
 	FVector BoxSize = FVector(30.f, 30.f, 30.f);
 
-	/** Цвет куба-заглушки. */
+	/** Модель предмета вместо куба; пусто — остаётся куб. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item")
+	TObjectPtr<class UStaticMesh> Model;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item", meta = (Units = "deg"))
+	float ModelYaw = 0.f;
+
+	/** Цвет куба-заглушки или модели. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item")
 	FLinearColor Color = FLinearColor(0.35f, 0.35f, 0.4f);
 

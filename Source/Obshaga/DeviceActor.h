@@ -7,6 +7,7 @@
 
 class AObshagaCharacter;
 class APlayerState;
+class UStaticMesh;
 class UStaticMeshComponent;
 
 /**
@@ -65,7 +66,14 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Device", meta = (Units = "cm"))
 	FVector BoxSize = FVector(60.f, 60.f, 90.f);
 
-	/** Цвет куба-заглушки. */
+	/** Модель прибора вместо куба; пусто — остаётся куб. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Device")
+	TObjectPtr<UStaticMesh> Model;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Device", meta = (Units = "deg"))
+	float ModelYaw = 0.f;
+
+	/** Цвет куба-заглушки или модели. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Device")
 	FLinearColor Color = FLinearColor(0.75f, 0.75f, 0.78f);
 
