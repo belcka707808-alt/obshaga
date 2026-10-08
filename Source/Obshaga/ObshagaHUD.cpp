@@ -8,6 +8,7 @@
 #include "KomendantCharacter.h"
 #include "NightExitDoor.h"
 #include "ObshagaCharacter.h"
+#include "ObshagaCharacterConfig.h"
 #include "ObshagaGameState.h"
 #include "ObshagaPlayerController.h"
 #include "ObshagaPlayerState.h"
@@ -66,13 +67,24 @@ void AObshagaHUD::DrawHUD()
 		DrawRect(FLinearColor(0.f, 0.f, 0.06f, 0.3f), 0.f, 0.f, Canvas->ClipX, Canvas->ClipY);
 	}
 
+	DrawDanger(Controller);
+
 	const AObshagaCharacter* Character = Cast<AObshagaCharacter>(GetOwningPawn());
 	const FVector MyLocation = Character ? Character->GetActorLocation() : FVector::ZeroVector;
 	if (Character)
 	{
 		DrawCharacterInfo(Character);
 		DrawKomendantLabels(MyLocation);
+		DrawEmotes(Character);
 		DrawNoise(Controller, MyLocation);
+		if (Controller->IsEmoteWheelOpen())
+		{
+			DrawEmoteWheel(Character);
+		}
+	}
+	if (GameState->GetRoundState() != ERoundState::Finished)
+	{
+		DrawTutorial(Controller);
 	}
 
 	DrawTopStatus(GameState);
@@ -92,7 +104,7 @@ void AObshagaHUD::DrawHUD()
 	}
 	else
 	{
-		const FString Hint = LOCTEXT("PhoneHint", "[Tab] телефон").ToString();
+		const FString Hint = LOCTEXT("PhoneHint", "[Q] сказать  [Tab] телефон").ToString();
 		float HintWidth = 0.f;
 		float HintHeight = 0.f;
 		GetTextSize(Hint, HintWidth, HintHeight, Font, Scale);
@@ -109,6 +121,108 @@ void AObshagaHUD::DrawHUD()
 		DrawRect(FLinearColor(0.f, 0.f, 0.f, 0.6f), (Canvas->ClipX - Width) * 0.5f - 8.f * Scale, Canvas->ClipY * 0.62f - 4.f * Scale, Width + 16.f * Scale, Height + 8.f * Scale);
 		DrawCentered(Notice, FLinearColor::White, 0.62f);
 	}
+}
+
+void AObshagaHUD::DrawDanger(const AObshagaPlayerController* Controller)
+{
+	// Комендант рядом: края экрана темнеют и вздрагивают в такт пульсу. Чем он ближе, тем сильнее и чаще.
+	const float Level = Controller->GetDangerLevel();
+	if (Level <= 0.02f)
+	{
+		return;
+	}
+
+	const float Pulse = Controller->GetHeartPulse();
+	const float Strength = Level * (0.55f + 0.45f * Pulse);
+	const float MaxThickness = FMath::Min(Canvas->ClipX, Canvas->ClipY) * (0.16f + 0.10f * Level);
+	constexpr int32 NumBands = 12;
+	for (int32 Band = 0; Band < NumBands; ++Band)
+	{
+		// Вложенные рамки: у самого края темнее всего, к центру сходит на нет.
+		const float Inset = MaxThickness * Band / NumBands;
+		const float Thickness = MaxThickness / NumBands + 1.f;
+		const float Falloff = 1.f - static_cast<float>(Band) / NumBands;
+		const FLinearColor Color(0.18f, 0.f, 0.f, 0.6f * Strength * Falloff * Falloff);
+		DrawRect(Color, Inset, Inset, Canvas->ClipX - Inset * 2.f, Thickness);
+		DrawRect(Color, Inset, Canvas->ClipY - Inset - Thickness, Canvas->ClipX - Inset * 2.f, Thickness);
+		DrawRect(Color, Inset, Inset + Thickness, Thickness, Canvas->ClipY - (Inset + Thickness) * 2.f);
+		DrawRect(Color, Canvas->ClipX - Inset - Thickness, Inset + Thickness, Thickness, Canvas->ClipY - (Inset + Thickness) * 2.f);
+	}
+}
+
+void AObshagaHUD::DrawEmotes(const AObshagaCharacter* Me)
+{
+	// Фразы над головами — и над своей тоже. Сквозь стены не видны.
+	const APlayerController* Controller = GetOwningPlayerController();
+	const UObshagaCharacterConfig* Config = Me->GetConfig();
+	for (TActorIterator<AObshagaCharacter> It(GetWorld()); It; ++It)
+	{
+		const AObshagaCharacter* Speaker = *It;
+		const int32 Emote = Speaker->GetActiveEmote();
+		if (Emote == INDEX_NONE || Speaker->IsHiding() || Speaker->IsGhost()
+			|| FVector::Dist(Speaker->GetActorLocation(), Me->GetActorLocation()) > Config->EmoteVisibleDistance
+			|| (Speaker != Me && !Controller->LineOfSightTo(Speaker)))
+		{
+			continue;
+		}
+
+		const FVector Screen = Canvas->Project(Speaker->GetActorLocation() + FVector(0.f, 0.f, 125.f));
+		if (Screen.Z <= 0.f)
+		{
+			continue;
+		}
+
+		const FString Text = Config->Emotes[Emote].ToString();
+		float Width = 0.f;
+		float Height = 0.f;
+		GetTextSize(Text, Width, Height, Font, Scale);
+		const float Pad = 5.f * Scale;
+		DrawRect(FLinearColor(1.f, 1.f, 1.f, 0.9f), Screen.X - Width * 0.5f - Pad, Screen.Y - Height - Pad * 2.f, Width + Pad * 2.f, Height + Pad * 2.f);
+		DrawText(Text, FLinearColor(0.05f, 0.05f, 0.1f), Screen.X - Width * 0.5f, Screen.Y - Height - Pad, Font, Scale);
+	}
+}
+
+void AObshagaHUD::DrawEmoteWheel(const AObshagaCharacter* Me)
+{
+	const TArray<FText>& Emotes = Me->GetConfig()->Emotes;
+	const float Line = 20.f;
+	const float PanelWidth = 230.f * Scale;
+	const float PanelHeight = (Emotes.Num() + 1) * Line * Scale + 16.f * Scale;
+	const float PanelX = 16.f * Scale;
+	const float PanelY = Canvas->ClipY * 0.5f - PanelHeight * 0.5f;
+	DrawRect(FLinearColor(0.02f, 0.02f, 0.05f, 0.85f), PanelX, PanelY, PanelWidth, PanelHeight);
+
+	const float X = PanelX + 10.f * Scale;
+	float Y = PanelY + 8.f * Scale;
+	DrawText(LOCTEXT("EmoteTitle", "СКАЗАТЬ  [Q] закрыть").ToString(), FLinearColor::White, X, Y, Font, Scale);
+	for (int32 Index = 0; Index < Emotes.Num(); ++Index)
+	{
+		Y += Line * Scale;
+		const FText Entry = FText::Format(LOCTEXT("EmoteEntry", "[{0}] {1}"), FText::AsNumber(Index + 1), Emotes[Index]);
+		DrawText(Entry.ToString(), FLinearColor::Yellow, X, Y, Font, Scale);
+	}
+}
+
+void AObshagaHUD::DrawTutorial(const AObshagaPlayerController* Controller)
+{
+	const FText Text = Controller->GetTutorialText();
+	if (Text.IsEmpty())
+	{
+		return;
+	}
+
+	const float PanelWidth = 250.f * Scale;
+	const float PanelX = 12.f * Scale;
+	const float PanelY = 34.f * Scale;
+	const float Pad = 8.f * Scale;
+	DrawRect(FLinearColor(0.03f, 0.10f, 0.05f, 0.85f), PanelX, PanelY, PanelWidth, 104.f * Scale);
+
+	float Y = PanelY + Pad;
+	const FText Title = FText::Format(LOCTEXT("TutorialTitle", "ОБУЧЕНИЕ {0} из {1}"),
+		FText::AsNumber(Controller->GetTutorialStep() + 1), FText::AsNumber(AObshagaPlayerController::NumTutorialSteps));
+	Y = DrawWrapped(Title.ToString(), FLinearColor(0.6f, 1.f, 0.6f), PanelX + Pad, Y, PanelWidth - Pad * 2.f, 18.f);
+	Y = DrawWrapped(Text.ToString(), FLinearColor::White, PanelX + Pad, Y, PanelWidth - Pad * 2.f, 17.f);
+	DrawText(LOCTEXT("TutorialSkip", "[H] пропустить").ToString(), FLinearColor(0.7f, 0.7f, 0.75f), PanelX + Pad, PanelY + 86.f * Scale, Font, Scale);
 }
 
 void AObshagaHUD::DrawCentered(const FString& Line, const FLinearColor& Color, float YFraction)
@@ -374,6 +488,10 @@ void AObshagaHUD::DrawRoundResults(const AObshagaGameState* GameState)
 			FText::FromString(Player.PlayerName), RoleName(Player.Role), Player.Title, FText::AsNumber(Player.Score), FText::AsNumber(Player.Strikes));
 		const FLinearColor Color = Player.Role == EPlayerRole::Resident ? Dim : FLinearColor(1.f, 0.7f, 0.7f);
 		Y = DrawWrapped(Text.ToString(), Color, X, Y, TextWidth, Line);
+		if (!Player.Caption.IsEmpty())
+		{
+			Y = DrawWrapped(Player.Caption.ToString(), FLinearColor(0.6f, 0.6f, 0.68f), X + 14.f * Scale, Y, TextWidth - 14.f * Scale, Line - 2.f);
+		}
 	}
 
 	Y += 6.f * Scale;

@@ -2,7 +2,11 @@
 
 #include "CarryComponent.h"
 #include "InteractionComponent.h"
+#include "KomendantCharacter.h"
 #include "ObshagaCharacter.h"
+#include "ObshagaCharacterConfig.h"
+#include "EngineUtils.h"
+#include "Misc/ConfigCacheIni.h"
 #include "ObshagaGameMode.h"
 #include "ObshagaGameState.h"
 #include "ObshagaPlayerState.h"
@@ -17,6 +21,17 @@ namespace
 {
 	// Насколько точно надо смотреть на игрока, чтобы показать на него: косинус угла (около 20°).
 	constexpr float AccuseAimDot = 0.94f;
+
+	// Чувство опасности: коменданта этажом выше или ниже не чувствуем; в погоне он страшнее; экран темнеет плавно.
+	constexpr float DangerSameFloorHeight = 250.f;
+	constexpr float DangerChaseBoost = 1.4f;
+	constexpr float DangerInterpSpeed = 3.f;
+
+	// Обучение: общий предел и сколько висит последняя подсказка.
+	constexpr float TutorialMaxSeconds = 90.f;
+	constexpr float TutorialLastStepSeconds = 8.f;
+	const TCHAR* TutorialConfigSection = TEXT("Obshaga");
+	const TCHAR* TutorialConfigKey = TEXT("bTutorialDone");
 
 	UInputAction* MakeAction(UObject* Outer, FName Name, EInputActionValueType ValueType)
 	{
@@ -56,6 +71,8 @@ void AObshagaPlayerController::CreateDefaultInput()
 	TipAction = MakeAction(this, TEXT("IA_Tip"), EInputActionValueType::Boolean);
 	AccuseAction = MakeAction(this, TEXT("IA_Accuse"), EInputActionValueType::Boolean);
 	RoomTipAction = MakeAction(this, TEXT("IA_RoomTip"), EInputActionValueType::Boolean);
+	EmoteWheelAction = MakeAction(this, TEXT("IA_EmoteWheel"), EInputActionValueType::Boolean);
+	SkipTutorialAction = MakeAction(this, TEXT("IA_SkipTutorial"), EInputActionValueType::Boolean);
 
 	DefaultMappingContext = NewObject<UInputMappingContext>(this, TEXT("IMC_Obshaga"));
 	DefaultMappingContext->MapKey(MoveForwardAction, EKeys::W);
@@ -80,6 +97,18 @@ void AObshagaPlayerController::CreateDefaultInput()
 	DefaultMappingContext->MapKey(TipAction, EKeys::T);
 	DefaultMappingContext->MapKey(AccuseAction, EKeys::R);
 	DefaultMappingContext->MapKey(RoomTipAction, EKeys::B);
+	DefaultMappingContext->MapKey(EmoteWheelAction, EKeys::Q);
+	DefaultMappingContext->MapKey(SkipTutorialAction, EKeys::H);
+
+	// Цифры 1–8 выбирают фразу в колесе эмоций. Клавиши 1–3 заняты ещё и ответами на допросе — они не мешают друг другу.
+	const FKey DigitKeys[] = { EKeys::One, EKeys::Two, EKeys::Three, EKeys::Four, EKeys::Five, EKeys::Six, EKeys::Seven, EKeys::Eight };
+	DigitActions.Reset();
+	for (int32 Index = 0; Index < UE_ARRAY_COUNT(DigitKeys); ++Index)
+	{
+		UInputAction* Action = MakeAction(this, *FString::Printf(TEXT("IA_Digit%d"), Index + 1), EInputActionValueType::Boolean);
+		DigitActions.Add(Action);
+		DefaultMappingContext->MapKey(Action, DigitKeys[Index]);
+	}
 }
 
 void AObshagaPlayerController::SetupInputComponent()
@@ -121,6 +150,192 @@ void AObshagaPlayerController::SetupInputComponent()
 	Input->BindAction(TipAction, ETriggerEvent::Started, this, &AObshagaPlayerController::OnTipOff);
 	Input->BindAction(AccuseAction, ETriggerEvent::Started, this, &AObshagaPlayerController::OnAccuse);
 	Input->BindAction(RoomTipAction, ETriggerEvent::Started, this, &AObshagaPlayerController::OnTipOffRoom);
+	Input->BindAction(EmoteWheelAction, ETriggerEvent::Started, this, &AObshagaPlayerController::OnToggleEmoteWheel);
+	Input->BindAction(SkipTutorialAction, ETriggerEvent::Started, this, &AObshagaPlayerController::OnSkipTutorial);
+	for (int32 Index = 0; Index < DigitActions.Num(); ++Index)
+	{
+		Input->BindActionValueLambda(DigitActions[Index], ETriggerEvent::Started, [this, Index](const FInputActionValue&) { OnDigit(Index); });
+	}
+}
+
+void AObshagaPlayerController::BeginPlay()
+{
+	Super::BeginPlay();
+
+	// Обучение показывается только при первом запуске игры на этом компьютере.
+	bool bTutorialDone = false;
+	GConfig->GetBool(TutorialConfigSection, TutorialConfigKey, bTutorialDone, GGameUserSettingsIni);
+	if (IsLocalController() && !bTutorialDone)
+	{
+		TutorialStep = 0;
+		TutorialStartTime = TutorialStepTime = GetWorld()->GetTimeSeconds();
+	}
+}
+
+void AObshagaPlayerController::OnToggleEmoteWheel()
+{
+	const AObshagaCharacter* Me = GetObshagaCharacter();
+	bEmoteWheelOpen = !bEmoteWheelOpen && Me && !Me->IsGhost() && !Me->IsHiding() && !IsLocalPlayerInterrogated();
+}
+
+void AObshagaPlayerController::OnDigit(int32 Digit)
+{
+	if (!bEmoteWheelOpen)
+	{
+		return;
+	}
+	bEmoteWheelOpen = false;
+	if (AObshagaCharacter* Me = GetObshagaCharacter())
+	{
+		Me->TryEmote(Digit);
+	}
+}
+
+float AObshagaPlayerController::GetHeartPulse() const
+{
+	// Двойной удар «тук-тук»: два коротких всплеска в начале каждого цикла.
+	const float Cycle = FMath::Frac(HeartPhase);
+	const float First = FMath::Exp(-FMath::Square((Cycle - 0.08f) / 0.05f));
+	const float Second = 0.7f * FMath::Exp(-FMath::Square((Cycle - 0.30f) / 0.06f));
+	return FMath::Clamp(First + Second, 0.f, 1.f);
+}
+
+void AObshagaPlayerController::UpdateDanger(float DeltaTime)
+{
+	const AObshagaCharacter* Me = GetObshagaCharacter();
+	const AObshagaGameState* GameState = GetWorld()->GetGameState<AObshagaGameState>();
+
+	// Опасность — это близость коменданта на том же этаже; в погоне он страшнее.
+	float Target = 0.f;
+	if (Me && !Me->IsGhost() && GameState && GameState->GetRoundState() == ERoundState::InProgress)
+	{
+		const UObshagaCharacterConfig* Config = Me->GetConfig();
+		for (TActorIterator<AKomendantCharacter> It(GetWorld()); It; ++It)
+		{
+			const FVector Delta = It->GetActorLocation() - Me->GetActorLocation();
+			if (FMath::Abs(Delta.Z) > DangerSameFloorHeight)
+			{
+				continue;
+			}
+			float Level = 1.f - Delta.Size2D() / Config->DangerRadius;
+			if (It->GetAlert() == EKomendantAlert::Chasing)
+			{
+				Level *= DangerChaseBoost;
+			}
+			Target = FMath::Max(Target, FMath::Clamp(Level, 0.f, 1.f));
+		}
+
+		HeartPhase += DeltaTime * FMath::Lerp(Config->HeartRateCalm, Config->HeartRatePanic, DangerLevel);
+	}
+	DangerLevel = FMath::FInterpTo(DangerLevel, Target, DeltaTime, DangerInterpSpeed);
+}
+
+void AObshagaPlayerController::UpdateCameraShake(float DeltaTime)
+{
+	AObshagaCharacter* Me = GetObshagaCharacter();
+	if (!Me)
+	{
+		return;
+	}
+
+	// Поймали — камеру встряхивает.
+	const bool bInterrogated = IsLocalPlayerInterrogated();
+	if (bInterrogated && !bWasInterrogated)
+	{
+		ShakeTimeLeft = Me->GetConfig()->CaughtShakeSeconds;
+		bEmoteWheelOpen = false;
+	}
+	bWasInterrogated = bInterrogated;
+
+	if (ShakeTimeLeft > 0.f)
+	{
+		ShakeTimeLeft = FMath::Max(0.f, ShakeTimeLeft - DeltaTime);
+		const float Strength = Me->GetConfig()->CaughtShakeAmplitude * ShakeTimeLeft / FMath::Max(Me->GetConfig()->CaughtShakeSeconds, KINDA_SMALL_NUMBER);
+		Me->SetCameraShakeOffset(ShakeTimeLeft > 0.f ? FMath::VRand() * Strength : FVector::ZeroVector);
+	}
+}
+
+FText AObshagaPlayerController::GetTutorialText() const
+{
+	switch (TutorialStep)
+	{
+	case 0:
+		return NSLOCTEXT("ObshagaTutorial", "Move", "Ходи на WASD, смотри мышью. Shift — бег, Ctrl — присесть.");
+	case 1:
+		return NSLOCTEXT("ObshagaTutorial", "Take", "Подойди к любому предмету и нажми E — возьми его. Мелочь у ног видно, если посмотреть вниз.");
+	case 2:
+		return NSLOCTEXT("ObshagaTutorial", "Hide", "Теперь спрячь: подойди к шкафу или тумбочке и нажми E. Или просто положи — G.");
+	case 3:
+		return NSLOCTEXT("ObshagaTutorial", "Phone", "Нажми Tab — это телефон. В нём твои секретные задания, очки и подозрение.");
+	case 4:
+		return NSLOCTEXT("ObshagaTutorial", "Danger", "Края экрана темнеют и стучит сердце — комендант рядом. Не попадайся ему с вещами в руках!");
+	default:
+		return FText::GetEmpty();
+	}
+}
+
+void AObshagaPlayerController::UpdateTutorial()
+{
+	if (TutorialStep >= NumTutorialSteps)
+	{
+		return;
+	}
+
+	const float Now = GetWorld()->GetTimeSeconds();
+	const AObshagaCharacter* Me = GetObshagaCharacter();
+	if (!Me || Now - TutorialStartTime > TutorialMaxSeconds)
+	{
+		if (Me)
+		{
+			FinishTutorial();
+		}
+		return;
+	}
+
+	// Шаг пройден, когда игрок сам сделал то, о чём подсказка; последний просто висит несколько секунд.
+	bool bStepDone = false;
+	switch (TutorialStep)
+	{
+	case 0:
+		bStepDone = Me->GetVelocity().SizeSquared2D() > FMath::Square(50.f) && Now - TutorialStepTime > 1.5f;
+		break;
+	case 1:
+		bStepDone = Me->GetCarryComponent()->IsCarrying();
+		break;
+	case 2:
+		bStepDone = !Me->GetCarryComponent()->IsCarrying();
+		break;
+	case 3:
+		bStepDone = bPhoneOpen;
+		break;
+	default:
+		bStepDone = Now - TutorialStepTime > TutorialLastStepSeconds;
+		break;
+	}
+
+	if (bStepDone)
+	{
+		TutorialStepTime = Now;
+		if (++TutorialStep >= NumTutorialSteps)
+		{
+			FinishTutorial();
+		}
+	}
+}
+
+void AObshagaPlayerController::FinishTutorial()
+{
+	TutorialStep = NumTutorialSteps;
+	GConfig->SetBool(TutorialConfigSection, TutorialConfigKey, true, GGameUserSettingsIni);
+	GConfig->Flush(false, GGameUserSettingsIni);
+}
+
+void AObshagaPlayerController::OnSkipTutorial()
+{
+	if (TutorialStep < NumTutorialSteps)
+	{
+		FinishTutorial();
+	}
 }
 
 AObshagaCharacter* AObshagaPlayerController::GetObshagaCharacter() const
@@ -448,6 +663,10 @@ void AObshagaPlayerController::ClientShowNotice_Implementation(const FText& Text
 void AObshagaPlayerController::PlayerTick(float DeltaTime)
 {
 	Super::PlayerTick(DeltaTime);
+
+	UpdateDanger(DeltaTime);
+	UpdateCameraShake(DeltaTime);
+	UpdateTutorial();
 
 	if (!NoticeQueue.IsEmpty() && GetWorld()->GetTimeSeconds() - NoticeTime >= NoticeSeconds)
 	{

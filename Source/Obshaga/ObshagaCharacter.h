@@ -58,6 +58,14 @@ public:
 	/** Только сервер. */
 	void SetGhost(bool bNewGhost);
 
+	/** Клиент: сказать фразу из колеса эмоций. Решает сервер, видят все. */
+	void TryEmote(int32 Index);
+	/** Номер фразы, которая сейчас висит над головой; -1, если персонаж молчит. */
+	int32 GetActiveEmote() const;
+
+	/** Сдвиг камеры для тряски (только у локального игрока). */
+	void SetCameraShakeOffset(const FVector& Offset);
+
 	// Только сервер. Вызывает AHidingSpot.
 	void EnterHidingSpot(AHidingSpot* Spot);
 	void ExitHidingSpot(const FVector& ExitLocation);
@@ -68,6 +76,13 @@ protected:
 
 	UFUNCTION(Server, Reliable)
 	void ServerSetSprinting(bool bNewSprinting);
+
+	UFUNCTION(Server, Reliable)
+	void ServerEmote(uint8 Index);
+
+	/** Фраза — мимолётная вещь: кто не получил, тот ничего не потерял. */
+	UFUNCTION(NetMulticast, Unreliable)
+	void MulticastEmote(uint8 Index);
 
 	UFUNCTION()
 	void OnRep_IsSprinting();
@@ -119,4 +134,10 @@ protected:
 
 private:
 	TArray<TWeakObjectPtr<ARoomVolume>> OverlappingRooms;
+
+	// Фраза над головой: у каждой машины своя копия и свои часы.
+	int32 EmoteIndex = INDEX_NONE;
+	float EmoteStartTime = -100.f;
+	/** Сервер: когда персонаж говорил в последний раз. */
+	float LastEmoteServerTime = -100.f;
 };

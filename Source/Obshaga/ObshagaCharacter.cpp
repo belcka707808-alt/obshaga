@@ -156,6 +156,43 @@ void AObshagaCharacter::OnCarriedItemChanged()
 	UpdateMovementSpeed();
 }
 
+void AObshagaCharacter::TryEmote(int32 Index)
+{
+	if (GetConfig()->Emotes.IsValidIndex(Index) && !IsGhost() && !IsHiding())
+	{
+		ServerEmote(static_cast<uint8>(Index));
+	}
+}
+
+void AObshagaCharacter::ServerEmote_Implementation(uint8 Index)
+{
+	// Из укрытия и призраком не говорят; чаще раза в секунду — тоже.
+	const float Now = GetWorld()->GetTimeSeconds();
+	if (!GetConfig()->Emotes.IsValidIndex(Index) || IsGhost() || IsHiding() || Now - LastEmoteServerTime < GetConfig()->EmoteCooldown)
+	{
+		return;
+	}
+	LastEmoteServerTime = Now;
+	MulticastEmote(Index);
+}
+
+void AObshagaCharacter::MulticastEmote_Implementation(uint8 Index)
+{
+	EmoteIndex = Index;
+	EmoteStartTime = GetWorld()->GetTimeSeconds();
+}
+
+int32 AObshagaCharacter::GetActiveEmote() const
+{
+	const bool bActive = GetWorld()->GetTimeSeconds() - EmoteStartTime < GetConfig()->EmoteSeconds;
+	return (bActive && GetConfig()->Emotes.IsValidIndex(EmoteIndex)) ? EmoteIndex : INDEX_NONE;
+}
+
+void AObshagaCharacter::SetCameraShakeOffset(const FVector& Offset)
+{
+	FollowCamera->SetRelativeLocation(Offset);
+}
+
 void AObshagaCharacter::EnterHidingSpot(AHidingSpot* Spot)
 {
 	check(HasAuthority());

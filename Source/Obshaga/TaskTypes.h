@@ -153,6 +153,10 @@ struct FRevealedPlayer
 	UPROPERTY(BlueprintReadOnly)
 	FText Title;
 
+	/** Шутливая подпись к титулу. */
+	UPROPERTY(BlueprintReadOnly)
+	FText Caption;
+
 	UPROPERTY(BlueprintReadOnly)
 	int32 Score = 0;
 

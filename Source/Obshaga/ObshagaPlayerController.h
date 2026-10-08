@@ -37,6 +37,17 @@ public:
 	const FText& GetNotice() const { return Notice; }
 	float GetNoticeTime() const { return NoticeTime; }
 	bool IsPhoneOpen() const { return bPhoneOpen; }
+	bool IsEmoteWheelOpen() const { return bEmoteWheelOpen; }
+
+	/** Насколько близка опасность: 0 — коменданта рядом нет, 1 — он вплотную. Считается у локального игрока. */
+	float GetDangerLevel() const { return DangerLevel; }
+	/** Удар сердца сейчас: 0 — между ударами, 1 — пик удара. */
+	float GetHeartPulse() const;
+
+	/** Текст текущего шага обучения; пусто, если обучение не идёт. */
+	FText GetTutorialText() const;
+	int32 GetTutorialStep() const { return TutorialStep; }
+	static constexpr int32 NumTutorialSteps = 5;
 
 	/** Сколько секунд сообщение висит на экране и сколько сообщений может ждать в очереди. */
 	static constexpr float NoticeSeconds = 3.f;
@@ -47,6 +58,7 @@ public:
 	bool CanTipRoomNow() const;
 
 protected:
+	virtual void BeginPlay() override;
 	virtual void SetupInputComponent() override;
 	virtual void PlayerTick(float DeltaTime) override;
 
@@ -75,7 +87,7 @@ protected:
 	void ServerTipOffRoom();
 
 private:
-	/** Раскладка MVP задаётся в коде: WASD, мышь, Shift, Ctrl, пробел, E, F, G, Tab, 1/2/3, Y, T, R, B, Enter, левая кнопка мыши. */
+	/** Раскладка MVP задаётся в коде: WASD, мышь, Shift, Ctrl, пробел, E, F, G, Tab, 1–8, Y, T, R, B, Q, H, Enter, левая кнопка мыши. */
 	void CreateDefaultInput();
 
 	void OnMoveForward(const FInputActionValue& Value);
@@ -100,6 +112,14 @@ private:
 	void OnTipOff();
 	void OnAccuse();
 	void OnTipOffRoom();
+	void OnToggleEmoteWheel();
+	void OnDigit(int32 Digit);
+	void OnSkipTutorial();
+
+	void UpdateDanger(float DeltaTime);
+	void UpdateCameraShake(float DeltaTime);
+	void UpdateTutorial();
+	void FinishTutorial();
 	bool IsLocalPlayerInterrogated() const;
 
 	AObshagaCharacter* GetObshagaCharacter() const;
@@ -163,6 +183,29 @@ private:
 
 	UPROPERTY(Transient)
 	TObjectPtr<UInputAction> RoomTipAction;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UInputAction> EmoteWheelAction;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UInputAction> SkipTutorialAction;
+
+	/** Цифры 1–8: выбор фразы в колесе эмоций. */
+	UPROPERTY(Transient)
+	TArray<TObjectPtr<UInputAction>> DigitActions;
+
+	bool bEmoteWheelOpen = false;
+
+	// Чувство опасности и тряска — только у локального игрока.
+	float DangerLevel = 0.f;
+	float HeartPhase = 0.f;
+	float ShakeTimeLeft = 0.f;
+	bool bWasInterrogated = false;
+
+	// Обучение первого запуска: номер шага (NumTutorialSteps — пройдено) и когда началось.
+	int32 TutorialStep = NumTutorialSteps;
+	float TutorialStartTime = 0.f;
+	float TutorialStepTime = 0.f;
 
 	/** Телефон открыт только у локального игрока; мир при этом не останавливается. */
 	bool bPhoneOpen = false;

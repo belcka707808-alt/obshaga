@@ -26,6 +26,10 @@ private:
 	void DrawRoundResults(const AObshagaGameState* GameState);
 	void DrawInterrogation(const AObshagaPlayerState* MyState, const AObshagaGameState* GameState, const FVector& MyLocation);
 	void DrawKomendantLabels(const FVector& MyLocation);
+	void DrawDanger(const AObshagaPlayerController* Controller);
+	void DrawEmotes(const AObshagaCharacter* Me);
+	void DrawEmoteWheel(const AObshagaCharacter* Me);
+	void DrawTutorial(const AObshagaPlayerController* Controller);
 
 	void DrawCentered(const FString& Line, const FLinearColor& Color, float YFraction);
 	/** Рисует текст с переносом по словам; возвращает Y под последней строкой. */
