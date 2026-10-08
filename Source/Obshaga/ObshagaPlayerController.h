@@ -132,6 +132,8 @@ private:
 	TObjectPtr<class UAudioComponent> MusicTense;
 
 	bool bMusicStarted = false;
+	float FrameSampleSeconds = 0.f;
+	int32 FrameSampleCount = 0;
 	float MusicCalmVolume = 0.f;
 	float MusicTenseVolume = 0.f;
 	bool bResultsJinglePlayed = false;

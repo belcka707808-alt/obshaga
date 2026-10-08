@@ -63,6 +63,13 @@ protected:
 	UPROPERTY(EditAnywhere, Category = "Door", meta = (ClampMin = "1"))
 	float OpenSpeed = 260.f;
 
+	/** Модель двери вместо куба; пусто — остаётся куб. */
+	UPROPERTY(EditAnywhere, Category = "Door")
+	TObjectPtr<class UStaticMesh> Model;
+
+	UPROPERTY(EditAnywhere, Category = "Door", meta = (Units = "deg"))
+	float ModelYaw = 0.f;
+
 	/** Цвет куба-заглушки. */
 	UPROPERTY(EditAnywhere, Category = "Door")
 	FLinearColor Color = FLinearColor(0.55f, 0.36f, 0.18f);

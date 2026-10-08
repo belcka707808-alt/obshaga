@@ -56,6 +56,7 @@ void ADoorActor::BeginPlay()
 	CurrentYaw = GetTargetYaw();
 	Hinge->SetRelativeRotation(FRotator(0.f, CurrentYaw, 0.f));
 	ObshagaVisuals::Tint(DoorMesh, Color);
+	ObshagaVisuals::Dress(DoorMesh, Model, ModelYaw, Color);
 }
 
 float ADoorActor::GetTargetYaw() const

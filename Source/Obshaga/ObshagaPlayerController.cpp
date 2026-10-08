@@ -5,6 +5,9 @@
 #include "KomendantCharacter.h"
 #include "ObshagaCharacter.h"
 #include "ObshagaCharacterConfig.h"
+#include "ObshagaEffect.h"
+#include "RenderCore.h"
+#include "RHI.h"
 #include "Obshaga.h"
 #include "Components/AudioComponent.h"
 #include "EngineUtils.h"
@@ -35,6 +38,7 @@ namespace
 	// Шаги: смещение за кадр больше этого — телепорт, а не шаг. Музыка: скорость смены громкости.
 	constexpr float FootstepMaxFrameStep = 120.f;
 	constexpr float MusicFadeSpeed = 1.5f;
+	constexpr float FrameLogSeconds = 5.f;
 
 	// Обучение: общий предел и сколько висит последняя подсказка.
 	constexpr float TutorialMaxSeconds = 90.f;
@@ -767,6 +771,17 @@ void AObshagaPlayerController::ClientHeardNoise_Implementation(FVector_NetQuanti
 	}
 	UObshagaAudioConfig::PlayAt(this, Sound, Location, FMath::Clamp(Loudness * 1.5f, 0.2f, 1.f));
 
+	// Вместе со звуком — картинка: искры от сломанного прибора, пыль от тяжёлого удара.
+	if (Kind == ENoiseKind::Device)
+	{
+		AObshagaEffect::Play(this, EObshagaEffect::Sparks, Location);
+	}
+	else if (Kind == ENoiseKind::Impact && Loudness >= Audio->HeavyImpactLoudness)
+	{
+		AObshagaEffect::Play(this, EObshagaEffect::Dust, Location);
+	}
+	UE_LOG(LogObshaga, Verbose, TEXT("[%s] Heard noise %.2f kind %d at %s"), GetNetMode() == NM_Client ? TEXT("client") : TEXT("host"), Loudness, static_cast<int32>(Kind), *FVector(Location).ToCompactString());
+
 	const float Now = GetWorld()->GetTimeSeconds();
 	RecentNoises.RemoveAll([Now](const FHeardNoise& Noise) { return Now - Noise.Time > 3.f; });
 
@@ -806,6 +821,18 @@ void AObshagaPlayerController::PlayerTick(float DeltaTime)
 
 	if (IsLocalController())
 	{
+		// Замер частоты кадров в журнал раз в несколько секунд — для самопроверки (уровень Verbose).
+		FrameSampleSeconds += DeltaTime;
+		++FrameSampleCount;
+		if (FrameSampleSeconds >= FrameLogSeconds)
+		{
+			UE_LOG(LogObshaga, Verbose, TEXT("[%s] FPS %.0f (frame %.1f ms; game %.1f, draw %.1f, gpu %.1f)"), GetNetMode() == NM_Client ? TEXT("client") : TEXT("host"),
+				FrameSampleCount / FrameSampleSeconds, 1000.f * FrameSampleSeconds / FrameSampleCount,
+				FPlatformTime::ToMilliseconds(GGameThreadTime), FPlatformTime::ToMilliseconds(GRenderThreadTime), FPlatformTime::ToMilliseconds(RHIGetGPUFrameCycles()));
+			FrameSampleSeconds = 0.f;
+			FrameSampleCount = 0;
+		}
+
 		UpdateDanger(DeltaTime);
 		UpdateCameraShake(DeltaTime);
 		UpdateTutorial();
