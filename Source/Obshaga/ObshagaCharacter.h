@@ -24,6 +24,7 @@ public:
 
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 	virtual void PostInitializeComponents() override;
+	virtual void PossessedBy(AController* NewController) override;
 	virtual void NotifyActorBeginOverlap(AActor* OtherActor) override;
 	virtual void NotifyActorEndOverlap(AActor* OtherActor) override;
 	virtual void OnStartCrouch(float HalfHeightAdjust, float ScaledHalfHeightAdjust) override;
@@ -88,6 +89,9 @@ protected:
 	void OnRep_IsSprinting();
 
 	UFUNCTION()
+	void OnRep_LookIndex();
+
+	UFUNCTION()
 	void OnRep_HidingSpot();
 
 	UFUNCTION()
@@ -128,6 +132,13 @@ protected:
 
 	UPROPERTY(ReplicatedUsing = OnRep_IsFrozen)
 	bool bIsFrozen = false;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Look")
+	TObjectPtr<class UObshagaLookComponent> LookComponent;
+
+	/** Номер модели персонажа (0 — ещё не назначен). Назначает сервер, видят все: по модели жильцов различают. */
+	UPROPERTY(ReplicatedUsing = OnRep_LookIndex)
+	uint8 LookIndex = 0;
 
 	UPROPERTY(ReplicatedUsing = OnRep_IsGhost)
 	bool bIsGhost = false;

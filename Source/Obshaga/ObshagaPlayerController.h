@@ -131,13 +131,10 @@ private:
 	UPROPERTY(Transient)
 	TObjectPtr<class UAudioComponent> MusicTense;
 
-	UPROPERTY(Transient)
-	TObjectPtr<class UAudioComponent> MusicResults;
-
 	bool bMusicStarted = false;
 	float MusicCalmVolume = 0.f;
 	float MusicTenseVolume = 0.f;
-	float MusicResultsVolume = 0.f;
+	bool bResultsJinglePlayed = false;
 	bool bKomendantWasChasing = false;
 	TMap<TWeakObjectPtr<const class ACharacter>, FVector> FootstepLastLocation;
 	TMap<TWeakObjectPtr<const class ACharacter>, float> FootstepTravelled;

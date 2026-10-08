@@ -25,7 +25,7 @@ SLOTS = {
     "S_Caught": "caught",
     "S_MusicCalm": "music_calm",
     "S_MusicTense": "music_tense",
-    "S_MusicResults": "music_results",
+    "S_ResultsJingle": "music_results",
 }
 
 

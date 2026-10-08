@@ -39,4 +39,7 @@ protected:
 
 	UPROPERTY(Replicated)
 	EKomendantAlert Alert = EKomendantAlert::Calm;
+
+	UPROPERTY(VisibleAnywhere, Category = "Komendant")
+	TObjectPtr<class UObshagaLookComponent> LookComponent;
 };

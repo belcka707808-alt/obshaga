@@ -93,7 +93,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Player")
 	TObjectPtr<USoundBase> Caught;
 
-	// --- Музыка (зацикленные дорожки) ---
+	// --- Музыка (спокойная и напряжённая дорожки зациклены) ---
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Music")
 	TObjectPtr<USoundBase> MusicCalm;
@@ -102,8 +102,12 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Music")
 	TObjectPtr<USoundBase> MusicTense;
 
+	/** Короткая тема на экране итогов; играет один раз, не зациклена. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Music")
 	TObjectPtr<USoundBase> MusicResults;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Music", meta = (ClampMin = "0", ClampMax = "1"))
+	float ResultsJingleVolume = 0.7f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Music", meta = (ClampMin = "0", ClampMax = "1"))
 	float MusicVolume = 0.35f;

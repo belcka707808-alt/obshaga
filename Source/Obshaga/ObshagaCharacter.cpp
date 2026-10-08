@@ -6,6 +6,8 @@
 #include "GameEventSubsystem.h"
 #include "HidingSpot.h"
 #include "InteractionComponent.h"
+#include "ObshagaLookComponent.h"
+#include "GameFramework/PlayerState.h"
 #include "Obshaga.h"
 #include "ObshagaCharacterConfig.h"
 #include "RoomVolume.h"
@@ -43,6 +45,7 @@ AObshagaCharacter::AObshagaCharacter()
 
 	InteractionComponent = CreateDefaultSubobject<UInteractionComponent>(TEXT("InteractionComponent"));
 	CarryComponent = CreateDefaultSubobject<UCarryComponent>(TEXT("CarryComponent"));
+	LookComponent = CreateDefaultSubobject<UObshagaLookComponent>(TEXT("LookComponent"));
 
 	CarryPoint = CreateDefaultSubobject<USceneComponent>(TEXT("CarryPoint"));
 	CarryPoint->SetupAttachment(RootComponent);
@@ -57,6 +60,7 @@ void AObshagaCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& Ou
 	DOREPLIFETIME(AObshagaCharacter, HidingSpot);
 	DOREPLIFETIME(AObshagaCharacter, bIsFrozen);
 	DOREPLIFETIME(AObshagaCharacter, bIsGhost);
+	DOREPLIFETIME(AObshagaCharacter, LookIndex);
 }
 
 void AObshagaCharacter::PostInitializeComponents()
@@ -94,6 +98,26 @@ void AObshagaCharacter::BeginPlay()
 		ARoomVolume* Room = CastChecked<ARoomVolume>(RoomActor);
 		OverlappingRooms.AddUnique(Room);
 		UE_LOG(LogObshaga, Verbose, TEXT("[%s] %s starts in room %s"), *GetNameSafe(GetWorld()), *GetName(), *Room->RoomId.ToString());
+	}
+}
+
+void AObshagaCharacter::PossessedBy(AController* NewController)
+{
+	Super::PossessedBy(NewController);
+
+	// Модель — по номеру игрока: у одного и того же игрока она не меняется от раунда к раунду.
+	if (const APlayerState* State = GetPlayerState())
+	{
+		LookIndex = static_cast<uint8>(State->GetPlayerId() % 200 + 1);
+		OnRep_LookIndex();
+	}
+}
+
+void AObshagaCharacter::OnRep_LookIndex()
+{
+	if (LookIndex > 0)
+	{
+		LookComponent->ApplyLook(LookIndex - 1);
 	}
 }
 

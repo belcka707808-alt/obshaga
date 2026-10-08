@@ -335,7 +335,6 @@ void AObshagaPlayerController::UpdateMusic(float DeltaTime)
 		bMusicStarted = true;
 		MusicCalm = Audio->MusicCalm ? UGameplayStatics::SpawnSound2D(this, Audio->MusicCalm, 1.f, 1.f, 0.f, nullptr, false, false) : nullptr;
 		MusicTense = Audio->MusicTense ? UGameplayStatics::SpawnSound2D(this, Audio->MusicTense, 1.f, 1.f, 0.f, nullptr, false, false) : nullptr;
-		MusicResults = Audio->MusicResults ? UGameplayStatics::SpawnSound2D(this, Audio->MusicResults, 1.f, 1.f, 0.f, nullptr, false, false) : nullptr;
 	}
 
 	const AObshagaGameState* GameState = GetWorld()->GetGameState<AObshagaGameState>();
@@ -355,7 +354,13 @@ void AObshagaPlayerController::UpdateMusic(float DeltaTime)
 	};
 	Fade(MusicCalm, MusicCalmVolume, Calm);
 	Fade(MusicTense, MusicTenseVolume, Tense);
-	Fade(MusicResults, MusicResultsVolume, bResults ? 1.f : 0.f);
+
+	// На экране итогов — короткая весёлая тема, один раз.
+	if (bResults && !bResultsJinglePlayed)
+	{
+		UObshagaAudioConfig::Play2D(this, Audio->MusicResults, Audio->ResultsJingleVolume);
+	}
+	bResultsJinglePlayed = bResults;
 }
 
 FText AObshagaPlayerController::GetTutorialText() const

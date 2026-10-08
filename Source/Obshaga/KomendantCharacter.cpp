@@ -2,6 +2,7 @@
 
 #include "KomendantAIController.h"
 #include "KomendantPersonality.h"
+#include "ObshagaLookComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Net/UnrealNetwork.h"
@@ -12,6 +13,8 @@ AKomendantCharacter::AKomendantCharacter()
 
 	// Тот же размер, что у жильцов: он должен проходить в те же двери.
 	GetCapsuleComponent()->InitCapsuleSize(35.f, 90.f);
+
+	LookComponent = CreateDefaultSubobject<UObshagaLookComponent>(TEXT("LookComponent"));
 
 	AIControllerClass = AKomendantAIController::StaticClass();
 	AutoPossessAI = EAutoPossessAI::PlacedInWorldOrSpawned;
