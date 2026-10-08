@@ -1,4 +1,4 @@
-﻿# Чужие материалы в игре
+# Чужие материалы в игре
 
 | Что | Автор | Лицензия | Откуда |
 |---|---|---|---|
@@ -8,7 +8,9 @@
 | Звуки: дверь, шорох (RPG Audio) | Kenney | CC0 | kenney.nl |
 | Звук сообщения (Interface Sounds) | Kenney | CC0 | kenney.nl |
 | Модели мебели и предметов (Furniture Kit) | Kenney | CC0 | kenney.nl |
-| Манекен и анимации (пак Third Person) | Epic Games | лицензия Unreal Engine | в составе движка |
+| Персонажи и их анимации (Mini Characters) | Kenney | CC0 | kenney.nl |
+| Тема на экране итогов (Music Jingles) | Kenney | CC0 | kenney.nl |
+| Модели продуктов и бутылки (Food Kit) | Kenney | CC0 | kenney.nl |
 
 Музыка Кевина Маклауда распространяется по лицензии Creative Commons Attribution 4.0
 (https://creativecommons.org/licenses/by/4.0/). Требуемая строка:
