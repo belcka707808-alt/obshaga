@@ -94,6 +94,12 @@ void AObshagaHUD::DrawHUD()
 		DrawInterrogation(MyState, GameState, MyLocation);
 	}
 
+	if (GameState->GetRoundState() != ERoundState::Finished)
+	{
+		// Следующие итоги выберут раскладку заново.
+		ResultsVariant = INDEX_NONE;
+	}
+
 	if (GameState->GetRoundState() == ERoundState::Finished)
 	{
 		DrawRoundResults(GameState);
@@ -473,6 +479,40 @@ void AObshagaHUD::DrawRoundResults(const AObshagaGameState* GameState)
 	// «Реванш» — всегда внизу, на одном месте; всё остальное обязано уместиться выше этой строки.
 	const float RematchY = Canvas->ClipY - 8.f * Scale - Pad - 17.f * Scale;
 
+	// Блок одного игрока: строка с ролью и титулом, подпись и его задания одной строкой.
+	auto DrawPlayer = [&](const FRevealedPlayer& Player, float X, float Y, float TextWidth, float Line, bool bCaptions, bool bDraw) -> float
+	{
+		const FText Text = FText::Format(LOCTEXT("PlayerLine", "{0} — {1}, «{2}». Очки: {3}, страйки: {4}"),
+			FText::FromString(Player.PlayerName), RoleName(Player.Role), Player.Title, FText::AsNumber(Player.Score), FText::AsNumber(Player.Strikes));
+		const FLinearColor Color = Player.Role == EPlayerRole::Resident ? Dim : FLinearColor(1.f, 0.7f, 0.7f);
+		Y = DrawWrapped(Text.ToString(), Color, X, Y, TextWidth, Line, bDraw);
+		if (bCaptions && !Player.Caption.IsEmpty())
+		{
+			Y = DrawWrapped(Player.Caption.ToString(), FLinearColor(0.6f, 0.6f, 0.68f), X + 14.f * Scale, Y, TextWidth - 14.f * Scale, Line - 2.f, bDraw);
+		}
+
+		FString Tasks;
+		bool bAnyDone = false;
+		for (const FRevealedTask& Task : GameState->GetRevealedTasks())
+		{
+			if (Task.PlayerName != Player.PlayerName)
+			{
+				continue;
+			}
+			const bool bDone = Task.Status == ETaskStatus::Completed;
+			bAnyDone |= bDone;
+			const FText Entry = bDone
+				? FText::Format(LOCTEXT("TaskDone", "«{0}» — выполнено +{1}"), Task.TaskTitle, FText::AsNumber(Task.Reward))
+				: FText::Format(LOCTEXT("TaskFailed", "«{0}» — провалено"), Task.TaskTitle);
+			Tasks += (Tasks.IsEmpty() ? TEXT("") : TEXT("; ")) + Entry.ToString();
+		}
+		if (!Tasks.IsEmpty())
+		{
+			Y = DrawWrapped(Tasks, bAnyDone ? FLinearColor(0.5f, 1.f, 0.5f) : FLinearColor(1.f, 0.55f, 0.55f), X + 14.f * Scale, Y, TextWidth - 14.f * Scale, Line - 2.f, bDraw);
+		}
+		return Y;
+	};
+
 	// Одна и та же раскладка умеет и рисовать, и только мерить высоту (bDraw = false).
 	// Возвращает нижний край нарисованного.
 	auto Layout = [&](bool bTwoColumns, bool bCaptions, float Line, bool bDraw) -> float
@@ -500,7 +540,7 @@ void AObshagaHUD::DrawRoundResults(const AObshagaGameState* GameState)
 			Y = DrawWrapped(Entry.ToString(), Dim, X, Y, TextWidth, Line, bDraw);
 		}
 
-		float Bottom = Y;
+		const float Bottom = Y;
 		if (bTwoColumns)
 		{
 			X += TextWidth + Pad;
@@ -511,71 +551,67 @@ void AObshagaHUD::DrawRoundResults(const AObshagaGameState* GameState)
 			Y += 6.f * Scale;
 		}
 
-		// Игрок, его титул и сразу под ним — его секретные задания одной строкой.
 		Y = DrawWrapped(LOCTEXT("ResultsPlayers", "КТО КЕМ БЫЛ И ЧТО ДЕЛАЛ").ToString(), FLinearColor::White, X, Y, TextWidth, Line, bDraw);
-		for (const FRevealedPlayer& Player : GameState->GetRevealedPlayers())
+		const TArray<FRevealedPlayer>& Players = GameState->GetRevealedPlayers();
+		for (int32 Index = 0; Index < Players.Num(); ++Index)
 		{
-			// Страховка: если места всё-таки не хватило, поверх «Реванша» не рисуем.
-			if (bDraw && Y + Line * Scale > RematchY)
+			// Страховка: если блок игрока целиком не помещается над «Реваншем», честно пишем, сколько не влезло.
+			// Под эту строчку оставляем место всем, кроме последнего игрока.
+			if (bDraw)
 			{
-				break;
-			}
-
-			const FText Text = FText::Format(LOCTEXT("PlayerLine", "{0} — {1}, «{2}». Очки: {3}, страйки: {4}"),
-				FText::FromString(Player.PlayerName), RoleName(Player.Role), Player.Title, FText::AsNumber(Player.Score), FText::AsNumber(Player.Strikes));
-			const FLinearColor Color = Player.Role == EPlayerRole::Resident ? Dim : FLinearColor(1.f, 0.7f, 0.7f);
-			Y = DrawWrapped(Text.ToString(), Color, X, Y, TextWidth, Line, bDraw);
-			if (bCaptions && !Player.Caption.IsEmpty())
-			{
-				Y = DrawWrapped(Player.Caption.ToString(), FLinearColor(0.6f, 0.6f, 0.68f), X + 14.f * Scale, Y, TextWidth - 14.f * Scale, Line - 2.f, bDraw);
-			}
-
-			FString Tasks;
-			bool bAnyDone = false;
-			for (const FRevealedTask& Task : GameState->GetRevealedTasks())
-			{
-				if (Task.PlayerName != Player.PlayerName)
+				const float Reserve = Index < Players.Num() - 1 ? Line * Scale : 0.f;
+				if (DrawPlayer(Players[Index], X, Y, TextWidth, Line, bCaptions, false) > RematchY - Reserve)
 				{
-					continue;
+					DrawText(FText::Format(LOCTEXT("ResultsMore", "… и ещё {0}"), FText::AsNumber(Players.Num() - Index)).ToString(), Dim, X, Y, Font, Scale);
+					break;
 				}
-				const bool bDone = Task.Status == ETaskStatus::Completed;
-				bAnyDone |= bDone;
-				const FText Entry = bDone
-					? FText::Format(LOCTEXT("TaskDone", "«{0}» — выполнено +{1}"), Task.TaskTitle, FText::AsNumber(Task.Reward))
-					: FText::Format(LOCTEXT("TaskFailed", "«{0}» — провалено"), Task.TaskTitle);
-				Tasks += (Tasks.IsEmpty() ? TEXT("") : TEXT("; ")) + Entry.ToString();
 			}
-			if (!Tasks.IsEmpty())
-			{
-				Y = DrawWrapped(Tasks, bAnyDone ? FLinearColor(0.5f, 1.f, 0.5f) : FLinearColor(1.f, 0.55f, 0.55f), X + 14.f * Scale, Y, TextWidth - 14.f * Scale, Line - 2.f, bDraw);
-			}
+			Y = DrawPlayer(Players[Index], X, Y, TextWidth, Line, bCaptions, bDraw);
 		}
 		return FMath::Max(Bottom, Y);
 	};
 
-	// Раскладки от самой нарядной к самой плотной; берём первую, которая помещается над «Реваншем».
+	// Раскладки от самой нарядной к самой плотной.
 	struct FVariant
 	{
 		bool bTwoColumns;
 		bool bCaptions;
 		float Line;
 	};
-	const FVariant Variants[] = { { true, true, 17.f }, { false, true, 17.f }, { true, false, 17.f }, { false, false, 17.f }, { true, false, 15.f }, { false, false, 15.f } };
-	const FVariant* Chosen = &Variants[UE_ARRAY_COUNT(Variants) - 1];
-	for (const FVariant& Variant : Variants)
+	static const FVariant Variants[] = { { true, true, 17.f }, { false, true, 17.f }, { true, false, 17.f }, { false, false, 17.f }, { true, false, 15.f }, { false, false, 15.f } };
+
+	// Мерить раскладки дорого, поэтому выбор запоминаем, пока не изменится экран или состав итогов.
+	const uint32 Key = HashCombine(HashCombine(GetTypeHash(Canvas->ClipX), GetTypeHash(Canvas->ClipY)),
+		HashCombine(GetTypeHash(GameState->GetChronicle().Num()), HashCombine(GetTypeHash(GameState->GetRevealedPlayers().Num()), GetTypeHash(GameState->GetRevealedTasks().Num()))));
+	if (ResultsVariant == INDEX_NONE || ResultsKey != Key)
 	{
-		// Две колонки имеют смысл, только если экран шире одной колонки.
-		if (Variant.bTwoColumns && Canvas->ClipX < 700.f * Scale)
+		// Берём первую раскладку, которая помещается над «Реваншем»; если не помещается ни одна — самую низкую.
+		ResultsKey = Key;
+		ResultsVariant = INDEX_NONE;
+		float BestHeight = TNumericLimits<float>::Max();
+		for (int32 Index = 0; Index < UE_ARRAY_COUNT(Variants); ++Index)
 		{
-			continue;
-		}
-		if (Layout(Variant.bTwoColumns, Variant.bCaptions, Variant.Line, false) <= RematchY)
-		{
-			Chosen = &Variant;
-			break;
+			// Две колонки имеют смысл, только если экран шире одной колонки.
+			if (Variants[Index].bTwoColumns && Canvas->ClipX < 700.f * Scale)
+			{
+				continue;
+			}
+			const float Height = Layout(Variants[Index].bTwoColumns, Variants[Index].bCaptions, Variants[Index].Line, false);
+			if (Height < BestHeight)
+			{
+				BestHeight = Height;
+				ResultsVariant = Index;
+			}
+			if (Height <= RematchY)
+			{
+				ResultsVariant = Index;
+				break;
+			}
 		}
 	}
-	Layout(Chosen->bTwoColumns, Chosen->bCaptions, Chosen->Line, true);
+
+	const FVariant& Chosen = Variants[FMath::Max(ResultsVariant, 0)];
+	Layout(Chosen.bTwoColumns, Chosen.bCaptions, Chosen.Line, true);
 }
 
 void AObshagaHUD::DrawInterrogation(const AObshagaPlayerState* MyState, const AObshagaGameState* GameState, const FVector& MyLocation)

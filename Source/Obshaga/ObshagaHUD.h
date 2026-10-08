@@ -39,4 +39,8 @@ private:
 	TObjectPtr<UFont> Font;
 
 	float Scale = 1.f;
+
+	/** Выбранная раскладка экрана итогов и то, для чего она выбрана (чтобы не мерить заново каждый кадр). */
+	int32 ResultsVariant = INDEX_NONE;
+	uint32 ResultsKey = 0;
 };

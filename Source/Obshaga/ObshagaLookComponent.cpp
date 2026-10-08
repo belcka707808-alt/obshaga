@@ -126,6 +126,11 @@ UAnimSequenceBase* UObshagaLookComponent::PickAnimation(bool& bOutLoop)
 		{
 			return Config->Caught;
 		}
+		// Клип уже шёл, а игрок пошёл — клип отменяется, а не начинается заново после остановки.
+		if (OneShot && bOneShotStarted && Character->GetVelocity().Size2D() >= Config->MoveSpeedThreshold)
+		{
+			OneShot = nullptr;
+		}
 		// Жест на ходу не играем: ноги должны идти. Смотрим на настоящую скорость, а не сглаженную,
 		// иначе клип опаздывал бы на полсекунды после остановки и обрезался.
 		if (OneShot && GetWorld()->GetTimeSeconds() < OneShotUntil && Character->GetVelocity().Size2D() < Config->MoveSpeedThreshold)

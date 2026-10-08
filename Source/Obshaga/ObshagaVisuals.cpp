@@ -24,14 +24,19 @@ void ObshagaVisuals::Dress(UStaticMeshComponent* Cube, UStaticMesh* Model, float
 	Visual->SetStaticMesh(Model);
 
 	// Куб движка — 100 см по каждой стороне в своих координатах; модель вписываем в него, тогда она
-	// унаследует размеры заглушки. Поворот кратен 90°, а куб одинаков по всем сторонам, так что модель из него не вылезет.
+	// унаследует размеры заглушки.
 	const FBoxSphereBounds Bounds = Model->GetBounds();
 	const FVector Size = (Bounds.BoxExtent * 2.f).ComponentMax(FVector(1.f));
 	const FRotator Rotation(0.f, YawDegrees, 0.f);
-	const FVector Scale(100.f / Size.X, 100.f / Size.Y, 100.f / Size.Z);
+	// Куб растянут неравномерно (шкаф, дверь), а движок сначала перемножает масштабы по осям и только потом
+	// поворачивает. Поэтому при повороте на 90° или 270° растяжение куба по X и Y надо поменять местами,
+	// иначе длина модели ляжет на ширину куба.
+	const FVector Parent = Cube->GetRelativeScale3D().ComponentMax(FVector(KINDA_SMALL_NUMBER));
+	const bool bSwap = (FMath::RoundToInt32(YawDegrees / 90.f) & 1) != 0;
+	const FVector Scale(100.f * (bSwap ? Parent.Y : Parent.X) / (Parent.X * Size.X), 100.f * (bSwap ? Parent.X : Parent.Y) / (Parent.Y * Size.Y), 100.f / Size.Z);
 	Visual->SetRelativeRotation(Rotation);
 	Visual->SetRelativeScale3D(Scale);
-	Visual->SetRelativeLocation(-Rotation.RotateVector(Bounds.Origin * Scale));
+	Visual->SetRelativeLocation(-Rotation.RotateVector(Bounds.Origin * Scale * Parent) / Parent);
 
 	// У модели со своими материалами (родные цвета набора) ничего не трогаем; красим только «голые» слоты.
 	for (int32 Slot = 0; Slot < Visual->GetNumMaterials(); ++Slot)
