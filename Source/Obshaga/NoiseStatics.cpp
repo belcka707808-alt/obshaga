@@ -10,7 +10,7 @@
 #include "Engine/World.h"
 #include "Perception/AISense_Hearing.h"
 
-void UNoiseStatics::MakeGameNoise(const UObject* WorldContextObject, FVector Location, float Loudness, AActor* NoiseInstigator)
+void UNoiseStatics::MakeGameNoise(const UObject* WorldContextObject, FVector Location, float Loudness, AActor* NoiseInstigator, ENoiseKind Kind)
 {
 	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
 	if (!World || World->GetNetMode() == NM_Client || Loudness <= 0.f)
@@ -46,7 +46,7 @@ void UNoiseStatics::MakeGameNoise(const UObject* WorldContextObject, FVector Loc
 		const float HearingRange = Loudness * Listener->GetConfig()->NoiseHearingRange;
 		if (FVector::DistSquared(Listener->GetActorLocation(), Location) <= FMath::Square(HearingRange))
 		{
-			Controller->ClientHeardNoise(Location, Loudness);
+			Controller->ClientHeardNoise(Location, Loudness, Kind);
 		}
 	}
 }

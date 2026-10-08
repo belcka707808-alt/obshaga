@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Kismet/BlueprintFunctionLibrary.h"
+#include "ObshagaAudioConfig.h"
 #include "NoiseStatics.generated.h"
 
 /** Единая точка входа для любого шума в игре. */
@@ -16,5 +17,5 @@ public:
 	 * Loudness: 0 — тишина, 1 — грохот. Шум слышит AI (Perception) и игроки, которые достаточно близко.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Obshaga|Noise", meta = (WorldContext = "WorldContextObject"))
-	static void MakeGameNoise(const UObject* WorldContextObject, FVector Location, float Loudness, AActor* NoiseInstigator);
+	static void MakeGameNoise(const UObject* WorldContextObject, FVector Location, float Loudness, AActor* NoiseInstigator, ENoiseKind Kind = ENoiseKind::Impact);
 };

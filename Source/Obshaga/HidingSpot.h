@@ -89,8 +89,12 @@ protected:
 	float SearchDuration = 1.f;
 
 	/** Кто-то прямо сейчас прячет предмет или обыскивает тайник. */
-	UPROPERTY(Replicated)
+	UPROPERTY(ReplicatedUsing = OnRep_Busy)
 	bool bBusy = false;
+
+	/** Кто-то начал рыться в тайнике: слышен шорох. */
+	UFUNCTION()
+	void OnRep_Busy();
 
 	// Только сервер, не реплицируется.
 	UPROPERTY()

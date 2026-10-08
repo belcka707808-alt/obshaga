@@ -8,6 +8,7 @@
 #include "ObshagaCharacter.h"
 #include "ObshagaItemData.h"
 #include "ObshagaPlayerController.h"
+#include "ObshagaAudioConfig.h"
 #include "ObshagaVisuals.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/StaticMesh.h"
@@ -154,9 +155,18 @@ void AHidingSpot::SecondaryInteract(AObshagaCharacter* By)
 	UE_LOG(LogObshaga, Verbose, TEXT("%s hid in %s"), *By->GetName(), *GetName());
 }
 
+void AHidingSpot::OnRep_Busy()
+{
+	if (bBusy)
+	{
+		UObshagaAudioConfig::PlayAt(this, UObshagaAudioConfig::Get()->HidingSpotRustle, GetActorLocation() + FVector(0.f, 0.f, BoxSize.Z * 0.5f));
+	}
+}
+
 void AHidingSpot::StartTimedAction(AObshagaCharacter* By, bool bHideItem)
 {
 	bBusy = true;
+	OnRep_Busy();
 	PendingBy = By;
 	bPendingHideItem = bHideItem;
 

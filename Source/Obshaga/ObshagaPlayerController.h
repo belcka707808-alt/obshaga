@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/PlayerController.h"
+#include "ObshagaAudioConfig.h"
 #include "ObshagaPlayerController.generated.h"
 
 class AObshagaCharacter;
@@ -26,7 +27,7 @@ class OBSHAGA_API AObshagaPlayerController : public APlayerController
 public:
 	/** Сервер сообщает игроку, что тот услышал шум. Шлётся только тем, кто достаточно близко. */
 	UFUNCTION(Client, Unreliable)
-	void ClientHeardNoise(FVector_NetQuantize Location, float Loudness);
+	void ClientHeardNoise(FVector_NetQuantize Location, float Loudness, ENoiseKind Kind);
 
 	/** Короткое сообщение лично этому игроку: «Пусто», «Спрятано: телевизор». */
 	UFUNCTION(Client, Reliable)
@@ -120,6 +121,26 @@ private:
 	void UpdateCameraShake(float DeltaTime);
 	void UpdateTutorial();
 	void FinishTutorial();
+	void UpdateFootsteps();
+	void UpdateMusic(float DeltaTime);
+
+	// Звук — только на этой машине.
+	UPROPERTY(Transient)
+	TObjectPtr<class UAudioComponent> MusicCalm;
+
+	UPROPERTY(Transient)
+	TObjectPtr<class UAudioComponent> MusicTense;
+
+	UPROPERTY(Transient)
+	TObjectPtr<class UAudioComponent> MusicResults;
+
+	bool bMusicStarted = false;
+	float MusicCalmVolume = 0.f;
+	float MusicTenseVolume = 0.f;
+	float MusicResultsVolume = 0.f;
+	bool bKomendantWasChasing = false;
+	TMap<TWeakObjectPtr<const class ACharacter>, FVector> FootstepLastLocation;
+	TMap<TWeakObjectPtr<const class ACharacter>, float> FootstepTravelled;
 	bool IsLocalPlayerInterrogated() const;
 
 	AObshagaCharacter* GetObshagaCharacter() const;

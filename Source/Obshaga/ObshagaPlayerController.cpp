@@ -5,7 +5,11 @@
 #include "KomendantCharacter.h"
 #include "ObshagaCharacter.h"
 #include "ObshagaCharacterConfig.h"
+#include "Obshaga.h"
+#include "Components/AudioComponent.h"
 #include "EngineUtils.h"
+#include "GameFramework/CharacterMovementComponent.h"
+#include "Kismet/GameplayStatics.h"
 #include "Misc/ConfigCacheIni.h"
 #include "ObshagaGameMode.h"
 #include "ObshagaGameState.h"
@@ -26,6 +30,11 @@ namespace
 	constexpr float DangerSameFloorHeight = 250.f;
 	constexpr float DangerChaseBoost = 1.4f;
 	constexpr float DangerInterpSpeed = 3.f;
+	// Тише этого уровня опасности сердце не слышно.
+	constexpr float HeartbeatMinDanger = 0.08f;
+	// Шаги: смещение за кадр больше этого — телепорт, а не шаг. Музыка: скорость смены громкости.
+	constexpr float FootstepMaxFrameStep = 120.f;
+	constexpr float MusicFadeSpeed = 1.5f;
 
 	// Обучение: общий предел и сколько висит последняя подсказка.
 	constexpr float TutorialMaxSeconds = 90.f;
@@ -221,11 +230,23 @@ void AObshagaPlayerController::UpdateDanger(float DeltaTime)
 			if (It->GetAlert() == EKomendantAlert::Chasing)
 			{
 				Level *= DangerChaseBoost;
+				// Погоня только что началась — окрик коменданта слышно оттуда, где он стоит.
+				if (!bKomendantWasChasing)
+				{
+					UObshagaAudioConfig::PlayAt(this, UObshagaAudioConfig::Get()->ChaseStart, It->GetActorLocation());
+				}
 			}
+			bKomendantWasChasing = It->GetAlert() == EKomendantAlert::Chasing;
 			Target = FMath::Max(Target, FMath::Clamp(Level, 0.f, 1.f));
 		}
 
+		const float OldPhase = HeartPhase;
 		HeartPhase += DeltaTime * FMath::Lerp(Config->HeartRateCalm, Config->HeartRatePanic, DangerLevel);
+		// Новый цикл пульса — новый удар сердца; чем страшнее, тем громче.
+		if (FMath::FloorToInt32(HeartPhase) != FMath::FloorToInt32(OldPhase) && DangerLevel > HeartbeatMinDanger)
+		{
+			UObshagaAudioConfig::Play2D(this, UObshagaAudioConfig::Get()->Heartbeat, DangerLevel);
+		}
 	}
 	DangerLevel = FMath::FInterpTo(DangerLevel, Target, DeltaTime, DangerInterpSpeed);
 }
@@ -244,6 +265,8 @@ void AObshagaPlayerController::UpdateCameraShake(float DeltaTime)
 	{
 		ShakeTimeLeft = Me->GetConfig()->CaughtShakeSeconds;
 		bEmoteWheelOpen = false;
+		UObshagaAudioConfig::Play2D(this, UObshagaAudioConfig::Get()->Caught);
+		UE_LOG(LogObshaga, Verbose, TEXT("[%s] Caught: camera shake %.2f s, amplitude %.0f"), *GetNameSafe(GetWorld()), ShakeTimeLeft, Me->GetConfig()->CaughtShakeAmplitude);
 	}
 	bWasInterrogated = bInterrogated;
 
@@ -253,6 +276,86 @@ void AObshagaPlayerController::UpdateCameraShake(float DeltaTime)
 		const float Strength = Me->GetConfig()->CaughtShakeAmplitude * ShakeTimeLeft / FMath::Max(Me->GetConfig()->CaughtShakeSeconds, KINDA_SMALL_NUMBER);
 		Me->SetCameraShakeOffset(ShakeTimeLeft > 0.f ? FMath::VRand() * Strength : FVector::ZeroVector);
 	}
+}
+
+void AObshagaPlayerController::UpdateFootsteps()
+{
+	// Шаги всех, кто ходит рядом (и коменданта): звук ставится на этой машине по пройденному пути.
+	const UObshagaAudioConfig* Audio = UObshagaAudioConfig::Get();
+	if (!Audio->Footstep)
+	{
+		return;
+	}
+
+	for (TActorIterator<ACharacter> It(GetWorld()); It; ++It)
+	{
+		const ACharacter* Walker = *It;
+		const AObshagaCharacter* Resident = Cast<AObshagaCharacter>(Walker);
+		FVector& LastLocation = FootstepLastLocation.FindOrAdd(Walker, Walker->GetActorLocation());
+		float& Travelled = FootstepTravelled.FindOrAdd(Walker, 0.f);
+
+		const float Step = FVector::Dist2D(Walker->GetActorLocation(), LastLocation);
+		LastLocation = Walker->GetActorLocation();
+		// Телепорт (укрытие, реванш) и полёт шагами не считаются; призраки и спрятавшиеся не топают.
+		if (Step > FootstepMaxFrameStep || !Walker->GetCharacterMovement()->IsMovingOnGround()
+			|| (Resident && (Resident->IsGhost() || Resident->IsHiding())))
+		{
+			continue;
+		}
+
+		Travelled += Step;
+		if (Travelled >= Audio->FootstepStride)
+		{
+			Travelled = 0.f;
+			float Volume = Audio->FootstepWalkVolume;
+			if (Walker->IsCrouched())
+			{
+				Volume = Audio->FootstepCrouchVolume;
+			}
+			else if (Resident && Resident->IsSprinting())
+			{
+				Volume = Audio->FootstepRunVolume;
+			}
+			UObshagaAudioConfig::PlayAt(this, Audio->Footstep, Walker->GetActorLocation() - FVector(0.f, 0.f, Walker->GetSimpleCollisionHalfHeight()), Volume);
+		}
+	}
+}
+
+void AObshagaPlayerController::UpdateMusic(float DeltaTime)
+{
+	if (!IsLocalController())
+	{
+		return;
+	}
+
+	// Три дорожки играют всегда, меняется только громкость: спокойная — в раунде, напряжённая — по чувству опасности, третья — на итогах.
+	const UObshagaAudioConfig* Audio = UObshagaAudioConfig::Get();
+	if (!bMusicStarted)
+	{
+		bMusicStarted = true;
+		MusicCalm = Audio->MusicCalm ? UGameplayStatics::SpawnSound2D(this, Audio->MusicCalm, 1.f, 1.f, 0.f, nullptr, false, false) : nullptr;
+		MusicTense = Audio->MusicTense ? UGameplayStatics::SpawnSound2D(this, Audio->MusicTense, 1.f, 1.f, 0.f, nullptr, false, false) : nullptr;
+		MusicResults = Audio->MusicResults ? UGameplayStatics::SpawnSound2D(this, Audio->MusicResults, 1.f, 1.f, 0.f, nullptr, false, false) : nullptr;
+	}
+
+	const AObshagaGameState* GameState = GetWorld()->GetGameState<AObshagaGameState>();
+	const ERoundState RoundState = GameState ? GameState->GetRoundState() : ERoundState::WaitingToStart;
+	const bool bResults = RoundState == ERoundState::Finished;
+	const float Calm = bResults ? 0.f : 1.f - Audio->CalmDuckAtDanger * DangerLevel;
+	const float Tense = RoundState == ERoundState::InProgress ? DangerLevel : 0.f;
+
+	auto Fade = [&](UAudioComponent* Component, float& Current, float Target)
+	{
+		Current = FMath::FInterpTo(Current, Target * Audio->MusicVolume, DeltaTime, MusicFadeSpeed);
+		if (Component)
+		{
+			// Нулевая громкость остановила бы дорожку — держим её едва слышной.
+			Component->SetVolumeMultiplier(FMath::Max(Current, 0.001f));
+		}
+	};
+	Fade(MusicCalm, MusicCalmVolume, Calm);
+	Fade(MusicTense, MusicTenseVolume, Tense);
+	Fade(MusicResults, MusicResultsVolume, bResults ? 1.f : 0.f);
 }
 
 FText AObshagaPlayerController::GetTutorialText() const
@@ -626,8 +729,21 @@ void AObshagaPlayerController::ServerConfirmAlibi_Implementation()
 	}
 }
 
-void AObshagaPlayerController::ClientHeardNoise_Implementation(FVector_NetQuantize Location, float Loudness)
+void AObshagaPlayerController::ClientHeardNoise_Implementation(FVector_NetQuantize Location, float Loudness, ENoiseKind Kind)
 {
+	// Звук — по виду шума: скрип двери, треск плиты или удар предмета (тяжёлый грохочет иначе).
+	const UObshagaAudioConfig* Audio = UObshagaAudioConfig::Get();
+	USoundBase* Sound = Loudness >= Audio->HeavyImpactLoudness ? Audio->ItemImpactHeavy : Audio->ItemImpactLight;
+	if (Kind == ENoiseKind::Door)
+	{
+		Sound = Audio->Door;
+	}
+	else if (Kind == ENoiseKind::Device)
+	{
+		Sound = Audio->DeviceBreak;
+	}
+	UObshagaAudioConfig::PlayAt(this, Sound, Location, FMath::Clamp(Loudness * 1.5f, 0.2f, 1.f));
+
 	const float Now = GetWorld()->GetTimeSeconds();
 	RecentNoises.RemoveAll([Now](const FHeardNoise& Noise) { return Now - Noise.Time > 3.f; });
 
@@ -645,6 +761,7 @@ void AObshagaPlayerController::ClientShowNotice_Implementation(const FText& Text
 	{
 		Notice = Text;
 		NoticeTime = GetWorld()->GetTimeSeconds();
+		UObshagaAudioConfig::Play2D(this, UObshagaAudioConfig::Get()->Notice);
 		return;
 	}
 
@@ -664,14 +781,20 @@ void AObshagaPlayerController::PlayerTick(float DeltaTime)
 {
 	Super::PlayerTick(DeltaTime);
 
-	UpdateDanger(DeltaTime);
-	UpdateCameraShake(DeltaTime);
-	UpdateTutorial();
+	if (IsLocalController())
+	{
+		UpdateDanger(DeltaTime);
+		UpdateCameraShake(DeltaTime);
+		UpdateTutorial();
+		UpdateFootsteps();
+		UpdateMusic(DeltaTime);
+	}
 
 	if (!NoticeQueue.IsEmpty() && GetWorld()->GetTimeSeconds() - NoticeTime >= NoticeSeconds)
 	{
 		Notice = NoticeQueue[0];
 		NoticeQueue.RemoveAt(0);
 		NoticeTime = GetWorld()->GetTimeSeconds();
+		UObshagaAudioConfig::Play2D(this, UObshagaAudioConfig::Get()->Notice);
 	}
 }

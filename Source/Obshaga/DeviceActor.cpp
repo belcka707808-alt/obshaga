@@ -204,7 +204,7 @@ void ADeviceActor::SetBroken(bool bNewBroken, AObshagaCharacter* By)
 	// Поломка трещит: комендант может прийти посмотреть.
 	if (bNewBroken)
 	{
-		UNoiseStatics::MakeGameNoise(this, GetLabelLocation(), BreakLoudness, By);
+		UNoiseStatics::MakeGameNoise(this, GetLabelLocation(), BreakLoudness, By, ENoiseKind::Device);
 	}
 }
 

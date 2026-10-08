@@ -108,7 +108,7 @@ void ADoorActor::Interact(AObshagaCharacter* By)
 	{
 		Loudness *= GameMode->GetRoundConfig()->NightDoorNoiseMultiplier;
 	}
-	UNoiseStatics::MakeGameNoise(this, DoorMesh->GetComponentLocation(), FMath::Min(Loudness, 1.f), By);
+	UNoiseStatics::MakeGameNoise(this, DoorMesh->GetComponentLocation(), FMath::Min(Loudness, 1.f), By, ENoiseKind::Door);
 }
 
 void ADoorActor::ResetDoor()
