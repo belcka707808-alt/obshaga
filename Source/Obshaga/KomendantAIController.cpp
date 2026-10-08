@@ -556,7 +556,7 @@ void AKomendantAIController::TickPatrol(float DeltaSeconds)
 		{
 			QueuedSpot = InspectionQueue.Pop();
 		}
-		if (!QueuedSpot.IsValid() || !PlanPathTo(GetSpotStandLocation(QueuedSpot.Get())))
+		if (!QueuedSpot.IsValid() || !PlanPathTo(GetSpotStandLocation(QueuedSpot.Get()), true))
 		{
 			QueuedSpot.Reset();
 		}
@@ -730,7 +730,8 @@ void AKomendantAIController::TickInspect(float DeltaSeconds)
 	}
 
 	// Сквозь стены и с другого этажа не обыскивает: не дошёл — бросает этот тайник.
-	if (SearchTime <= 0.f && (Distance > InspectReachDistance || FMath::Abs(ToSpot.Z) > SameFloorHeight))
+	if (SearchTime <= 0.f && (Distance > InspectReachDistance || FMath::Abs(ToSpot.Z) > SameFloorHeight
+		|| !HasClearLine(Komendant->GetActorLocation(), SpotLocation)))
 	{
 		UE_LOG(LogObshaga, Verbose, TEXT("Komendant could not reach %s, skipping"), *Spot->GetName());
 		InterruptedQueuedSpot.Reset();
@@ -908,7 +909,31 @@ bool AKomendantAIController::FollowPath(float Speed, float DeltaSeconds)
 	return false;
 }
 
-AKomendantWaypoint* AKomendantAIController::FindNearestWaypoint(const FVector& Location) const
+bool AKomendantAIController::HasClearLine(const FVector& From, const FVector& To) const
+{
+	// Мебель, двери, предметы и люди не в счёт — мешают только стены и перекрытия.
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(KomendantClearLine), false);
+	for (ADoorActor* Door : Doors)
+	{
+		Params.AddIgnoredActor(Door);
+	}
+	for (AHidingSpot* Spot : HidingSpots)
+	{
+		Params.AddIgnoredActor(Spot);
+	}
+	for (TActorIterator<AItemActor> It(GetWorld()); It; ++It)
+	{
+		Params.AddIgnoredActor(*It);
+	}
+	for (TActorIterator<APawn> It(GetWorld()); It; ++It)
+	{
+		Params.AddIgnoredActor(*It);
+	}
+	FHitResult Hit;
+	return !GetWorld()->LineTraceSingleByChannel(Hit, From, To, ECC_Visibility, Params);
+}
+
+AKomendantWaypoint* AKomendantAIController::FindNearestWaypoint(const FVector& Location, bool bNeedSight) const
 {
 	AKomendantWaypoint* Best = nullptr;
 	float BestScore = TNumericLimits<float>::Max();
@@ -916,7 +941,12 @@ AKomendantWaypoint* AKomendantAIController::FindNearestWaypoint(const FVector& L
 	{
 		const FVector Delta = Waypoint->GetActorLocation() - Location;
 		// Точка на другом этаже «далеко», даже если она прямо над головой.
-		const float Score = Delta.Size() + (FMath::Abs(Delta.Z) > ArriveHeight ? 100000.f : 0.f);
+		float Score = Delta.Size() + (FMath::Abs(Delta.Z) > ArriveHeight ? 100000.f : 0.f);
+		// Точка за стеной от цели хуже любой точки, откуда цель видно: иначе к тайнику он подошёл бы из коридора.
+		if (bNeedSight && !HasClearLine(Waypoint->GetActorLocation(), Location))
+		{
+			Score += 10000.f;
+		}
 		if (Score < BestScore)
 		{
 			BestScore = Score;
@@ -926,7 +956,7 @@ AKomendantWaypoint* AKomendantAIController::FindNearestWaypoint(const FVector& L
 	return Best;
 }
 
-bool AKomendantAIController::PlanPathTo(const FVector& Goal)
+bool AKomendantAIController::PlanPathTo(const FVector& Goal, bool bGoalNeedsSight)
 {
 	Path.Reset();
 	PathIndex = 0;
@@ -934,7 +964,7 @@ bool AKomendantAIController::PlanPathTo(const FVector& Goal)
 	NoProgressTime = 0.f;
 
 	AKomendantWaypoint* Start = FindNearestWaypoint(Komendant->GetActorLocation());
-	AKomendantWaypoint* End = FindNearestWaypoint(Goal);
+	AKomendantWaypoint* End = FindNearestWaypoint(Goal, bGoalNeedsSight);
 	if (!Start || !End)
 	{
 		return false;
@@ -1039,7 +1069,8 @@ AHidingSpot* AKomendantAIController::PickSpotNear(const FVector& Location) const
 	for (AHidingSpot* Spot : HidingSpots)
 	{
 		const FVector Delta = GetSpotStandLocation(Spot) - Location;
-		if (Delta.Size2D() < 600.f && FMath::Abs(Delta.Z) < SameFloorHeight)
+		// Тайник за стеной не выбирает: дойти до него по прямой он не сможет.
+		if (Delta.Size2D() < 600.f && FMath::Abs(Delta.Z) < SameFloorHeight && HasClearLine(Location, Location + Delta))
 		{
 			Near.Add(Spot);
 		}

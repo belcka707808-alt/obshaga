@@ -99,8 +99,11 @@ private:
 	bool MoveToward(const FVector& Goal, float Speed);
 	/** Шаг по построенному пути. true — путь пройден (или его нет). */
 	bool FollowPath(float Speed, float DeltaSeconds);
-	bool PlanPathTo(const FVector& Goal);
-	AKomendantWaypoint* FindNearestWaypoint(const FVector& Location) const;
+	/** bGoalNeedsSight — закончить путь в точке, откуда цель видно (не за стеной от неё). */
+	bool PlanPathTo(const FVector& Goal, bool bGoalNeedsSight = false);
+	AKomendantWaypoint* FindNearestWaypoint(const FVector& Location, bool bNeedSight = false) const;
+	/** Нет ли стены или перекрытия между двумя точками. */
+	bool HasClearLine(const FVector& From, const FVector& To) const;
 	AKomendantWaypoint* PickPatrolTarget() const;
 	AHidingSpot* PickSpotNear(const FVector& Location) const;
 	/** Точка тайника на высоте, на которой ходит комендант. */
