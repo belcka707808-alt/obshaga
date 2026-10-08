@@ -11,6 +11,7 @@
 | Персонажи и их анимации (Mini Characters) | Kenney | CC0 | kenney.nl |
 | Тема на экране итогов (Music Jingles) | Kenney | CC0 | kenney.nl |
 | Модели продуктов и бутылки (Food Kit) | Kenney | CC0 | kenney.nl |
+| Модель двери (Building Kit) | Kenney | CC0 | kenney.nl |
 
 Музыка Кевина Маклауда распространяется по лицензии Creative Commons Attribution 4.0
 (https://creativecommons.org/licenses/by/4.0/). Требуемая строка:
