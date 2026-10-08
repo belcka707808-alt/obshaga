@@ -32,8 +32,8 @@ private:
 	void DrawTutorial(const AObshagaPlayerController* Controller);
 
 	void DrawCentered(const FString& Line, const FLinearColor& Color, float YFraction);
-	/** Рисует текст с переносом по словам; возвращает Y под последней строкой. */
-	float DrawWrapped(const FString& Text, const FLinearColor& Color, float X, float Y, float MaxWidth, float LineHeight = 20.f);
+	/** Рисует текст с переносом по словам; возвращает Y под последней строкой. bDraw = false — только измерить высоту. */
+	float DrawWrapped(const FString& Text, const FLinearColor& Color, float X, float Y, float MaxWidth, float LineHeight = 20.f, bool bDraw = true);
 
 	UPROPERTY(Transient)
 	TObjectPtr<UFont> Font;

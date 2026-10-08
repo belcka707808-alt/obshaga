@@ -33,8 +33,13 @@ void ObshagaVisuals::Dress(UStaticMeshComponent* Cube, UStaticMesh* Model, float
 	Visual->SetRelativeScale3D(Scale);
 	Visual->SetRelativeLocation(-Rotation.RotateVector(Bounds.Origin * Scale));
 
+	// У модели со своими материалами (родные цвета набора) ничего не трогаем; красим только «голые» слоты.
 	for (int32 Slot = 0; Slot < Visual->GetNumMaterials(); ++Slot)
 	{
+		if (Model->GetMaterial(Slot))
+		{
+			continue;
+		}
 		UMaterialInterface* Base = LoadObject<UMaterialInterface>(nullptr, TEXT("/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial"));
 		if (UMaterialInstanceDynamic* Material = Base ? Visual->CreateDynamicMaterialInstance(Slot, Base) : nullptr)
 		{

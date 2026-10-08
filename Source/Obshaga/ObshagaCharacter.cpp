@@ -7,6 +7,7 @@
 #include "HidingSpot.h"
 #include "InteractionComponent.h"
 #include "ObshagaLookComponent.h"
+#include "ObshagaPlayerState.h"
 #include "GameFramework/PlayerState.h"
 #include "Obshaga.h"
 #include "ObshagaCharacterConfig.h"
@@ -105,10 +106,10 @@ void AObshagaCharacter::PossessedBy(AController* NewController)
 {
 	Super::PossessedBy(NewController);
 
-	// Модель — по номеру игрока: у одного и того же игрока она не меняется от раунда к раунду.
-	if (const APlayerState* State = GetPlayerState())
+	// Модель — по «слоту внешности» игрока: он выдаётся при входе и не меняется от раунда к раунду.
+	if (const AObshagaPlayerState* State = GetPlayerState<AObshagaPlayerState>())
 	{
-		LookIndex = static_cast<uint8>(State->GetPlayerId() % 200 + 1);
+		LookIndex = static_cast<uint8>(State->GetLookSlot() + 1);
 		OnRep_LookIndex();
 	}
 }
@@ -324,10 +325,29 @@ void AObshagaCharacter::ApplyHiding()
 void AObshagaCharacter::OnStartCrouch(float HalfHeightAdjust, float ScaledHalfHeightAdjust)
 {
 	Super::OnStartCrouch(HalfHeightAdjust, ScaledHalfHeightAdjust);
+	FixLookMeshHeight(HalfHeightAdjust);
 
 	if (bIsSprinting && (HasAuthority() || IsLocallyControlled()))
 	{
 		SetSprinting(false);
+	}
+}
+
+void AObshagaCharacter::OnEndCrouch(float HalfHeightAdjust, float ScaledHalfHeightAdjust)
+{
+	Super::OnEndCrouch(HalfHeightAdjust, ScaledHalfHeightAdjust);
+	FixLookMeshHeight(0.f);
+}
+
+void AObshagaCharacter::FixLookMeshHeight(float CrouchAdjust)
+{
+	float StandingZ = 0.f;
+	if (LookComponent->GetStandingMeshZ(StandingZ))
+	{
+		FVector Location = GetMesh()->GetRelativeLocation();
+		Location.Z = StandingZ + CrouchAdjust;
+		GetMesh()->SetRelativeLocation(Location);
+		BaseTranslationOffset.Z = Location.Z;
 	}
 }
 

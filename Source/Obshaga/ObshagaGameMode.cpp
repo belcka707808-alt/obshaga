@@ -14,6 +14,7 @@
 #include "ObshagaGameState.h"
 #include "ObshagaHUD.h"
 #include "ObshagaItemData.h"
+#include "ObshagaLookComponent.h"
 #include "ObshagaPlayerController.h"
 #include "ObshagaPlayerState.h"
 #include "ObshagaRoundConfig.h"
@@ -98,6 +99,31 @@ void AObshagaGameMode::NotifyAll(const FText& Text) const
 
 void AObshagaGameMode::HandleStartingNewPlayer_Implementation(APlayerController* NewPlayer)
 {
+	// Внешность — до появления персонажа: свободная модель, а если все заняты — та, что встречается реже.
+	// Номер игрока для этого не годится: после перезахода он новый, и модели начали бы совпадать.
+	if (AObshagaPlayerState* NewState = NewPlayer ? NewPlayer->GetPlayerState<AObshagaPlayerState>() : nullptr)
+	{
+		const int32 NumLooks = FMath::Max(UObshagaLookConfig::Get()->ResidentMeshes.Num(), 1);
+		TArray<int32> Used;
+		Used.SetNumZeroed(NumLooks);
+		for (const AObshagaPlayerState* Other : GetObshagaPlayers())
+		{
+			if (Other != NewState)
+			{
+				++Used[Other->GetLookSlot() % NumLooks];
+			}
+		}
+		int32 Best = 0;
+		for (int32 Slot = 1; Slot < NumLooks; ++Slot)
+		{
+			if (Used[Slot] < Used[Best])
+			{
+				Best = Slot;
+			}
+		}
+		NewState->SetLookSlot(Best);
+	}
+
 	Super::HandleStartingNewPlayer_Implementation(NewPlayer);
 
 	AObshagaPlayerState* PlayerState = NewPlayer ? NewPlayer->GetPlayerState<AObshagaPlayerState>() : nullptr;

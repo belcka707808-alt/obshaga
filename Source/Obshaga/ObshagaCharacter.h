@@ -28,6 +28,7 @@ public:
 	virtual void NotifyActorBeginOverlap(AActor* OtherActor) override;
 	virtual void NotifyActorEndOverlap(AActor* OtherActor) override;
 	virtual void OnStartCrouch(float HalfHeightAdjust, float ScaledHalfHeightAdjust) override;
+	virtual void OnEndCrouch(float HalfHeightAdjust, float ScaledHalfHeightAdjust) override;
 
 	/** Числа баланса; если ассет не назначен — значения по умолчанию из класса. */
 	const UObshagaCharacterConfig* GetConfig() const;
@@ -101,6 +102,8 @@ protected:
 	void OnRep_IsGhost();
 
 	void UpdateMovementSpeed();
+	/** После приседа и вставания движок ставит меш на высоту манекена — возвращаем высоту надетой модели. */
+	void FixLookMeshHeight(float CrouchAdjust);
 	void ApplyHiding();
 	void PublishRoomEvent(EGameEventType Type, const ARoomVolume* Room);
 

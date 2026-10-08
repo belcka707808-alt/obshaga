@@ -37,6 +37,9 @@ public:
 	const FText& GetRatIntel() const { return RatIntel; }
 	const TArray<FText>& GetSmsMessages() const { return SmsMessages; }
 	bool IsEvicted() const { return bEvicted; }
+	/** Номер модели персонажа. Сервер выдаёт при входе так, чтобы у игроков не было одинаковых. */
+	int32 GetLookSlot() const { return LookSlot; }
+	void SetLookSlot(int32 NewSlot) { LookSlot = NewSlot; }
 	bool HasUsedTip() const { return bUsedTip; }
 	/** Может ли игрок прямо сейчас назвать коменданту вора (есть такое задание, и он ещё не называл). */
 	bool CanAccuse() const { return bCanAccuse; }
@@ -95,6 +98,8 @@ protected:
 	bool bEvicted = false;
 
 private:
+	/** Только сервер: до клиентов доходит через LookIndex персонажа. */
+	int32 LookSlot = 0;
 	EPlayerRole TrueRole = EPlayerRole::Resident;
 	int32 PendingRatBonus = 0;
 };

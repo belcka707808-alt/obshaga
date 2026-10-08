@@ -15,6 +15,8 @@
 namespace
 {
 	constexpr float SpeedSmoothing = 6.f;
+	// Сколько разовый клип (взял, жест) ждёт, пока персонаж остановится.
+	constexpr float OneShotWaitSeconds = 1.f;
 }
 
 const UObshagaLookConfig* UObshagaLookConfig::Get()
@@ -70,7 +72,12 @@ void UObshagaLookComponent::ApplyLook(int32 Index)
 	Mesh->SetSkeletalMesh(Model);
 	Mesh->SetRelativeScale3D(FVector(Scale));
 	Mesh->SetRelativeRotation(FRotator(0.f, Config->ModelYaw, 0.f));
-	Mesh->SetRelativeLocation(FVector(0.f, 0.f, -Character->GetCapsuleComponent()->GetUnscaledCapsuleHalfHeight() - FeetZ));
+	// Высота меша для стоящего персонажа; в приседе капсула ниже, и меш поднимается на ту же разницу.
+	StandingMeshZ = -Character->GetDefaultHalfHeight() - FeetZ;
+	const float CrouchAdjust = Character->IsCrouched() ? Character->GetDefaultHalfHeight() - Character->GetCharacterMovement()->GetCrouchedHalfHeight() : 0.f;
+	Mesh->SetRelativeLocation(FVector(0.f, 0.f, StandingMeshZ + CrouchAdjust));
+	// Движок запомнил положение манекена и возвращал бы меш в него при сглаживании сети — запоминаем новое.
+	Character->CacheInitialMeshOffset(Mesh->GetRelativeLocation(), Mesh->GetRelativeRotation());
 
 	bLookApplied = true;
 	Current = nullptr;
@@ -80,8 +87,10 @@ void UObshagaLookComponent::PlayOnce(UAnimSequenceBase* Animation)
 {
 	if (Animation)
 	{
+		// Клип начнётся, как только персонаж остановится; ждём этого не дольше OneShotWaitSeconds.
 		OneShot = Animation;
-		OneShotUntil = GetWorld()->GetTimeSeconds() + Animation->GetPlayLength();
+		bOneShotStarted = false;
+		OneShotUntil = GetWorld()->GetTimeSeconds() + OneShotWaitSeconds;
 	}
 }
 
@@ -117,9 +126,15 @@ UAnimSequenceBase* UObshagaLookComponent::PickAnimation(bool& bOutLoop)
 		{
 			return Config->Caught;
 		}
-		// Жест на ходу не играем: ноги должны идти.
-		if (OneShot && GetWorld()->GetTimeSeconds() < OneShotUntil && Speed < Config->MoveSpeedThreshold)
+		// Жест на ходу не играем: ноги должны идти. Смотрим на настоящую скорость, а не сглаженную,
+		// иначе клип опаздывал бы на полсекунды после остановки и обрезался.
+		if (OneShot && GetWorld()->GetTimeSeconds() < OneShotUntil && Character->GetVelocity().Size2D() < Config->MoveSpeedThreshold)
 		{
+			if (!bOneShotStarted)
+			{
+				bOneShotStarted = true;
+				OneShotUntil = GetWorld()->GetTimeSeconds() + OneShot->GetPlayLength();
+			}
 			bOutLoop = false;
 			return OneShot;
 		}

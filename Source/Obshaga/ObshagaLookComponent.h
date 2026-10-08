@@ -102,6 +102,9 @@ public:
 	/** Надеть модель: Index — номер модели жильца; для коменданта не важен. */
 	void ApplyLook(int32 Index);
 
+	/** Высота меша стоящего персонажа; false, если модель ещё не надета (тогда меш — манекен, и трогать его не надо). */
+	bool GetStandingMeshZ(float& OutZ) const { OutZ = StandingMeshZ; return bLookApplied; }
+
 	/** Название текущей анимации — для самопроверки. */
 	FString GetCurrentAnimName() const;
 
@@ -120,6 +123,8 @@ private:
 	TObjectPtr<UAnimSequenceBase> OneShot;
 
 	float OneShotUntil = 0.f;
+	bool bOneShotStarted = false;
+	float StandingMeshZ = 0.f;
 	float SmoothedSpeed = 0.f;
 	bool bLookApplied = false;
 	bool bWasCarrying = false;
