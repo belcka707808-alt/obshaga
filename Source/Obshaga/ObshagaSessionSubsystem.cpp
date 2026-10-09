@@ -385,6 +385,14 @@ void UObshagaSessionSubsystem::HandleJoinComplete(FName SessionName, EOnJoinSess
 	RoomCode = WantedCode;
 	WantedCode.Reset();
 	UE_LOG(LogObshaga, Log, TEXT("Joining room %s at %s"), *RoomCode, *Address);
+#if !UE_BUILD_SHIPPING
+	// Для проверки повторного входа без Steam: -ReconnectKey=abc (см. AObshagaGameMode::InitNewPlayer).
+	FString TestKey;
+	if (FParse::Value(FCommandLine::Get(), TEXT("ReconnectKey="), TestKey) && !TestKey.IsEmpty())
+	{
+		Address += TEXT("?RKey=") + TestKey;
+	}
+#endif
 	Controller->ClientTravel(Address, TRAVEL_Absolute);
 }
 

@@ -27,13 +27,23 @@
 #include "EngineUtils.h"
 #include "GameFramework/PlayerStart.h"
 #include "HAL/FileManager.h"
+#include "Engine/NetConnection.h"
+#include "Kismet/GameplayStatics.h"
+#include "Misc/CommandLine.h"
 #include "Misc/FileHelper.h"
+#include "Misc/Parse.h"
 #include "Misc/Paths.h"
 #include "Serialization/JsonSerializer.h"
 #include "Serialization/JsonWriter.h"
 #include "TimerManager.h"
 
 #define LOCTEXT_NAMESPACE "ObshagaGameMode"
+
+namespace
+{
+	// Соединение, молчащее дольше этого, считаем оборванным, если тот же игрок уже заходит снова.
+	constexpr double StaleConnectionSeconds = 5.0;
+}
 
 AObshagaGameMode::AObshagaGameMode()
 {
@@ -97,8 +107,123 @@ void AObshagaGameMode::NotifyAll(const FText& Text) const
 	}
 }
 
+FString AObshagaGameMode::InitNewPlayer(APlayerController* NewPlayerController, const FUniqueNetIdRepl& UniqueId, const FString& Options, const FString& Portal)
+{
+	const FString Error = Super::InitNewPlayer(NewPlayerController, UniqueId, Options, Portal);
+
+	// Ключ для повторного входа — номер игрока в Steam: он один и тот же при каждом запуске.
+	if (AObshagaPlayerState* NewState = NewPlayerController ? NewPlayerController->GetPlayerState<AObshagaPlayerState>() : nullptr)
+	{
+		NewState->ReconnectKey = UniqueId.IsValid() ? UniqueId->ToString() : FString();
+#if !UE_BUILD_SHIPPING
+		// Для проверки двух копий на одном компьютере без Steam: там номер игрока при каждом запуске новый.
+		const FString TestKey = UGameplayStatics::ParseOption(Options, TEXT("RKey"));
+		if (!TestKey.IsEmpty())
+		{
+			NewState->ReconnectKey = TestKey;
+		}
+#endif
+	}
+	return Error;
+}
+
+void AObshagaGameMode::Logout(AController* Exiting)
+{
+	// Сначала обычный выход: движок освобождает место игрока в комнате, пока состояние ещё при нём.
+	Super::Logout(Exiting);
+
+	const AObshagaGameState* State = GetGameState<AObshagaGameState>();
+	AObshagaPlayerState* Leaving = Exiting ? Exiting->GetPlayerState<AObshagaPlayerState>() : nullptr;
+	if (!State || State->GetRoundState() != ERoundState::InProgress || !Leaving || Leaving->ReconnectKey.IsEmpty())
+	{
+		return;
+	}
+
+	// Посреди раунда состояние игрока не уничтожаем, а отцепляем от уходящего контроллера: роль, очки,
+	// страйки и задания остаются на месте, остальные по-прежнему видят его в итогах. Вернётся — получит всё назад.
+	Disconnected.Add(Leaving->ReconnectKey, Leaving);
+	Exiting->PlayerState = nullptr;
+	Leaving->SetOwner(nullptr);
+	UE_LOG(LogObshaga, Log, TEXT("%s left mid-round; state kept for return"), *Leaving->GetPlayerName());
+}
+
+bool AObshagaGameMode::RestoreDisconnected(APlayerController* NewPlayer)
+{
+	AObshagaPlayerState* Fresh = NewPlayer ? NewPlayer->GetPlayerState<AObshagaPlayerState>() : nullptr;
+	TObjectPtr<AObshagaPlayerState> Old = nullptr;
+	if (!Fresh || Fresh->ReconnectKey.IsEmpty())
+	{
+		return false;
+	}
+
+	// Номер Steam игрок сообщает сам, а адрес соединения через Steam выдаёт сам Steam. Если они расходятся,
+	// кто-то выдаёт себя за другого, чтобы забрать его роль и задания, — состояние не отдаём.
+	const UNetConnection* Connection = NewPlayer->GetNetConnection();
+	const FString Address = Connection && Connection->RemoteAddr.IsValid() ? Connection->RemoteAddr->ToString(false) : FString();
+	if (Address.Contains(TEXT("7656119")) && !Address.Contains(Fresh->ReconnectKey))
+	{
+		UE_LOG(LogObshaga, Warning, TEXT("Reconnect key %s does not match connection address %s"), *Fresh->ReconnectKey, *Address);
+		return false;
+	}
+
+	// Игра у гостя упала, а сервер ещё не заметил обрыва (на это уходит до минуты): тот же игрок уже
+	// заходит снова, а старое соединение числится живым. Закрываем старое сами — его состояние уйдёт в Disconnected.
+	for (AObshagaPlayerState* Other : GetObshagaPlayers())
+	{
+		APlayerController* Stale = Other != Fresh && Other->ReconnectKey == Fresh->ReconnectKey ? Cast<APlayerController>(Other->GetOwner()) : nullptr;
+		// Живого игрока так выгнать нельзя: его соединение шлёт пакеты много раз в секунду.
+		const UNetConnection* StaleConnection = Stale ? Stale->GetNetConnection() : nullptr;
+		const bool bSilent = StaleConnection && FPlatformTime::Seconds() - StaleConnection->LastReceiveRealtime > StaleConnectionSeconds;
+		if (Stale && Stale != NewPlayer && bSilent)
+		{
+			UE_LOG(LogObshaga, Log, TEXT("%s reconnects over a stale connection; closing the old one"), *Other->GetPlayerName());
+			Stale->Destroy();
+			break;
+		}
+	}
+
+	if ( !Disconnected.RemoveAndCopyValue(Fresh->ReconnectKey, Old) || !IsValid(Old))
+	{
+		return false;
+	}
+
+	// Так же движок возвращает «неактивных» игроков: новое пустое состояние убираем, прежнее отдаём контроллеру.
+	// Владельцем становится новый контроллер, поэтому секретные поля (COND_OwnerOnly) уйдут только ему.
+	Old->SetUniqueId(Fresh->GetUniqueId());
+	Fresh->Destroy();
+	NewPlayer->PlayerState = Old;
+	Old->SetOwner(NewPlayer);
+	// Место появления движок выбрал ещё для пустого состояния; сбрасываем, чтобы игрок появился у себя в комнате.
+	NewPlayer->StartSpot = nullptr;
+	Old->ForceNetUpdate();
+	UE_LOG(LogObshaga, Log, TEXT("%s is back; state restored"), *Old->GetPlayerName());
+	return true;
+}
+
+void AObshagaGameMode::ForgetDisconnected()
+{
+	// Новый раунд — новые роли: кто не вернулся, в нём не участвует.
+	for (const TPair<FString, TObjectPtr<AObshagaPlayerState>>& Pair : Disconnected)
+	{
+		if (IsValid(Pair.Value))
+		{
+			Pair.Value->Destroy();
+		}
+	}
+	Disconnected.Reset();
+}
+
 void AObshagaGameMode::HandleStartingNewPlayer_Implementation(APlayerController* NewPlayer)
 {
+	if (RestoreDisconnected(NewPlayer))
+	{
+		// Появляется у себя в комнате (ChoosePlayerStart), с прежними заданиями и очками.
+		Super::HandleStartingNewPlayer_Implementation(NewPlayer);
+		const AObshagaPlayerState* Returned = NewPlayer->GetPlayerState<AObshagaPlayerState>();
+		NotifyPlayer(Returned, LOCTEXT("WelcomeBack", "Ты снова в игре: задания и очки на месте"));
+		return;
+	}
+
 	// Внешность — до появления персонажа: свободная модель, а если все заняты — та, что встречается реже.
 	// Номер игрока для этого не годится: после перезахода он новый, и модели начали бы совпадать.
 	if (AObshagaPlayerState* NewState = NewPlayer ? NewPlayer->GetPlayerState<AObshagaPlayerState>() : nullptr)
@@ -197,6 +322,20 @@ AActor* AObshagaGameMode::ChoosePlayerStart_Implementation(AController* Player)
 		if (const ARoomVolume* Room = ARoomVolume::FindRoomAt(this, Spot->GetActorLocation()))
 		{
 			++Residents.FindOrAdd(Room->RoomId);
+		}
+	}
+
+	// Вернувшийся после вылета появляется у себя в комнате, а не подселяется в новую.
+	const AObshagaPlayerState* Returning = Player ? Player->GetPlayerState<AObshagaPlayerState>() : nullptr;
+	if (Returning && !Returning->GetHomeRoomId().IsNone())
+	{
+		for (TActorIterator<APlayerStart> It(GetWorld()); It; ++It)
+		{
+			const ARoomVolume* Room = ARoomVolume::FindRoomAt(this, It->GetActorLocation());
+			if (!It->IsA<APlayerStartPIE>() && Room && Room->RoomId == Returning->GetHomeRoomId())
+			{
+				return *It;
+			}
 		}
 	}
 
@@ -308,6 +447,8 @@ void AObshagaGameMode::StartRound()
 		return;
 	}
 
+	ForgetDisconnected();
+
 	// Каждый раунд, и первый тоже, начинается с чистого мира: то, что натворили в лобби, не считается.
 	ResetWorldForRematch();
 
@@ -409,6 +550,13 @@ void AObshagaGameMode::BeginPhase(ERoundPhase NewPhase)
 		{
 			It->ForceReturn();
 		}
+	}
+
+	// Для проверок: -TestPhaseSeconds=20 у хоста укорачивает каждую фазу, не трогая настройки раунда.
+	float TestSeconds = 0.f;
+	if (FParse::Value(FCommandLine::Get(), TEXT("TestPhaseSeconds="), TestSeconds) && TestSeconds > 0.f)
+	{
+		Duration = TestSeconds;
 	}
 
 	GetGameState<AObshagaGameState>()->SetPhase(NewPhase, Duration);

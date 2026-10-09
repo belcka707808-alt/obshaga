@@ -120,7 +120,7 @@ void AObshagaHUD::DrawHUD()
 
 	// Код комнаты всегда под рукой: его диктуют друзьям и по нему же заходят снова после вылета.
 	const UObshagaSessionSubsystem* Rooms = GetGameInstance() ? GetGameInstance()->GetSubsystem<UObshagaSessionSubsystem>() : nullptr;
-	if (Rooms && !Rooms->GetRoomCode().IsEmpty())
+	if (Rooms && !Rooms->GetRoomCode().IsEmpty() && GameState->GetRoundState() != ERoundState::Finished)
 	{
 		const FString RoomLine = FText::Format(LOCTEXT("RoomLine", "Комната {0}   [F10] выйти"), FText::FromString(Rooms->GetRoomCode())).ToString();
 		float RoomWidth = 0.f;

@@ -27,6 +27,8 @@ public:
 	virtual void BeginPlay() override;
 	virtual void HandleStartingNewPlayer_Implementation(APlayerController* NewPlayer) override;
 	virtual AActor* ChoosePlayerStart_Implementation(AController* Player) override;
+	virtual FString InitNewPlayer(APlayerController* NewPlayerController, const FUniqueNetIdRepl& UniqueId, const FString& Options, const FString& Portal = TEXT("")) override;
+	virtual void Logout(AController* Exiting) override;
 
 	const UObshagaRoundConfig* GetRoundConfig() const;
 
@@ -93,6 +95,13 @@ private:
 	float RoundStartWorldTime = 0.f;
 	int32 SmsSent = 0;
 	int32 NextPlayerNumber = 1;
+
+	/** Игроки, вылетевшие посреди раунда: их состояние (роль, очки, задания) ждёт возвращения по тому же ключу. */
+	UPROPERTY()
+	TMap<FString, TObjectPtr<AObshagaPlayerState>> Disconnected;
+	/** Возвращает вылетевшему его прежнее состояние. true — это был вернувшийся игрок. */
+	bool RestoreDisconnected(APlayerController* NewPlayer);
+	void ForgetDisconnected();
 
 	// Идущий допрос (серверная часть; то, что видят игроки, лежит в GameState).
 	TWeakObjectPtr<AObshagaCharacter> InterrogatedCharacter;

@@ -38,6 +38,9 @@ public:
 	const TArray<FText>& GetSmsMessages() const { return SmsMessages; }
 	bool IsEvicted() const { return bEvicted; }
 	/** Номер модели персонажа. Сервер выдаёт при входе так, чтобы у игроков не было одинаковых. */
+	/** По этому ключу сервер узнаёт игрока, который вылетел и зашёл снова (номер Steam). Есть только на сервере. */
+	FString ReconnectKey;
+
 	int32 GetLookSlot() const { return LookSlot; }
 	void SetLookSlot(int32 NewSlot) { LookSlot = NewSlot; }
 	bool HasUsedTip() const { return bUsedTip; }
