@@ -72,6 +72,10 @@ private:
 
 	void StartCreate();
 	void StartSearch();
+	/** Запасной поиск напрямую через Steam, без ограничения по расстоянию. */
+	void StartWorldSearch();
+	void HandleWorldSearchDone(const FString& Address);
+	void TravelToRoom(FString Address);
 
 	void HandleCreateComplete(FName SessionName, bool bSuccess);
 	void HandleFindComplete(bool bSuccess);
@@ -87,6 +91,8 @@ private:
 
 	TSharedPtr<FOnlineSessionSearch> Search;
 	TFunction<void()> AfterDestroy;
+	TSharedPtr<struct FObshagaLobbyFinder, ESPMode::ThreadSafe> WorldFinder;
+	FTimerHandle WorldSearchTimer;
 
 	FDelegateHandle CreateHandle;
 	FDelegateHandle FindHandle;

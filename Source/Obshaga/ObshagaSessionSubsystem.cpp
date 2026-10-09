@@ -17,6 +17,15 @@
 #include "TimerManager.h"
 #include "UObject/UObjectGlobals.h"
 
+#if OBSHAGA_WITH_STEAM
+THIRD_PARTY_INCLUDES_START
+#pragma push_macro("ARRAY_COUNT")
+#undef ARRAY_COUNT
+#include "steam/steam_api.h"
+#pragma pop_macro("ARRAY_COUNT")
+THIRD_PARTY_INCLUDES_END
+#endif
+
 #define LOCTEXT_NAMESPACE "ObshagaSession"
 
 namespace
@@ -37,6 +46,9 @@ namespace
 	// Столько ждём перед закрытием комнаты, чтобы гости успели получить «Хост закрыл комнату».
 	constexpr float HostCloseDelaySeconds = 0.4f;
 
+	// Сколько ждём ответа Steam на поиск по всему миру.
+	constexpr float WorldSearchTimeoutSeconds = 15.f;
+
 	FString MakeCode()
 	{
 		FString Code;
@@ -47,6 +59,137 @@ namespace
 		}
 		return Code;
 	}
+}
+
+/**
+ * Поиск комнаты по коду по всему миру, напрямую через Steam.
+ * Зачем: поиск движка (OnlineSubsystemSteam) всегда ставит фильтр расстояния «по умолчанию» — только свой и
+ * соседние регионы, и поменять его снаружи нельзя. Друг из далёкого региона комнату бы не нашёл.
+ * Как: тот же запрос списка лобби, но с фильтром «весь мир» и нашими полями (их имена и адрес хоста
+ * записывает сам движок при создании комнаты). К хосту подключаемся по его номеру Steam, как это сделал бы движок.
+ */
+struct FObshagaLobbyFinder : public TSharedFromThis<FObshagaLobbyFinder, ESPMode::ThreadSafe>
+{
+	FString Code;
+	TFunction<void(const FString&)> Done;
+
+#if OBSHAGA_WITH_STEAM
+	CCallResult<FObshagaLobbyFinder, LobbyMatchList_t> Call;
+
+	bool Start()
+	{
+		ISteamMatchmaking* Matchmaking = SteamMatchmaking();
+		if (!Matchmaking)
+		{
+			return false;
+		}
+		// Имена полей — как их пишет движок: имя настройки + «_s» для строк.
+		Matchmaking->AddRequestLobbyListDistanceFilter(k_ELobbyDistanceFilterWorldwide);
+		Matchmaking->AddRequestLobbyListStringFilter("OBSHAGAKEY_s", TCHAR_TO_UTF8(GameKeyValue), k_ELobbyComparisonEqual);
+		Matchmaking->AddRequestLobbyListStringFilter("ROOMCODE_s", TCHAR_TO_UTF8(*Code), k_ELobbyComparisonEqual);
+		Matchmaking->AddRequestLobbyListResultCountFilter(10);
+		const SteamAPICall_t Handle = Matchmaking->RequestLobbyList();
+		if (Handle == k_uAPICallInvalid)
+		{
+			return false;
+		}
+		Call.Set(Handle, this, &FObshagaLobbyFinder::OnList);
+		return true;
+	}
+
+	void OnList(LobbyMatchList_t* Result, bool bIOFailure)
+	{
+		// Ответ Steam приходит не в игровом потоке: здесь только читаем данные лобби, остальное — в игровом.
+		FString Address;
+		ISteamMatchmaking* Matchmaking = SteamMatchmaking();
+		for (uint32 Index = 0; Matchmaking && !bIOFailure && Index < Result->m_nLobbiesMatching && Address.IsEmpty(); ++Index)
+		{
+			const CSteamID Lobby = Matchmaking->GetLobbyByIndex(Index);
+			const FString FoundCode = UTF8_TO_TCHAR(Matchmaking->GetLobbyData(Lobby, "ROOMCODE_s"));
+			const FString Host = UTF8_TO_TCHAR(Matchmaking->GetLobbyData(Lobby, "P2PADDR"));
+			const FString Port = UTF8_TO_TCHAR(Matchmaking->GetLobbyData(Lobby, "P2PPORT"));
+			if (FoundCode == Code && !Host.IsEmpty())
+			{
+				Address = FString::Printf(TEXT("steam.%s:%s"), *Host, Port.IsEmpty() ? TEXT("7777") : *Port);
+			}
+		}
+		AsyncTask(ENamedThreads::GameThread, [Self = AsShared(), Address]
+		{
+			if (Self->Done)
+			{
+				Self->Done(Address);
+			}
+		});
+	}
+#else
+	bool Start() { return false; }
+#endif
+};
+
+void UObshagaSessionSubsystem::StartWorldSearch()
+{
+	WorldFinder = MakeShared<FObshagaLobbyFinder, ESPMode::ThreadSafe>();
+	WorldFinder->Code = WantedCode;
+	WorldFinder->Done = [WeakThis = TWeakObjectPtr<UObshagaSessionSubsystem>(this)](const FString& Address)
+	{
+		if (WeakThis.IsValid())
+		{
+			WeakThis->HandleWorldSearchDone(Address);
+		}
+	};
+	if (!WorldFinder->Start())
+	{
+		HandleWorldSearchDone(FString());
+		return;
+	}
+	// Если Steam не ответит, не висеть на «Ищем комнату…» вечно.
+	GetGameInstance()->GetTimerManager().SetTimer(WorldSearchTimer, FTimerDelegate::CreateWeakLambda(this, [this] { HandleWorldSearchDone(FString()); }), WorldSearchTimeoutSeconds, false);
+}
+
+void UObshagaSessionSubsystem::HandleWorldSearchDone(const FString& Address)
+{
+	GetGameInstance()->GetTimerManager().ClearTimer(WorldSearchTimer);
+	if (WorldFinder.IsValid())
+	{
+		WorldFinder->Done = nullptr;
+		WorldFinder.Reset();
+	}
+	if (Busy != ERoomBusy::Searching)
+	{
+		return;
+	}
+
+	UE_LOG(LogObshaga, Log, TEXT("Worldwide room search for %s: %s"), *WantedCode, Address.IsEmpty() ? TEXT("not found") : *Address);
+	if (Address.IsEmpty())
+	{
+		Fail(FText::Format(LOCTEXT("NotFound", "Комната с кодом {0} не найдена. Проверь код: хост видит его у себя на экране."), FText::FromString(WantedCode)));
+		return;
+	}
+	Busy = ERoomBusy::Joining;
+	TravelToRoom(Address);
+}
+
+void UObshagaSessionSubsystem::TravelToRoom(FString Address)
+{
+	APlayerController* Controller = GetGameInstance()->GetFirstLocalPlayerController();
+	if (!Controller)
+	{
+		Fail(LOCTEXT("JoinFailed", "Не получилось войти в комнату. Попробуй ещё раз."));
+		return;
+	}
+
+	RoomCode = WantedCode;
+	WantedCode.Reset();
+#if !UE_BUILD_SHIPPING
+	// Для проверки повторного входа без Steam: -ReconnectKey=abc (см. AObshagaGameMode::InitNewPlayer).
+	FString TestKey;
+	if (FParse::Value(FCommandLine::Get(), TEXT("ReconnectKey="), TestKey) && !TestKey.IsEmpty())
+	{
+		Address += TEXT("?RKey=") + TestKey;
+	}
+#endif
+	UE_LOG(LogObshaga, Log, TEXT("Joining room %s at %s"), *RoomCode, *Address);
+	Controller->ClientTravel(Address, TRAVEL_Absolute);
 }
 
 void UObshagaSessionSubsystem::Initialize(FSubsystemCollectionBase& Collection)
@@ -332,6 +475,13 @@ void UObshagaSessionSubsystem::HandleFindComplete(bool bSuccess)
 	}
 	UE_LOG(LogObshaga, Log, TEXT("Room search for %s: %d results, match %d"), *WantedCode, Search->SearchResults.Num(), Found ? 1 : 0);
 
+	if (!Found && IsSteam())
+	{
+		// Рядом не нашлось — ищем по всему миру (хост может быть в далёком регионе).
+		Search.Reset();
+		StartWorldSearch();
+		return;
+	}
 	if (!Found)
 	{
 		Fail(FText::Format(LOCTEXT("NotFound", "Комната с кодом {0} не найдена. Проверь код: хост видит его у себя на экране."), FText::FromString(WantedCode)));
@@ -375,25 +525,12 @@ void UObshagaSessionSubsystem::HandleJoinComplete(FName SessionName, EOnJoinSess
 	}
 
 	FString Address;
-	APlayerController* Controller = GetGameInstance()->GetFirstLocalPlayerController();
-	if (Result != EOnJoinSessionCompleteResult::Success || !Sessions.IsValid() || !Sessions->GetResolvedConnectString(NAME_GameSession, Address) || !Controller)
+	if (Result != EOnJoinSessionCompleteResult::Success || !Sessions.IsValid() || !Sessions->GetResolvedConnectString(NAME_GameSession, Address))
 	{
 		DestroyThen([this] { Fail(LOCTEXT("JoinFailed", "Не получилось войти в комнату. Попробуй ещё раз.")); });
 		return;
 	}
-
-	RoomCode = WantedCode;
-	WantedCode.Reset();
-	UE_LOG(LogObshaga, Log, TEXT("Joining room %s at %s"), *RoomCode, *Address);
-#if !UE_BUILD_SHIPPING
-	// Для проверки повторного входа без Steam: -ReconnectKey=abc (см. AObshagaGameMode::InitNewPlayer).
-	FString TestKey;
-	if (FParse::Value(FCommandLine::Get(), TEXT("ReconnectKey="), TestKey) && !TestKey.IsEmpty())
-	{
-		Address += TEXT("?RKey=") + TestKey;
-	}
-#endif
-	Controller->ClientTravel(Address, TRAVEL_Absolute);
+	TravelToRoom(Address);
 }
 
 void UObshagaSessionSubsystem::LeaveRoom(const FText& Reason)
