@@ -56,6 +56,20 @@ void ObshagaVisuals::Dress(UStaticMeshComponent* Cube, UStaticMesh* Model, float
 	Cube->SetVisibility(false, false);
 }
 
+UMaterialInstanceDynamic* ObshagaVisuals::Paint(UStaticMeshComponent* Mesh, const FLinearColor& Color, float Glow)
+{
+	UMaterialInterface* Base = Mesh ? LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/Obshaga/Map/Furniture/M_Paint.M_Paint"), nullptr, LOAD_NoWarn) : nullptr;
+	UMaterialInstanceDynamic* Material = Base ? Mesh->CreateDynamicMaterialInstance(0, Base) : nullptr;
+	if (!Material)
+	{
+		Tint(Mesh, Color);
+		return nullptr;
+	}
+	Material->SetVectorParameterValue(TEXT("Color"), Color);
+	Material->SetScalarParameterValue(TEXT("Glow"), Glow);
+	return Material;
+}
+
 void ObshagaVisuals::Tint(UStaticMeshComponent* Mesh, const FLinearColor& Color)
 {
 	if (!Mesh)

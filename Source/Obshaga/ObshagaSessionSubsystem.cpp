@@ -21,7 +21,10 @@
 THIRD_PARTY_INCLUDES_START
 #pragma push_macro("ARRAY_COUNT")
 #undef ARRAY_COUNT
+// У Steam есть своё перечисление EItemState, как и у игры; на время подключения переименовываем его.
+#define EItemState ESteamItemState
 #include "steam/steam_api.h"
+#undef EItemState
 #pragma pop_macro("ARRAY_COUNT")
 THIRD_PARTY_INCLUDES_END
 #endif

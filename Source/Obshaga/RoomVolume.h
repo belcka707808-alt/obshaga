@@ -57,6 +57,18 @@ public:
 protected:
 	virtual void BeginPlay() override;
 
+	/** Красит стены, вешает лампу и расставляет украшения по настройкам DA_Decor. Только картинка, у каждого игрока своя. */
+	void Decorate(const struct FRoomStyle& Style, int32 Ordinal);
+	/** Ночью краска светится слабее: комнаты темнеют вместе с улицей. */
+	void UpdateGlow();
+	float FindFloorZ() const;
+
+	UPROPERTY(Transient)
+	TArray<TObjectPtr<class UMaterialInstanceDynamic>> GlowMaterials;
+
+	FTimerHandle GlowTimer;
+	float AppliedDarkness = -1.f;
+
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Room")
 	TObjectPtr<UBoxComponent> Box;
 };
