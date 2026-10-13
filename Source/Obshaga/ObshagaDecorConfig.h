@@ -39,6 +39,14 @@ struct FDecorEntry
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Decor")
 	int32 Count = 1;
 
+	/** Что стоит перед этим предметом лицом к нему: стул перед столом. Пусто — ничего. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Decor")
+	TObjectPtr<UStaticMesh> FrontModel;
+
+	/** Что стоит на этом предмете сверху: лампа или книги на столе. Пусто — ничего. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Decor")
+	TObjectPtr<UStaticMesh> TopModel;
+
 	/** Для WallHigh: высота низа предмета над полом. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Decor", meta = (Units = "cm"))
 	float MountHeight = 130.f;

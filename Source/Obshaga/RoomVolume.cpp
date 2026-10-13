@@ -32,6 +32,8 @@ namespace
 	constexpr float PaintThickness = 1.2f;
 	constexpr float MaxWallHeight = 400.f;
 	constexpr float RugLift = 1.2f;
+	// Насколько стул задвинут под стол.
+	constexpr float FrontTuck = 12.f;
 	constexpr float GlowUpdateSeconds = 0.3f;
 	// Как часто проверяем, не въехала ли камера в украшение, и на каком расстоянии от него оно прячется.
 	constexpr float CameraCheckSeconds = 0.1f;
@@ -460,6 +462,8 @@ void ARoomVolume::Decorate(const FRoomStyle& Style, int32 Ordinal)
 		const bool bHigh = Entry.Place == EDecorPlace::WallHigh;
 		const float Width = ModelSize.X;
 		const float Depth = ModelSize.Y;
+		// Место нужно и тому, что стоит перед предметом (стул перед столом).
+		const float FrontDepth = Entry.FrontModel ? Entry.FrontModel->GetBounds().BoxExtent.Y * 2.f * Entry.Scale : 0.f;
 		const int32 Span = FMath::CeilToInt32(FMath::Max(Width * 0.5f / Step - 0.5f, 0.f));
 		for (int32 Copy = 0; Copy < Entry.Count; ++Copy)
 		{
@@ -493,8 +497,8 @@ void ARoomVolume::Decorate(const FRoomStyle& Style, int32 Ordinal)
 				const FWallSlot& Slot = Side.Slots[Candidate.Value];
 				const FVector OnWall = bHigh ? Slot.HighPoint : Slot.LowPoint;
 				const FVector BottomCenter(OnWall.X + Side.Normal.X * (Depth * 0.5f + 3.f), OnWall.Y + Side.Normal.Y * (Depth * 0.5f + 3.f), Floor + (bHigh ? Entry.MountHeight : 0.f));
-				const FVector HalfSize = (Side.Tangent * Width * 0.5f + Side.Normal * Depth * 0.5f).GetAbs() + FVector(0.f, 0.f, ModelSize.Z * 0.5f);
-				const FVector BoxCenter = BottomCenter + FVector(0.f, 0.f, ModelSize.Z * 0.5f);
+				const FVector HalfSize = (Side.Tangent * Width * 0.5f + Side.Normal * (Depth + FrontDepth) * 0.5f).GetAbs() + FVector(0.f, 0.f, ModelSize.Z * 0.5f);
+				const FVector BoxCenter = BottomCenter + Side.Normal * (FrontDepth * 0.5f) + FVector(0.f, 0.f, ModelSize.Z * 0.5f);
 				const FBox Wanted(BoxCenter - HalfSize, BoxCenter + HalfSize);
 				if (!IsFree(Wanted))
 				{
@@ -502,7 +506,22 @@ void ARoomVolume::Decorate(const FRoomStyle& Style, int32 Ordinal)
 				}
 
 				// Модели набора смотрят «лицом» в сторону -Y; поворачиваем лицом в комнату.
-				Spawn(Entry, Entry.Scale, BottomCenter, Side.Normal.Rotation().Yaw + 90.f);
+				const float Yaw = Side.Normal.Rotation().Yaw + 90.f;
+				Spawn(Entry, Entry.Scale, BottomCenter, Yaw);
+				if (Entry.FrontModel)
+				{
+					// Стул: вплотную к столу, развёрнут к нему (и к стене) лицом, чуть задвинут под столешницу.
+					FDecorEntry Front;
+					Front.Model = Entry.FrontModel;
+					Spawn(Front, Entry.Scale, BottomCenter + Side.Normal * (Depth * 0.5f + FrontDepth * 0.5f - FrontTuck), Yaw + 180.f);
+				}
+				if (Entry.TopModel && !bLowQuality)
+				{
+					// Лампа или книги: на столешнице, ближе к одному краю.
+					FDecorEntry Top;
+					Top.Model = Entry.TopModel;
+					Spawn(Top, Entry.Scale, BottomCenter + Side.Tangent * (Width * 0.25f) + FVector(0.f, 0.f, ModelSize.Z), Yaw);
+				}
 				Used.Add(Wanted.ExpandBy(6.f));
 				break;
 			}

@@ -145,7 +145,17 @@ void ObshagaSettings::Step(int32 Option)
 
 	if (Settings)
 	{
-		Settings->ApplySettings(false);
+		// Применяем только то, что поменяли: смена качества не должна заодно разворачивать окно на весь экран
+		// по сохранённой настройке (игру могли запустить в окне).
+		if (Option == 2)
+		{
+			Settings->ApplyResolutionSettings(false);
+		}
+		else
+		{
+			Settings->ApplyNonResolutionSettings();
+		}
+		Settings->SaveSettings();
 	}
 }
 

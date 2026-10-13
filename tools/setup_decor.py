@@ -16,7 +16,11 @@ def color(rgb):
     return unreal.LinearColor(rgb[0], rgb[1], rgb[2], 1.0)
 
 
-def entry(model, place=WALL, count=1, mount=130.0, scale=0.2):
+def mesh_of(model):
+    return unreal.EditorAssetLibrary.load_asset("%s/SM_%s" % (FOLDER, model)) if model else None
+
+
+def entry(model, place=WALL, count=1, mount=130.0, scale=0.2, front=None, top=None):
     mesh = unreal.EditorAssetLibrary.load_asset("%s/SM_%s" % (FOLDER, model))
     if not mesh:
         unreal.log_warning("setup_decor: no model SM_%s" % model)
@@ -27,6 +31,8 @@ def entry(model, place=WALL, count=1, mount=130.0, scale=0.2):
     item.set_editor_property("count", count)
     item.set_editor_property("mount_height", mount)
     item.set_editor_property("scale", scale)
+    item.set_editor_property("front_model", mesh_of(front))
+    item.set_editor_property("top_model", mesh_of(top))
     return item
 
 
@@ -51,9 +57,9 @@ STYLES = [
           [(0.50, 0.30, 0.14), (0.42, 0.26, 0.16), (0.56, 0.36, 0.18), (0.38, 0.24, 0.13)],
           [(0.20, 0.50, 0.28), (0.85, 0.45, 0.18), (0.18, 0.40, 0.70), (0.72, 0.25, 0.38)],
           1.2,
-          [entry("RugRectangle", CENTER), entry("Desk"), entry("BookcaseOpen"), entry("ChairDesk"), entry("PottedPlant"),
+          [entry("RugRectangle", CENTER), entry("Desk", front="ChairDesk", top="LampRoundTable"), entry("BookcaseOpen"), entry("PottedPlant"),
            entry("LampRoundFloor"), entry("Books", count=2), entry("Trashcan"), entry("CoatRackStanding"),
-           entry("CardboardBoxOpen"), entry("SideTable"), entry("PlantSmall1"), entry("PlantSmall3"),
+           entry("CardboardBoxOpen"), entry("SideTable", top="Books"), entry("PlantSmall1"), entry("PlantSmall3"),
            entry("LampWall", HIGH, 1, 165.0)]),
     # Коридоры: линолеум и зелёная масляная краска.
     style(T.CORRIDOR,
@@ -69,7 +75,7 @@ STYLES = [
           [(0.45, 0.24, 0.12)],
           1.4,
           [entry("RugSquare", CENTER), entry("ChairDesk"), entry("BookcaseOpen"), entry("PottedPlant"),
-           entry("LampSquareFloor"), entry("CoatRackStanding"), entry("Trashcan"), entry("SideTable"),
+           entry("LampSquareFloor"), entry("CoatRackStanding"), entry("Trashcan"), entry("SideTable", top="Radio"),
            entry("Books", count=2), entry("LampWall", HIGH, 2, 170.0),
            entry("CardboardBoxOpen"), entry("PlantSmall3")]),
     # Кухня: светлая плитка и жёлтые стены.
@@ -87,7 +93,7 @@ STYLES = [
           [(0.70, 0.30, 0.20)],
           1.54,
           [entry("RugRectangle", CENTER), entry("LoungeChair", count=2), entry("BookcaseOpen", count=2),
-           entry("PottedPlant", count=2), entry("LampRoundFloor", count=2), entry("SideTable"), entry("Books", count=2),
+           entry("PottedPlant", count=2), entry("LampRoundFloor", count=2), entry("SideTable", top="LampRoundTable"), entry("Books", count=2),
            entry("BenchCushion"), entry("Trashcan"), entry("LampWall", HIGH, 2, 170.0), entry("PlantSmall2")]),
     # Санузел: бирюзовая плитка.
     style(T.BATHROOM,
