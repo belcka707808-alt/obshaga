@@ -33,6 +33,14 @@ public:
 
 	bool IsOpen() const { return DoorState != EDoorState::Closed; }
 
+	/**
+	 * Проём закрытой двери в мире: от петли на ширину створки, от пола до верха створки.
+	 * AlongClearance — запас вдоль стены с каждой стороны, HalfDepth — на сколько коробка выходит по обе стороны стены.
+	 */
+	FBox GetDoorwayBox(float AlongClearance, float HalfDepth) const;
+	/** Всё место, через которое проходит створка, открываясь в любую сторону. */
+	FBox GetSwingBox() const;
+
 	/** Середина створки в мире. */
 	FVector GetDoorCenter() const;
 

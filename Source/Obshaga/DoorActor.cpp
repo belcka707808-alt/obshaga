@@ -121,6 +121,42 @@ void ADoorActor::ResetDoor()
 	}
 }
 
+FBox ADoorActor::GetDoorwayBox(float AlongClearance, float HalfDepth) const
+{
+	// Створка — куб 100×100×100, растянутый масштабом; петля в начале координат актора, створка идёт вдоль его оси X.
+	const FVector Scale = DoorMesh->GetRelativeScale3D() * GetActorScale3D();
+	const FVector Forward = GetActorForwardVector();
+	const FVector Right = GetActorRightVector();
+	FBox Result(ForceInit);
+	for (const float Along : { -AlongClearance, static_cast<float>(Scale.X) * 100.f + AlongClearance })
+	{
+		for (const float Across : { -HalfDepth, HalfDepth })
+		{
+			Result += GetActorLocation() + Forward * Along + Right * Across;
+		}
+	}
+	Result.Max.Z = GetActorLocation().Z + Scale.Z * 100.f;
+	return Result;
+}
+
+FBox ADoorActor::GetSwingBox() const
+{
+	// Створка поворачивается вокруг петли в обе стороны, так что занимает полукруг радиусом в свою ширину.
+	const float Width = DoorMesh->GetRelativeScale3D().X * GetActorScale3D().X * 100.f;
+	const FVector Forward = GetActorForwardVector();
+	const FVector Right = GetActorRightVector();
+	FBox Result(ForceInit);
+	for (const float Along : { -Width * 0.1f, Width })
+	{
+		for (const float Across : { -Width, Width })
+		{
+			Result += GetActorLocation() + Forward * Along + Right * Across;
+		}
+	}
+	Result.Max.Z = GetActorLocation().Z + DoorMesh->GetRelativeScale3D().Z * GetActorScale3D().Z * 100.f;
+	return Result;
+}
+
 FVector ADoorActor::GetDoorCenter() const
 {
 	return DoorMesh->GetComponentLocation();

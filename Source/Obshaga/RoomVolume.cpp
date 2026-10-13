@@ -1,5 +1,8 @@
 #include "RoomVolume.h"
 
+#include "DoorActor.h"
+#include "Obshaga.h"
+
 #include "ObshagaDecorConfig.h"
 #include "ObshagaGameState.h"
 #include "ObshagaSettings.h"
@@ -41,6 +44,10 @@ namespace
 	constexpr float CameraHideDistance = 35.f;
 	// Краска не подходит к дверному проёму ближе этого расстояния.
 	constexpr float DoorwayClearance = 6.f;
+	// На сколько коробка дверного проёма выходит по обе стороны стены: всё, что ближе, считается «в проёме».
+	constexpr float DoorwayHalfDepth = 60.f;
+	// Перемычку над дверью красим, только если она выше этого.
+	constexpr float MinLintelHeight = 15.f;
 	constexpr float FloorProbeUp = 120.f;
 	constexpr float FloorProbeDown = 60.f;
 
@@ -51,6 +58,13 @@ namespace
 		FVector HighPoint = FVector::ZeroVector;
 		bool bLow = false;
 		bool bHigh = false;
+		/** Над этим местом перемычка двери: побелка только выше DoorTop (высота над полом). */
+		bool bLintel = false;
+		float DoorTop = 0.f;
+		/** Кусок попал в проём двери. */
+		bool bDoor = false;
+		/** На сколько кусок краски удлинён к соседней стене (угол, колонна), чтобы у неё не оставалось голой щели: [низ/верх][назад/вперёд вдоль стены]. */
+		float Extend[2][2] = { { 0.f, 0.f }, { 0.f, 0.f } };
 	};
 
 	/** Одна из четырёх сторон зоны. */
@@ -278,6 +292,21 @@ void ARoomVolume::Decorate(const FRoomStyle& Style, int32 Ordinal)
 	Sides.Add({ FVector(Bounds.Min.X, Bounds.Min.Y, Floor), FVector(1.f, 0.f, 0.f), FVector(0.f, 1.f, 0.f), static_cast<float>(Size.X) });
 	Sides.Add({ FVector(Bounds.Min.X, Bounds.Max.Y, Floor), FVector(1.f, 0.f, 0.f), FVector(0.f, -1.f, 0.f), static_cast<float>(Size.X) });
 
+	// Двери этой зоны. На лучи тут полагаться нельзя (луч проходит створку насквозь и может упереться в косяк или
+	// перемычку), поэтому проём берётся прямо у двери: в нём не бывает ни краски, ни украшений.
+	TArray<FBox> Doorways;
+	TArray<FBox> DoorSwings;
+	for (TActorIterator<ADoorActor> It(World); It; ++It)
+	{
+		const FBox Doorway = It->GetDoorwayBox(DoorwayClearance, DoorwayHalfDepth);
+		if (Doorway.Intersect(Bounds.ExpandBy(WallTraceReach)) && FMath::Abs(Doorway.Min.Z - Floor) < 100.f)
+		{
+			Doorways.Add(Doorway);
+			DoorSwings.Add(It->GetSwingBox());
+		}
+	}
+	int32 NumDoorCuts = 0;
+
 	const float LowZ = Config->PaintHeight * 0.5f;
 	const float HighZ = Config->PaintHeight + 60.f;
 	float WallTop = HighZ + 20.f;
@@ -307,6 +336,26 @@ void ARoomVolume::Decorate(const FRoomStyle& Style, int32 Ordinal)
 			Slot.bLow = TraceBand(LowZ, Slot.LowPoint);
 			Slot.bHigh = TraceBand(HighZ, Slot.HighPoint);
 
+			// Кусок, который хоть краем заходит в проём двери, не красим вовсе; над дверью останется только перемычка.
+			// Где стена найдена, меряем от неё (иначе дверь в соседней стене у самого угла срезала бы и эту);
+			// где не найдена — от границы зоны с запасом на дальность луча.
+			const bool bFound = Slot.bLow || Slot.bHigh;
+			const FVector SlotCenter = bFound ? FVector(Slot.bLow ? Slot.LowPoint.X : Slot.HighPoint.X, Slot.bLow ? Slot.LowPoint.Y : Slot.HighPoint.Y, Floor) : OnBorder;
+			const FVector SlotHalf = (Side.Tangent * Step * 0.5f + Side.Normal * (bFound ? 5.f : WallTraceReach)).GetAbs();
+			const FBox SlotBox(SlotCenter - SlotHalf, SlotCenter + SlotHalf + FVector(0.f, 0.f, MaxWallHeight));
+			for (const FBox& Doorway : Doorways)
+			{
+				if (Doorway.Intersect(SlotBox))
+				{
+					NumDoorCuts += (Slot.bLow ? 1 : 0) + (Slot.bHigh ? 1 : 0);
+					Slot.bLow = false;
+					Slot.bHigh = false;
+					Slot.bLintel = true;
+					Slot.bDoor = true;
+					Slot.DoorTop = Doorway.Max.Z - Floor;
+				}
+			}
+
 			// Высоту стен меряем один раз: поднимаем луч, пока он упирается в стену.
 			if (Slot.bHigh && !bTopMeasured)
 			{
@@ -319,6 +368,61 @@ void ARoomVolume::Decorate(const FRoomStyle& Style, int32 Ordinal)
 			}
 		}
 	}
+
+	// Перемычка над дверью: если над створкой есть стена, её белят от верха двери до потолка.
+	int32 NumLintels = 0;
+	for (FWallSide& Side : Sides)
+	{
+		const float Offset = (Side.Length - Side.Slots.Num() * Step) * 0.5f;
+		for (int32 Index = 0; Index < Side.Slots.Num(); ++Index)
+		{
+			FWallSlot& Slot = Side.Slots[Index];
+			if (!Slot.bLintel)
+			{
+				continue;
+			}
+			const FVector OnBorder = Side.Origin + Side.Tangent * (Offset + (Index + 0.5f) * Step);
+			const FVector Up(0.f, 0.f, (Slot.DoorTop + WallTop) * 0.5f);
+			Slot.bLintel = bTopMeasured && WallTop - Slot.DoorTop >= MinLintelHeight
+				&& TraceWall(World, OnBorder + Side.Normal * WallTraceInset + Up, OnBorder - Side.Normal * WallTraceReach + Up, Side.Normal, Slot.HighPoint);
+			NumLintels += Slot.bLintel ? 1 : 0;
+		}
+	}
+	// Щели в углах: куски краски идут с шагом и до угла не дотягиваются. Крайний кусок (у которого сосед не покрашен
+	// и это не дверь) дотягиваем до ближайшей поперечной стены или колонны, если она рядом.
+	int32 NumExtended = 0;
+	for (FWallSide& Side : Sides)
+	{
+		for (int32 Index = 0; Index < Side.Slots.Num(); ++Index)
+		{
+			FWallSlot& Slot = Side.Slots[Index];
+			for (int32 Band = 0; Band < 2; ++Band)
+			{
+				if (!(Band == 0 ? Slot.bLow : Slot.bHigh))
+				{
+					continue;
+				}
+				for (int32 Way = 0; Way < 2; ++Way)
+				{
+					const int32 Next = Index + (Way == 0 ? -1 : 1);
+					const FWallSlot* Neighbour = Side.Slots.IsValidIndex(Next) ? &Side.Slots[Next] : nullptr;
+					if (Neighbour && ((Band == 0 ? Neighbour->bLow : Neighbour->bHigh) || Neighbour->bDoor))
+					{
+						continue;
+					}
+					const FVector Direction = Side.Tangent * (Way == 0 ? -1.f : 1.f);
+					const FVector From = (Band == 0 ? Slot.LowPoint : Slot.HighPoint) + Side.Normal * 3.f;
+					FVector Hit;
+					if (TraceWall(World, From, From + Direction * Step * 2.f, -Direction, Hit))
+					{
+						Slot.Extend[Band][Way] = FMath::Max(FVector::Dist2D(From, Hit) - Step * 0.5f, 0.f);
+						NumExtended += Slot.Extend[Band][Way] > 0.5f ? 1 : 0;
+					}
+				}
+			}
+		}
+	}
+	UE_LOG(LogObshaga, Log, TEXT("Decor %s: %d doors, %d paint pieces cut from doorways, %d lintel pieces, %d pieces stretched to a corner"), *RoomId.ToString(), Doorways.Num(), NumDoorCuts, NumLintels, NumExtended);
 
 	// 2. Краска: низ цветной, верх «побелка». Все куски одного цвета — один компонент, рисуется за один проход.
 	UStaticMesh* CubeMesh = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cube.Cube"));
@@ -348,13 +452,21 @@ void ARoomVolume::Decorate(const FRoomStyle& Style, int32 Ordinal)
 			{
 				if (Slot.bLow)
 				{
-					const FVector Location(Slot.LowPoint.X + Side.Normal.X * PaintThickness, Slot.LowPoint.Y + Side.Normal.Y * PaintThickness, Floor + Config->PaintHeight * 0.5f);
-					LowSheet->AddInstance(FTransform(Rotation, Location, FVector(PaintThickness / 100.f, Step / 100.f, Config->PaintHeight / 100.f)), true);
+					const FVector Location = FVector(Slot.LowPoint.X + Side.Normal.X * PaintThickness, Slot.LowPoint.Y + Side.Normal.Y * PaintThickness, Floor + Config->PaintHeight * 0.5f)
+						+ Side.Tangent * (Slot.Extend[0][1] - Slot.Extend[0][0]) * 0.5f;
+					LowSheet->AddInstance(FTransform(Rotation, Location, FVector(PaintThickness / 100.f, (Step + Slot.Extend[0][0] + Slot.Extend[0][1]) / 100.f, Config->PaintHeight / 100.f)), true);
 				}
 				if (Slot.bHigh)
 				{
-					const FVector Location(Slot.HighPoint.X + Side.Normal.X * PaintThickness, Slot.HighPoint.Y + Side.Normal.Y * PaintThickness, Floor + Config->PaintHeight + HighHeight * 0.5f);
-					HighSheet->AddInstance(FTransform(Rotation, Location, FVector(PaintThickness / 100.f, Step / 100.f, HighHeight / 100.f)), true);
+					const FVector Location = FVector(Slot.HighPoint.X + Side.Normal.X * PaintThickness, Slot.HighPoint.Y + Side.Normal.Y * PaintThickness, Floor + Config->PaintHeight + HighHeight * 0.5f)
+						+ Side.Tangent * (Slot.Extend[1][1] - Slot.Extend[1][0]) * 0.5f;
+					HighSheet->AddInstance(FTransform(Rotation, Location, FVector(PaintThickness / 100.f, (Step + Slot.Extend[1][0] + Slot.Extend[1][1]) / 100.f, HighHeight / 100.f)), true);
+				}
+				if (Slot.bLintel)
+				{
+					const float LintelHeight = WallTop - Slot.DoorTop;
+					const FVector Location(Slot.HighPoint.X + Side.Normal.X * PaintThickness, Slot.HighPoint.Y + Side.Normal.Y * PaintThickness, Floor + Slot.DoorTop + LintelHeight * 0.5f);
+					HighSheet->AddInstance(FTransform(Rotation, Location, FVector(PaintThickness / 100.f, Step / 100.f, LintelHeight / 100.f)), true);
 				}
 			}
 		}
@@ -397,6 +509,14 @@ void ARoomVolume::Decorate(const FRoomStyle& Style, int32 Ordinal)
 		for (const FVector& Start : Starts)
 		{
 			if (Roomy.IsInsideXY(Start))
+			{
+				return false;
+			}
+		}
+		// Там, где ходит створка двери, ничего не ставим: иначе дверь открывалась бы сквозь мебель.
+		for (const FBox& Swing : DoorSwings)
+		{
+			if (Swing.Intersect(Roomy))
 			{
 				return false;
 			}
@@ -597,6 +717,13 @@ void ARoomVolume::Decorate(const FRoomStyle& Style, int32 Ordinal)
 		const FVector Center(OnWall.X + Side.Normal.X * 12.f, OnWall.Y + Side.Normal.Y * 12.f, Floor + Bottom + Height * 0.5f);
 		const FVector HalfSize = (Side.Tangent * Along * 0.5f + Side.Normal * 12.f).GetAbs() + FVector(0.f, 0.f, Height * 0.5f);
 		OutBox = FBox(Center - HalfSize, Center + HalfSize);
+		for (const FBox& Swing : DoorSwings)
+		{
+			if (Swing.Intersect(OutBox))
+			{
+				return false;
+			}
+		}
 		for (const FBox& Other : Used)
 		{
 			if (Other.Intersect(OutBox))
