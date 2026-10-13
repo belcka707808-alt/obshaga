@@ -43,6 +43,8 @@ class OBSHAGA_API UObshagaAnimInstance : public UAnimInstance
 public:
 	/** Начать клип; прежний за BlendSeconds плавно в него перейдёт. */
 	void Play(UAnimSequence* Sequence, bool bLoop, float BlendSeconds);
+	/** Скорость текущего клипа: шаги подстраиваются под настоящую скорость персонажа, чтобы ноги не скользили. */
+	void SetPlayRate(float NewRate) { PlayRate = NewRate; }
 
 protected:
 	virtual void NativeUpdateAnimation(float DeltaSeconds) override;
@@ -61,6 +63,7 @@ private:
 	float PreviousTime = 0.f;
 	float Alpha = 1.f;
 	float BlendTime = 0.2f;
+	float PlayRate = 1.f;
 	bool bCurrentLoops = true;
 	bool bPreviousLoops = true;
 };

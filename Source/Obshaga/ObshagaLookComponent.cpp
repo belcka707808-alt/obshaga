@@ -19,6 +19,9 @@ namespace
 	constexpr float SpeedSmoothing = 6.f;
 	// Сколько разовый клип (взял, жест) ждёт, пока персонаж остановится.
 	constexpr float OneShotWaitSeconds = 1.f;
+	// Пределы ускорения и замедления клипов ходьбы и бега.
+	constexpr float MinStepRate = 0.6f;
+	constexpr float MaxStepRate = 1.5f;
 }
 
 const UObshagaLookConfig* UObshagaLookConfig::Get()
@@ -186,6 +189,22 @@ void UObshagaLookComponent::TickComponent(float DeltaTime, ELevelTick TickType, 
 
 	bool bLoop = true;
 	UAnimSequenceBase* Wanted = PickAnimation(bLoop);
+
+	// Шаги под настоящую скорость: клип ходьбы или бега играется быстрее или медленнее, в разумных пределах.
+	const UObshagaLookConfig* LookConfig = UObshagaLookConfig::Get();
+	if (UObshagaAnimInstance* Animator = Cast<UObshagaAnimInstance>(CastChecked<ACharacter>(GetOwner())->GetMesh()->GetAnimInstance()))
+	{
+		float Rate = 1.f;
+		if (Wanted && (Wanted == LookConfig->Walk || Wanted == LookConfig->Carry))
+		{
+			Rate = SmoothedSpeed / LookConfig->WalkClipSpeed;
+		}
+		else if (Wanted && Wanted == LookConfig->Sprint)
+		{
+			Rate = SmoothedSpeed / LookConfig->SprintClipSpeed;
+		}
+		Animator->SetPlayRate(FMath::Clamp(Rate, MinStepRate, MaxStepRate));
+	}
 	if (Wanted && Wanted != Current)
 	{
 		USkeletalMeshComponent* Mesh = CastChecked<ACharacter>(GetOwner())->GetMesh();

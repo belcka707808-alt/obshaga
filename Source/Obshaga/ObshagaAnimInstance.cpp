@@ -26,6 +26,19 @@ void UObshagaAnimInstance::Play(UAnimSequence* Sequence, bool bLoop, float Blend
 		return;
 	}
 
+	// Вернулись к клипу, из которого ещё не до конца вышли (стойка — шаг — стойка): разворачиваем переход,
+	// а не начинаем новый, иначе недосмешанная поза пропала бы и персонаж дёрнулся.
+	if (Sequence == Previous && Alpha < 1.f)
+	{
+		Swap(Current, Previous);
+		Swap(CurrentTime, PreviousTime);
+		Swap(bCurrentLoops, bPreviousLoops);
+		bCurrentLoops = bLoop;
+		Alpha = 1.f - Alpha;
+		BlendTime = BlendSeconds;
+		return;
+	}
+
 	// То, что играло до сих пор, становится «прежним» и продолжает идти, пока поза перетекает в новый клип.
 	Previous = Current;
 	PreviousTime = CurrentTime;
@@ -41,7 +54,7 @@ void UObshagaAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 {
 	Super::NativeUpdateAnimation(DeltaSeconds);
 
-	CurrentTime = Advance(Current, CurrentTime, DeltaSeconds, bCurrentLoops);
+	CurrentTime = Advance(Current, CurrentTime, DeltaSeconds * PlayRate, bCurrentLoops);
 	if (Alpha < 1.f)
 	{
 		PreviousTime = Advance(Previous, PreviousTime, DeltaSeconds, bPreviousLoops);

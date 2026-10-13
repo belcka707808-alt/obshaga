@@ -75,6 +75,13 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Animation")
 	TArray<TObjectPtr<UAnimSequenceBase>> EmoteGestures;
 
+	/** Скорость персонажа, под которую сняты клипы ходьбы и бега: при другой скорости клип ускоряется или замедляется. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Animation", meta = (ClampMin = "1", Units = "cm/s"))
+	float WalkClipSpeed = 300.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Animation", meta = (ClampMin = "1", Units = "cm/s"))
+	float SprintClipSpeed = 550.f;
+
 	/** За сколько секунд одна анимация перетекает в другую (ходьба в стойку, стойка в присед). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Animation", meta = (ClampMin = "0", Units = "s"))
 	float BlendSeconds = 0.2f;
