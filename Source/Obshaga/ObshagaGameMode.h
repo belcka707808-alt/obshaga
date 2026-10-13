@@ -81,6 +81,8 @@ protected:
 	/** Манера речи коменданта в этом раунде и реплика от его имени. */
 	int32 GetKomendantStyle() const;
 	void KomendantSay(EKomendantLine Line) const;
+	/** Стенгазета итогов: заголовок по самому громкому событию, герой ночи и заметки. */
+	void BuildNewspaper(const TArray<AObshagaPlayerState*>& Players) const;
 
 	/** Настройки раунда; назначаются в BP_ObshagaGameMode. */
 	UPROPERTY(EditDefaultsOnly, Category = "Round")

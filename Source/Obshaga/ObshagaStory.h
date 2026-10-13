@@ -15,7 +15,10 @@ enum class EKomendantLine : uint8
 	LieFail,
 	Confess,
 	Silent,
+	/** Утренняя проверка комнат. */
 	Inspect,
+	/** Осмотр тайника вечером или ночью (случайный или по стуку). */
+	Search,
 	Count
 };
 

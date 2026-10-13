@@ -102,7 +102,8 @@ public:
 	const FText& GetHeadline() const { return Headline; }
 	const FText& GetSubhead() const { return Subhead; }
 	void SetStory(int32 NewIndex);
-	void SetNewspaper(const FText& InHeadline, const FText& InSubhead);
+	void SetNewspaper(const FText& InHeadline, const FText& InSubhead, const TArray<FText>& InNotes);
+	const TArray<FText>& GetPaperNotes() const { return PaperNotes; }
 
 	/** Событие этой ночи: 0 — нет, дальше как в ENightEvent. Идёт ли оно прямо сейчас — IsNightEventActive. */
 	ENightEvent GetNightEvent() const { return NightEvent; }
@@ -172,6 +173,9 @@ protected:
 
 	UPROPERTY(Replicated)
 	FText Subhead;
+
+	UPROPERTY(Replicated)
+	TArray<FText> PaperNotes;
 
 	UPROPERTY(Replicated)
 	float AlibiRadius = 800.f;

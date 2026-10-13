@@ -34,6 +34,8 @@ namespace
 	constexpr float MaxLinkDistance = 750.f;
 	// Как часто комендант бормочет себе под нос, возвращаясь к обходу.
 	constexpr float PatrolMutterChance = 0.4f;
+	// Если комендант упёрся ближе этого расстояния от последней точки пути, он считается дошедшим.
+	constexpr float StuckNearGoalDistance = 160.f;
 	constexpr float ArriveDistance = 70.f;
 	constexpr float ArriveHeight = 220.f;
 	constexpr float DoorOpenDistance = 190.f;
@@ -356,8 +358,13 @@ void AKomendantAIController::SetState(EKomendantState NewState)
 		Komendant->Say(EKomendantLine::Chase, GetSpeechStyle(), true);
 		break;
 	case EKomendantState::Inspect:
-		Komendant->Say(EKomendantLine::Inspect, GetSpeechStyle());
+	{
+		// Про «утреннюю проверку» он говорит только утром; в остальное время это просто осмотр тайника.
+		const AObshagaGameState* GameState = GetWorld()->GetGameState<AObshagaGameState>();
+		const bool bMorning = GameState && GameState->GetPhase() == ERoundPhase::Morning;
+		Komendant->Say(bMorning ? EKomendantLine::Inspect : EKomendantLine::Search, GetSpeechStyle());
 		break;
+	}
 	case EKomendantState::Patrol:
 		if (PreviousState == EKomendantState::Chase)
 		{
@@ -981,9 +988,18 @@ bool AKomendantAIController::FollowPath(float Speed, float DeltaSeconds)
 		NoProgressTime += DeltaSeconds;
 		if (NoProgressTime > StuckSeconds)
 		{
-			UE_LOG(LogObshaga, Warning, TEXT("Komendant stuck near %s, snapping to waypoint"), *Komendant->GetActorLocation().ToCompactString());
-			Komendant->SetActorLocation(Point, false, nullptr, ETeleportType::TeleportPhysics);
 			NoProgressTime = 0.f;
+			// Упёрся почти у цели (последняя точка пути стоит в мебели или вплотную к ней) — считаем, что дошёл:
+			// переносить его в саму точку значило бы засунуть его в мебель.
+			if (PathIndex == Path.Num() - 1 && Distance < StuckNearGoalDistance)
+			{
+				UE_LOG(LogObshaga, Verbose, TEXT("Komendant blocked %.0f cm short of the last path point %s, treating as arrived"), Distance, *Point.ToCompactString());
+				PathIndex = Path.Num();
+				return true;
+			}
+			UE_LOG(LogObshaga, Warning, TEXT("Komendant stuck near %s on the way to %s (point %d of %d), snapping to waypoint"),
+				*Komendant->GetActorLocation().ToCompactString(), *Point.ToCompactString(), PathIndex + 1, Path.Num());
+			Komendant->SetActorLocation(Point, false, nullptr, ETeleportType::TeleportPhysics);
 		}
 	}
 	return false;

@@ -1357,33 +1357,7 @@ void AObshagaGameMode::EndRound()
 	AssignTitles(RevealedPlayers, Players);
 	WriteTelemetry(Players);
 
-	// Стенгазета: заголовок по самому громкому событию раунда.
-	FString EvictedName;
-	FString CaughtName;
-	FString WinnerName;
-	int32 TotalStrikes = 0;
-	int32 MostStrikes = 0;
-	int32 WinnerScore = MIN_int32;
-	for (const AObshagaPlayerState* PlayerState : Players)
-	{
-		const int32 Strikes = PlayerState->GetSuspicionComponent()->GetStrikes();
-		TotalStrikes += Strikes;
-		if (Strikes > MostStrikes)
-		{
-			MostStrikes = Strikes;
-			CaughtName = PlayerState->GetPlayerName();
-		}
-		if (PlayerState->IsEvicted() && EvictedName.IsEmpty())
-		{
-			EvictedName = PlayerState->GetPlayerName();
-		}
-		if (FMath::RoundToInt32(PlayerState->GetScore()) > WinnerScore)
-		{
-			WinnerScore = FMath::RoundToInt32(PlayerState->GetScore());
-			WinnerName = PlayerState->GetPlayerName();
-		}
-	}
-	State->SetNewspaper(ObshagaStory::Headline(EvictedName, CaughtName, TotalStrikes), ObshagaStory::Subhead(WinnerName, WinnerScore));
+	BuildNewspaper(Players);
 
 	State->FinishRound(RevealedTasks, RevealedPlayers, BuildChronicle());
 	if (UGameEventSubsystem* Bus = UGameEventSubsystem::Get(this))
@@ -1395,6 +1369,160 @@ void AObshagaGameMode::EndRound()
 	UE_LOG(LogObshaga, Log, TEXT("Round ended"));
 }
 
+void AObshagaGameMode::BuildNewspaper(const TArray<AObshagaPlayerState*>& Players) const
+{
+	// Стенгазета: заголовок — по самому громкому событию раунда, под ним герой ночи и пара коротких заметок.
+	AObshagaGameState* State = GetGameState<AObshagaGameState>();
+	const UGameEventSubsystem* Bus = UGameEventSubsystem::Get(this);
+	if (!State || !Bus)
+	{
+		return;
+	}
+
+	auto NameOf = [](const APlayerState* Who) { return Who ? FText::FromString(Who->GetPlayerName().ToUpper()) : LOCTEXT("PaperSomeone", "КТО-ТО"); };
+	auto First = [Bus](EGameEventType Type) -> const FGameEvent*
+	{
+		return Bus->GetEventLog().FindByPredicate([Type](const FGameEvent& Event) { return Event.Type == Type; });
+	};
+	auto CountOf = [Bus](EGameEventType Type)
+	{
+		int32 Result = 0;
+		for (const FGameEvent& Event : Bus->GetEventLog())
+		{
+			Result += Event.Type == Type ? 1 : 0;
+		}
+		return Result;
+	};
+
+	FString WinnerName;
+	int32 WinnerScore = MIN_int32;
+	int32 TotalStrikes = 0;
+	const AObshagaPlayerState* MostCaught = nullptr;
+	for (const AObshagaPlayerState* PlayerState : Players)
+	{
+		const int32 Strikes = PlayerState->GetSuspicionComponent()->GetStrikes();
+		TotalStrikes += Strikes;
+		if (Strikes > 0 && (!MostCaught || Strikes > MostCaught->GetSuspicionComponent()->GetStrikes()))
+		{
+			MostCaught = PlayerState;
+		}
+		if (FMath::RoundToInt32(PlayerState->GetScore()) > WinnerScore)
+		{
+			WinnerScore = FMath::RoundToInt32(PlayerState->GetScore());
+			WinnerName = PlayerState->GetPlayerName();
+		}
+	}
+
+	const FGameEvent* Night = First(EGameEventType::NightEvent);
+	bool bNightInHeadline = false;
+	FText Headline;
+	if (const FGameEvent* Evicted = First(EGameEventType::PlayerEvicted))
+	{
+		Headline = FText::Format(LOCTEXT("HeadEvicted", "{0}: ВЫСЕЛЕНИЕ! ЧЕМОДАН, ВОКЗАЛ, РОДИТЕЛИ"), NameOf(Evicted->Instigator));
+	}
+	else if (const FGameEvent* Framed = First(EGameEventType::PlayerFramed))
+	{
+		Headline = FText::Format(LOCTEXT("HeadFramed", "ПОДСТАВА ВЕКА: {0} ПОДКИНУЛ, {1} ОТВЕТИЛ"), NameOf(Framed->Instigator), NameOf(Framed->Target));
+	}
+	else if (const FGameEvent* Confiscated = First(EGameEventType::ContrabandConfiscated))
+	{
+		Headline = FText::Format(LOCTEXT("HeadContraband", "ЗАПРЕЩЁНКА НАЙДЕНА! {0} УВЕРЯЕТ, ЧТО ЭТО НЕ ЕГО"), NameOf(Confiscated->Instigator));
+	}
+	else if (const FGameEvent* Tip = First(EGameEventType::TipSucceeded))
+	{
+		Headline = FText::Format(LOCTEXT("HeadTip", "СТУК СРАБОТАЛ: {0} ПОСТУЧАЛ, {1} ПОПАЛСЯ"), NameOf(Tip->Instigator), NameOf(Tip->Target));
+	}
+	else if (const FGameEvent* Lie = First(EGameEventType::InterrogationLieSucceeded))
+	{
+		Headline = FText::Format(LOCTEXT("HeadLie", "{0} СОВРАЛ ПАЛЫЧУ В ГЛАЗА — И ТОТ ПОВЕРИЛ"), NameOf(Lie->Instigator));
+	}
+	else if (TotalStrikes >= 2)
+	{
+		Headline = FText::Format(LOCTEXT("HeadRaid", "ОБЛАВА В ОБЩАГЕ №7: ЗА НОЧЬ ПАЛЫЧ ЛОВИЛ {0} РАЗА"), FText::AsNumber(TotalStrikes));
+	}
+	else if (MostCaught)
+	{
+		Headline = FText::Format(LOCTEXT("HeadCaught", "{0}: ПОЙМАН. ОСТАЛЬНЫЕ ДЕЛАЮТ ВИД, ЧТО НЕ ЗНАКОМЫ"), NameOf(MostCaught));
+	}
+	else if (Night)
+	{
+		bNightInHeadline = true;
+		if (Night->RoomId == TEXT("FireAlarm"))
+		{
+			Headline = LOCTEXT("HeadFire", "ЛОЖНАЯ ТРЕВОГА: ОБЩАГА ПОСТОЯЛА В КОРИДОРЕ И РАЗОШЛАСЬ");
+		}
+		else if (Night->RoomId == TEXT("Deanery"))
+		{
+			Headline = LOCTEXT("HeadDeanery", "ДЕКАНАТ ПРИЕХАЛ, НИЧЕГО НЕ НАШЁЛ И УЕХАЛ ДОВОЛЬНЫЙ");
+		}
+		else if (Night->RoomId == TEXT("Birthday"))
+		{
+			Headline = LOCTEXT("HeadBirthday", "ДЕНЬ РОЖДЕНИЯ УДАЛСЯ: ПАЛЫЧ ЗАШЁЛ, НО ТОРТА ЕМУ НЕ ДОСТАЛОСЬ");
+		}
+		else if (Night->RoomId == TEXT("PipeBurst"))
+		{
+			Headline = LOCTEXT("HeadPipe", "ПОТОП В САНУЗЛЕ: ПАЛЫЧ ПРОТИВ ТРУБЫ, СЧЁТ НЕИЗВЕСТЕН");
+		}
+		else
+		{
+			Headline = LOCTEXT("HeadBlackout", "ТЁМНАЯ НОЧЬ: СВЕТА НЕ БЫЛО, СВИДЕТЕЛЕЙ ТОЖЕ");
+		}
+	}
+	else if (First(EGameEventType::DeviceBroken))
+	{
+		Headline = LOCTEXT("HeadBroken", "НА КУХНЕ ЧТО-ТО СЛОМАЛОСЬ. ВИНОВАТЫХ, КАК ВСЕГДА, НЕТ");
+	}
+	else
+	{
+		Headline = LOCTEXT("HeadQuiet", "ТИХАЯ НОЧЬ. ПАЛЫЧ ЧТО-ТО ПОДОЗРЕВАЕТ, НО ДОКАЗАТЬ НЕ МОЖЕТ");
+	}
+
+	// Заметки: что ещё было за ночь. Не больше трёх.
+	TArray<FText> Notes;
+	if (Night && !bNightInHeadline)
+	{
+		if (Night->RoomId == TEXT("FireAlarm"))
+		{
+			Notes.Add(LOCTEXT("NoteFire", "Ночью выла пожарная сигнализация. Пожара не нашли, виноватого тоже."));
+		}
+		else if (Night->RoomId == TEXT("Deanery"))
+		{
+			Notes.Add(LOCTEXT("NoteDeanery", "Утром общагу проверял деканат. Палыч нервничал больше жильцов."));
+		}
+		else if (Night->RoomId == TEXT("Birthday"))
+		{
+			Notes.Add(LOCTEXT("NoteBirthday", "В одной из комнат отмечали день рождения. Громко. Палыч терпел."));
+		}
+		else if (Night->RoomId == TEXT("PipeBurst"))
+		{
+			Notes.Add(LOCTEXT("NotePipe", "В санузле прорвало трубу. Палыч чинил её лично и, говорят, победил."));
+		}
+		else
+		{
+			Notes.Add(LOCTEXT("NoteBlackout", "Ночью выбило пробки. Кто и что делал в темноте — редакции неизвестно."));
+		}
+	}
+	const int32 Doors = CountOf(EGameEventType::DoorOpened);
+	if (Doors >= 6)
+	{
+		Notes.Add(FText::Format(LOCTEXT("NoteDoors", "Двери за ночь открывали {0} раз. Петли просят масла, жильцы — тишины."), FText::AsNumber(Doors)));
+	}
+	const int32 Hides = CountOf(EGameEventType::PlayerHid);
+	if (Hides >= 2 && Notes.Num() < 3)
+	{
+		Notes.Add(FText::Format(LOCTEXT("NoteHides", "В шкафах и кабинках прятались {0} раз. Мебель общаги выдерживает и не такое."), FText::AsNumber(Hides)));
+	}
+	if (Notes.Num() < 3)
+	{
+		static const FText Moods[] = {
+			LOCTEXT("MoodStrict", "Палыч сегодня был строг и собран. Говорят, это из-за проверки."),
+			LOCTEXT("MoodAbsent", "Палыч сегодня был рассеян и дважды искал собственные очки."),
+			LOCTEXT("MoodVindictive", "Палыч сегодня был злопамятен. Тетрадка с фамилиями пополнилась.") };
+		Notes.Add(Moods[FMath::Clamp(GetKomendantStyle(), 0, 2)]);
+	}
+
+	State->SetNewspaper(Headline, ObshagaStory::Subhead(WinnerName, WinnerScore), Notes);
+}
 void AObshagaGameMode::AssignTitles(TArray<FRevealedPlayer>& Players, const TArray<AObshagaPlayerState*>& States) const
 {
 	// Метрики раунда считаем по журналу событий.

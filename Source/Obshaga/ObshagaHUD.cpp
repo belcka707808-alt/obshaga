@@ -671,6 +671,10 @@ void AObshagaHUD::DrawRoundResults(const AObshagaGameState* GameState)
 			Y = DrawWrapped(LOCTEXT("PaperName", "СТЕНГАЗЕТА ОБЩАГИ №7").ToString(), FLinearColor(0.6f, 0.6f, 0.68f), X, Y, TextWidth, Line - 2.f, bDraw);
 			Y = DrawWrapped(GameState->GetHeadline().ToString(), FLinearColor::Yellow, X, Y, TextWidth, Line, bDraw);
 			Y = DrawWrapped(GameState->GetSubhead().ToString(), FLinearColor::White, X, Y, TextWidth, Line, bDraw);
+			for (const FText& Note : GameState->GetPaperNotes())
+			{
+				Y = DrawWrapped(FText::Format(LOCTEXT("PaperNote", "• {0}"), Note).ToString(), Dim, X, Y, TextWidth, Line - 2.f, bDraw);
+			}
 			Y += 6.f * Scale;
 		}
 		Y = DrawWrapped(LOCTEXT("ResultsChronicle", "ХРОНИКА РАУНДА").ToString(), FLinearColor::White, X, Y, TextWidth, Line, bDraw);

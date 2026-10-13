@@ -116,6 +116,7 @@ void AObshagaGameState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& Ou
 	DOREPLIFETIME(AObshagaGameState, NightEventSkyScale);
 	DOREPLIFETIME(AObshagaGameState, Headline);
 	DOREPLIFETIME(AObshagaGameState, Subhead);
+	DOREPLIFETIME(AObshagaGameState, PaperNotes);
 	DOREPLIFETIME(AObshagaGameState, Interrogation);
 	DOREPLIFETIME(AObshagaGameState, AlibiRadius);
 	DOREPLIFETIME(AObshagaGameState, AccuseDistance);
@@ -207,12 +208,13 @@ void AObshagaGameState::SetStory(int32 NewIndex)
 	}
 }
 
-void AObshagaGameState::SetNewspaper(const FText& InHeadline, const FText& InSubhead)
+void AObshagaGameState::SetNewspaper(const FText& InHeadline, const FText& InSubhead, const TArray<FText>& InNotes)
 {
 	if (HasAuthority())
 	{
 		Headline = InHeadline;
 		Subhead = InSubhead;
+		PaperNotes = InNotes;
 	}
 }
 
