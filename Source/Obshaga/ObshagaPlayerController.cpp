@@ -21,6 +21,7 @@
 #include "Misc/ConfigCacheIni.h"
 #include "ObshagaGameMode.h"
 #include "ObshagaGameState.h"
+#include "ObshagaMenu.h"
 #include "ObshagaPlayerState.h"
 #include "ObshagaSessionSubsystem.h"
 #include "ObshagaSettings.h"
@@ -51,9 +52,6 @@ namespace
 	// Ник Steam бывает до 32 символов.
 	constexpr int32 MaxDisplayNameLength = 32;
 	constexpr float LeaveConfirmSeconds = 3.f;
-	// Заставка: высота камеры над полом коридора и отступ от его торцов.
-	constexpr float IntroCameraHeight = 170.f;
-	constexpr float IntroEndInset = 150.f;
 	constexpr float CameraHideSelfDistance = 130.f;
 	constexpr float CameraHideHeadHeight = 45.f;
 
@@ -320,33 +318,12 @@ void AObshagaPlayerController::UpdateIntro()
 		return;
 	}
 
-	// Маршрут: по каждому коридору из конца в конец, сначала первый этаж, потом второй.
-	TArray<const ARoomVolume*> Corridors;
-	for (TActorIterator<ARoomVolume> It(GetWorld()); It; ++It)
+	FVector Location;
+	FRotator Rotation;
+	if (ObshagaFlyover::GetView(GetWorld(), GameState->GetIntroProgress(), Location, Rotation))
 	{
-		if (It->RoomType == ERoomType::Corridor)
-		{
-			Corridors.Add(*It);
-		}
+		IntroCamera->SetActorLocationAndRotation(Location, Rotation);
 	}
-	if (Corridors.IsEmpty())
-	{
-		return;
-	}
-	Corridors.Sort([](const ARoomVolume& A, const ARoomVolume& B) { return A.GetActorLocation().Z < B.GetActorLocation().Z; });
-
-	const float Scaled = GameState->GetIntroProgress() * Corridors.Num();
-	const int32 Index = FMath::Min(FMath::FloorToInt32(Scaled), Corridors.Num() - 1);
-	const float Along = FMath::SmoothStep(0.f, 1.f, Scaled - Index);
-	const FBox Bounds = Corridors[Index]->GetBox()->Bounds.GetBox();
-	const bool bAlongX = Bounds.GetSize().X >= Bounds.GetSize().Y;
-	const FVector Axis = bAlongX ? FVector(1.f, 0.f, 0.f) : FVector(0.f, 1.f, 0.f);
-	const float HalfLength = (bAlongX ? Bounds.GetExtent().X : Bounds.GetExtent().Y) - IntroEndInset;
-	// На чётных отрезках летим в одну сторону, на нечётных — обратно: так второй этаж начинается над концом первого.
-	const float Direction = Index % 2 == 0 ? 1.f : -1.f;
-	const FVector Center(Bounds.GetCenter().X, Bounds.GetCenter().Y, Bounds.Min.Z + IntroCameraHeight);
-	IntroCamera->SetActorLocation(Center + Axis * Direction * FMath::Lerp(-HalfLength, HalfLength, Along));
-	IntroCamera->SetActorRotation(FRotator(-8.f, (Axis * Direction).Rotation().Yaw, 0.f));
 }
 
 bool AObshagaPlayerController::InputKey(const FInputKeyEventArgs& Params)

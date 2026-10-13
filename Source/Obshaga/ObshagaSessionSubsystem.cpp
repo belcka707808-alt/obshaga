@@ -43,7 +43,8 @@ namespace
 	const FName RoomCodeName(TEXT("ROOMCODE"));
 
 	const TCHAR* GameMap = TEXT("/Game/Obshaga/Map/L_Obshaga");
-	const TCHAR* MenuMap = TEXT("/Engine/Maps/Entry");
+	// Меню открывается на карте общаги: она служит фоном (камера летит по коридорам).
+	const TCHAR* MenuMap = TEXT("/Game/Obshaga/Map/L_Obshaga");
 	const TCHAR* MenuOptions = TEXT("game=/Script/Obshaga.ObshagaMenuGameMode");
 
 	// Столько ждём перед закрытием комнаты, чтобы гости успели получить «Хост закрыл комнату».

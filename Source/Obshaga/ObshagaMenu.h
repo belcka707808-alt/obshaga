@@ -6,6 +6,13 @@
 #include "GameFramework/PlayerController.h"
 #include "ObshagaMenu.generated.h"
 
+/** Пролёт камеры по коридорам общаги: им пользуются заставка перед раундом и фон главного меню. */
+namespace ObshagaFlyover
+{
+	/** Положение камеры для доли пути 0–1 (первый этаж, потом второй). false — на карте нет коридоров. */
+	OBSHAGA_API bool GetView(const UWorld* World, float Progress, FVector& OutLocation, FRotator& OutRotation);
+}
+
 /** Правила «карты меню»: персонажа нет, только экран меню и его управление. */
 UCLASS()
 class OBSHAGA_API AObshagaMenuGameMode : public AGameModeBase
@@ -24,6 +31,7 @@ class OBSHAGA_API AObshagaMenuController : public APlayerController
 
 public:
 	virtual void BeginPlay() override;
+	virtual void PlayerTick(float DeltaTime) override;
 	virtual bool InputKey(const FInputKeyEventArgs& Params) override;
 	/** Нажатие клавиши меню — с клавиатуры или от кнопки виджета. true — клавиша что-то сделала. */
 	bool HandleMenuKey(const FKey& Key);
@@ -33,6 +41,9 @@ public:
 	const FString& GetTypedCode() const { return TypedCode; }
 
 private:
+	UPROPERTY(Transient)
+	TObjectPtr<class ACameraActor> MenuCamera;
+
 	bool bEnteringCode = false;
 	bool bSettings = false;
 	FString TypedCode;

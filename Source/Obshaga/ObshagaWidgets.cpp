@@ -18,7 +18,10 @@
 
 namespace
 {
-	const FLinearColor PanelColor(0.03f, 0.03f, 0.07f, 1.f);
+	// Подложка меню полупрозрачная: за ней видно общагу.
+	const FLinearColor PanelColor(0.02f, 0.02f, 0.06f, 0.62f);
+	const FLinearColor ButtonHoverColor(0.3f, 0.34f, 0.7f, 1.f);
+	const FLinearColor ButtonPressedColor(0.95f, 0.8f, 0.2f, 1.f);
 	const FLinearColor ButtonColor(0.16f, 0.17f, 0.34f, 1.f);
 	const FLinearColor DimColor(0.75f, 0.75f, 0.82f);
 	const FLinearColor ErrorColor(1.f, 0.55f, 0.55f);
@@ -79,6 +82,9 @@ void UObshagaMenuWidget::Build()
 	UTextBlock* Title = AddText(Box, 44, FLinearColor::Yellow, 0.f);
 	Title->SetText(LOCTEXT("Title", "ОБЩАГА — НЕ СПАЛИМСЯ"));
 	Title->SetVisibility(ESlateVisibility::HitTestInvisible);
+	UTextBlock* Slogan = AddText(Box, 22, DimColor, 6.f);
+	Slogan->SetText(LOCTEXT("Slogan", "Общага №7. Комендант не спит"));
+	Slogan->SetVisibility(ESlateVisibility::HitTestInvisible);
 	Status = AddText(Box, 30, FLinearColor::White, 36.f);
 
 	using FClick = void (UObshagaMenuWidget::*)();
@@ -89,7 +95,13 @@ void UObshagaMenuWidget::Build()
 	for (int32 Index = 0; Index < NumButtons; ++Index)
 	{
 		UButton* Button = WidgetTree->ConstructWidget<UButton>();
-		Button->SetBackgroundColor(ButtonColor);
+		// Цвет кнопки задаём по состояниям: обычная, под курсором (светлее) и нажатая (жёлтая).
+		FButtonStyle Style = Button->GetStyle();
+		Style.Normal.TintColor = FSlateColor(ButtonColor);
+		Style.Hovered.TintColor = FSlateColor(ButtonHoverColor);
+		Style.Pressed.TintColor = FSlateColor(ButtonPressedColor);
+		Button->SetStyle(Style);
+		Button->SetBackgroundColor(FLinearColor::White);
 		FScriptDelegate Delegate;
 		Delegate.BindUFunction(this, Handlers[Index]);
 		Button->OnClicked.Add(Delegate);

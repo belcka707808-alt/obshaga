@@ -1,7 +1,13 @@
 #include "ObshagaMenu.h"
 
 #include "ObshagaSessionSubsystem.h"
+#include "ObshagaGameState.h"
 #include "ObshagaSettings.h"
+#include "RoomVolume.h"
+#include "Camera/CameraActor.h"
+#include "Camera/CameraComponent.h"
+#include "Components/BoxComponent.h"
+#include "EngineUtils.h"
 #include "ObshagaWidgets.h"
 #include "Engine/Canvas.h"
 #include "Engine/Engine.h"
@@ -14,6 +20,11 @@
 namespace
 {
 	/** Символ кода комнаты для клавиши. По клавише, а не по букве: русская раскладка вводу не мешает. */
+	// Пролёт: высота камеры над полом коридора, отступ от его торцов и время одного прохода в меню.
+	constexpr float FlyoverHeight = 170.f;
+	constexpr float FlyoverEndInset = 150.f;
+	constexpr float MenuFlyoverSeconds = 40.f;
+
 	TCHAR KeyToCodeChar(const FKey& Key)
 	{
 		static const TMap<FKey, TCHAR> Digits = {
@@ -31,8 +42,69 @@ namespace
 	}
 }
 
+bool ObshagaFlyover::GetView(const UWorld* World, float Progress, FVector& OutLocation, FRotator& OutRotation)
+{
+	// Маршрут: по каждому коридору из конца в конец, сначала первый этаж, потом второй.
+	TArray<const ARoomVolume*> Corridors;
+	for (TActorIterator<ARoomVolume> It(World); It; ++It)
+	{
+		if (It->RoomType == ERoomType::Corridor)
+		{
+			Corridors.Add(*It);
+		}
+	}
+	if (Corridors.IsEmpty())
+	{
+		return false;
+	}
+	Corridors.Sort([](const ARoomVolume& A, const ARoomVolume& B) { return A.GetActorLocation().Z < B.GetActorLocation().Z; });
+
+	const float Scaled = FMath::Clamp(Progress, 0.f, 1.f) * Corridors.Num();
+	const int32 Index = FMath::Min(FMath::FloorToInt32(Scaled), Corridors.Num() - 1);
+	const float Along = FMath::SmoothStep(0.f, 1.f, Scaled - Index);
+	const FBox Bounds = Corridors[Index]->GetBox()->Bounds.GetBox();
+	const bool bAlongX = Bounds.GetSize().X >= Bounds.GetSize().Y;
+	const FVector Axis = bAlongX ? FVector(1.f, 0.f, 0.f) : FVector(0.f, 1.f, 0.f);
+	const float HalfLength = (bAlongX ? Bounds.GetExtent().X : Bounds.GetExtent().Y) - FlyoverEndInset;
+	// На чётных отрезках летим в одну сторону, на нечётных — обратно: так второй этаж начинается над концом первого.
+	const float Direction = Index % 2 == 0 ? 1.f : -1.f;
+	const FVector Center(Bounds.GetCenter().X, Bounds.GetCenter().Y, Bounds.Min.Z + FlyoverHeight);
+	OutLocation = Center + Axis * Direction * FMath::Lerp(-HalfLength, HalfLength, Along);
+	OutRotation = FRotator(-8.f, (Axis * Direction).Rotation().Yaw, 0.f);
+	return true;
+}
+
+void AObshagaMenuController::PlayerTick(float DeltaTime)
+{
+	Super::PlayerTick(DeltaTime);
+
+	// Фон меню — сама общага: камера медленно летит по коридорам туда и обратно.
+	if (!IsLocalController())
+	{
+		return;
+	}
+	if (!MenuCamera)
+	{
+		MenuCamera = GetWorld()->SpawnActor<ACameraActor>();
+		if (MenuCamera)
+		{
+			MenuCamera->GetCameraComponent()->bConstrainAspectRatio = false;
+			SetViewTarget(MenuCamera);
+		}
+	}
+	FVector Location;
+	FRotator Rotation;
+	const float Phase = FMath::Fmod(GetWorld()->GetTimeSeconds() / MenuFlyoverSeconds, 2.f);
+	if (MenuCamera && ObshagaFlyover::GetView(GetWorld(), Phase <= 1.f ? Phase : 2.f - Phase, Location, Rotation))
+	{
+		MenuCamera->SetActorLocationAndRotation(Location, Rotation);
+	}
+}
+
 AObshagaMenuGameMode::AObshagaMenuGameMode()
 {
+	// Состояние игры — как в раунде: карта общаги (свет, краска, комендант) рассчитывает его найти.
+	GameStateClass = AObshagaGameState::StaticClass();
 	DefaultPawnClass = nullptr;
 	PlayerControllerClass = AObshagaMenuController::StaticClass();
 	HUDClass = AObshagaMenuHUD::StaticClass();
