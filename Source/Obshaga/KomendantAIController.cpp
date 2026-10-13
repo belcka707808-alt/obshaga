@@ -32,6 +32,8 @@ namespace
 {
 	// Геометрия маршрута, а не баланс: насколько далеко могут быть соседние точки и когда точка считается достигнутой.
 	constexpr float MaxLinkDistance = 750.f;
+	// Как часто комендант бормочет себе под нос, возвращаясь к обходу.
+	constexpr float PatrolMutterChance = 0.4f;
 	constexpr float ArriveDistance = 70.f;
 	constexpr float ArriveHeight = 220.f;
 	constexpr float DoorOpenDistance = 190.f;
@@ -298,6 +300,11 @@ void AKomendantAIController::BuildGraph()
 	UE_LOG(LogObshaga, Log, TEXT("Komendant graph: %d waypoints, %d links, %d doors, %d hiding spots"), Waypoints.Num(), NumLinks, Doors.Num(), HidingSpots.Num());
 }
 
+int32 AKomendantAIController::GetSpeechStyle() const
+{
+	return Personality ? ObshagaStory::StyleFromPersonalityName(Personality->GetName()) : 0;
+}
+
 void AKomendantAIController::SetState(EKomendantState NewState)
 {
 	// Обыск тайника из списка прервали до того, как он порылся, — тайник возвращается в список.
@@ -313,6 +320,7 @@ void AKomendantAIController::SetState(EKomendantState NewState)
 		ChaseTarget.Reset();
 	}
 
+	const EKomendantState PreviousState = State;
 	State = NewState;
 	StateTime = 0.f;
 	Path.Reset();
@@ -332,6 +340,36 @@ void AKomendantAIController::SetState(EKomendantState NewState)
 		Alert = EKomendantAlert::Suspicious;
 	}
 	Komendant->SetAlert(Alert);
+
+	// Комендант комментирует, что делает: по реплике игроки за стеной понимают, что происходит.
+	switch (NewState)
+	{
+	case EKomendantState::Investigate:
+		Komendant->Say(EKomendantLine::Heard, GetSpeechStyle());
+		break;
+	case EKomendantState::Bluff:
+		Komendant->Say(EKomendantLine::Bluff, GetSpeechStyle());
+		break;
+	case EKomendantState::Chase:
+		Komendant->Say(EKomendantLine::Chase, GetSpeechStyle(), true);
+		break;
+	case EKomendantState::Inspect:
+		Komendant->Say(EKomendantLine::Inspect, GetSpeechStyle());
+		break;
+	case EKomendantState::Patrol:
+		if (PreviousState == EKomendantState::Chase)
+		{
+			// Погоня кончилась ничем.
+			Komendant->Say(EKomendantLine::Lost, GetSpeechStyle(), true);
+		}
+		else if (FMath::FRand() < PatrolMutterChance)
+		{
+			Komendant->Say(EKomendantLine::Patrol, GetSpeechStyle());
+		}
+		break;
+	default:
+		break;
+	}
 
 	UE_LOG(LogObshaga, Verbose, TEXT("Komendant state: %s"), *UEnum::GetValueAsString(NewState));
 }

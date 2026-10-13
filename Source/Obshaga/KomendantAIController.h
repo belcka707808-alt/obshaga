@@ -77,6 +77,12 @@ protected:
 private:
 	void BuildGraph();
 	void ApplyPersonality();
+
+public:
+	/** Манера речи по личности этого раунда: 0 — строгий, 1 — рассеянный, 2 — мстительный. */
+	int32 GetSpeechStyle() const;
+
+private:
 	void OnPhaseChanged();
 	const UObshagaRoundConfig* GetRoundConfig() const;
 	bool IsRoundInProgress() const;

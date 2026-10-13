@@ -102,6 +102,9 @@ void AObshagaGameState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& Ou
 	DOREPLIFETIME(AObshagaGameState, RevealedTasks);
 	DOREPLIFETIME(AObshagaGameState, RevealedPlayers);
 	DOREPLIFETIME(AObshagaGameState, Chronicle);
+	DOREPLIFETIME(AObshagaGameState, StoryIndex);
+	DOREPLIFETIME(AObshagaGameState, Headline);
+	DOREPLIFETIME(AObshagaGameState, Subhead);
 	DOREPLIFETIME(AObshagaGameState, Interrogation);
 	DOREPLIFETIME(AObshagaGameState, AlibiRadius);
 	DOREPLIFETIME(AObshagaGameState, AccuseDistance);
@@ -151,6 +154,23 @@ void AObshagaGameState::SetPhase(ERoundPhase NewPhase, float DurationSeconds)
 	{
 		Phase = NewPhase;
 		PhaseEndServerTime = static_cast<float>(GetServerWorldTimeSeconds()) + DurationSeconds;
+	}
+}
+
+void AObshagaGameState::SetStory(int32 NewIndex)
+{
+	if (HasAuthority())
+	{
+		StoryIndex = static_cast<uint8>(FMath::Max(NewIndex, 0));
+	}
+}
+
+void AObshagaGameState::SetNewspaper(const FText& InHeadline, const FText& InSubhead)
+{
+	if (HasAuthority())
+	{
+		Headline = InHeadline;
+		Subhead = InSubhead;
 	}
 }
 

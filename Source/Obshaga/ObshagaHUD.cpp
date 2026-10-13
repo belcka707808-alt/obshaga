@@ -14,6 +14,7 @@
 #include "ObshagaPlayerState.h"
 #include "ObshagaSessionSubsystem.h"
 #include "ObshagaSettings.h"
+#include "ObshagaStory.h"
 #include "RoomVolume.h"
 #include "SuspicionComponent.h"
 #include "TaskComponent.h"
@@ -26,6 +27,11 @@
 namespace
 {
 	constexpr float NoiseSeconds = 1.5f;
+	// Сколько секунд реплика коменданта держится на экране и с какого расстояния её слышно.
+	constexpr float KomendantLineSeconds = 4.f;
+	constexpr float KomendantVoiceDistance = 1500.f;
+	// Сколько секунд в начале раунда висит карточка с завязкой вечера.
+	constexpr float StoryCardSeconds = 9.f;
 
 	FText RoleName(EPlayerRole Role)
 	{
@@ -132,6 +138,31 @@ void AObshagaHUD::DrawHUD()
 		{
 			DrawCentered(FText::Format(LOCTEXT("RoomCodeBig", "Код комнаты: {0} — продиктуй его друзьям"), FText::FromString(Rooms->GetRoomCode())).ToString(), FLinearColor::White, 0.05f);
 		}
+	}
+
+	// Карточка с завязкой вечера — первые секунды раунда.
+	if (bInProgress && !bWasInProgress)
+	{
+		RoundStartLocalTime = GetWorld()->GetRealTimeSeconds();
+	}
+	bWasInProgress = bInProgress;
+	if (bInProgress && GetWorld()->GetRealTimeSeconds() - RoundStartLocalTime < StoryCardSeconds && !Controller->IsPhoneOpen() && !Controller->IsSettingsOpen())
+	{
+		const float PanelWidth = 460.f * Scale;
+		const float PanelX = (Canvas->ClipX - PanelWidth) * 0.5f;
+		const float TextX = PanelX + 14.f * Scale;
+		const float TextWidth = PanelWidth - 28.f * Scale;
+		const FString Who = FText::Format(LOCTEXT("StoryWho", "Ты — {0}. {1}"), FText::FromString(MyState->GetPlayerName()), ObshagaStory::ResidentTrait(MyState->GetLookSlot())).ToString();
+		const FString Text = ObshagaStory::StoryText(GameState->GetStoryIndex()).ToString();
+		// Сначала меряем высоту текста, потом рисуем подложку под неё.
+		float Bottom = DrawWrapped(Text, FLinearColor::White, TextX, 0.f, TextWidth, 20.f, false);
+		Bottom = DrawWrapped(Who, FLinearColor::White, TextX, Bottom, TextWidth, 20.f, false);
+		float Y = Canvas->ClipY * 0.16f;
+		DrawRect(FLinearColor(0.02f, 0.02f, 0.05f, 0.88f), PanelX, Y - 10.f * Scale, PanelWidth, Bottom + 78.f * Scale);
+		Y = DrawWrapped(LOCTEXT("StoryToday", "СЕГОДНЯ В ОБЩАГЕ №7").ToString(), FLinearColor(0.6f, 0.6f, 0.68f), TextX, Y, TextWidth);
+		Y = DrawWrapped(ObshagaStory::StoryTitle(GameState->GetStoryIndex()).ToString().ToUpper(), FLinearColor::Yellow, TextX, Y, TextWidth);
+		Y = DrawWrapped(Text, FLinearColor::White, TextX, Y, TextWidth);
+		DrawWrapped(Who, FLinearColor(0.75f, 0.95f, 0.75f), TextX, Y + 8.f * Scale, TextWidth);
 	}
 
 	if (Controller->IsSettingsOpen())
@@ -603,6 +634,14 @@ void AObshagaHUD::DrawRoundResults(const AObshagaGameState* GameState)
 				FLinearColor::Yellow, X, RematchY, Font, Scale);
 		}
 
+		if (!GameState->GetHeadline().IsEmpty())
+		{
+			// Стенгазета: заголовок по самому громкому событию раунда.
+			Y = DrawWrapped(LOCTEXT("PaperName", "СТЕНГАЗЕТА ОБЩАГИ №7").ToString(), FLinearColor(0.6f, 0.6f, 0.68f), X, Y, TextWidth, Line - 2.f, bDraw);
+			Y = DrawWrapped(GameState->GetHeadline().ToString(), FLinearColor::Yellow, X, Y, TextWidth, Line, bDraw);
+			Y = DrawWrapped(GameState->GetSubhead().ToString(), FLinearColor::White, X, Y, TextWidth, Line, bDraw);
+			Y += 6.f * Scale;
+		}
 		Y = DrawWrapped(LOCTEXT("ResultsChronicle", "ХРОНИКА РАУНДА").ToString(), FLinearColor::White, X, Y, TextWidth, Line, bDraw);
 		if (GameState->GetChronicle().IsEmpty())
 		{
@@ -740,6 +779,19 @@ void AObshagaHUD::DrawKomendantLabels(const FVector& MyLocation)
 	for (TActorIterator<AKomendantCharacter> It(GetWorld()); It; ++It)
 	{
 		const AKomendantCharacter* Komendant = *It;
+
+		// Голос коменданта слышно и через стену: субтитр внизу экрана, пока он рядом.
+		const bool bSpeaking = GetWorld()->GetTimeSeconds() - Komendant->GetSpokenTime() < KomendantLineSeconds && !Komendant->GetSpokenLine().IsEmpty();
+		const float Distance = FVector::Dist(Komendant->GetActorLocation(), MyLocation);
+		if (bSpeaking && Distance < KomendantVoiceDistance)
+		{
+			const FString Subtitle = FText::Format(LOCTEXT("KomendantSubtitle", "Палыч: «{0}»"), Komendant->GetSpokenLine()).ToString();
+			float SubWidth = 0.f;
+			float SubHeight = 0.f;
+			GetTextSize(Subtitle, SubWidth, SubHeight, Font, Scale);
+			DrawRect(FLinearColor(0.f, 0.f, 0.f, 0.55f), (Canvas->ClipX - SubWidth) * 0.5f - 8.f * Scale, Canvas->ClipY * 0.84f - 4.f * Scale, SubWidth + 16.f * Scale, SubHeight + 8.f * Scale);
+			DrawCentered(Subtitle, FLinearColor(1.f, 0.9f, 0.6f), 0.84f);
+		}
 
 		// Подпись видна, только если коменданта видно: сквозь стены она его не выдаёт.
 		if (FVector::Dist(Komendant->GetActorLocation(), MyLocation) > 3000.f || !Controller->LineOfSightTo(Komendant))

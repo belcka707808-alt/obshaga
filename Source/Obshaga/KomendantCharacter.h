@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
+#include "ObshagaStory.h"
 #include "KomendantCharacter.generated.h"
 
 class UKomendantPersonality;
@@ -32,10 +33,24 @@ public:
 	EKomendantAlert GetAlert() const { return Alert; }
 	void SetAlert(EKomendantAlert NewAlert);
 
+	/** Сервер: комендант произносит реплику. Обычные реплики идут не чаще раза в несколько секунд, важные (bForce) — всегда. */
+	void Say(EKomendantLine Situation, int32 Style, bool bForce = false);
+	/** Что комендант сказал последним и когда (по часам этой машины). Для подписи над головой. */
+	const FText& GetSpokenLine() const { return SpokenLine; }
+	float GetSpokenTime() const { return SpokenTime; }
+
 protected:
 	/** Личности, из которых выбирается одна на раунд. Назначаются в BP_Komendant. */
 	UPROPERTY(EditDefaultsOnly, Category = "Komendant")
 	TArray<TObjectPtr<UKomendantPersonality>> Personalities;
+
+	/** Реплика — мимолётная вещь: кто не получил, ничего не потерял. Шлём номера, текст каждая машина берёт у себя. */
+	UFUNCTION(NetMulticast, Unreliable)
+	void MulticastSay(uint8 Situation, uint8 Style, uint8 Variant);
+
+	FText SpokenLine;
+	float SpokenTime = -100.f;
+	float LastSayServerTime = -100.f;
 
 	UPROPERTY(Replicated)
 	EKomendantAlert Alert = EKomendantAlert::Calm;

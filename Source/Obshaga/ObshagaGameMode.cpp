@@ -8,6 +8,8 @@
 #include "InteractionComponent.h"
 #include "ItemActor.h"
 #include "KomendantAIController.h"
+#include "KomendantCharacter.h"
+#include "ObshagaStory.h"
 #include "NightExitDoor.h"
 #include "Obshaga.h"
 #include "ObshagaCharacter.h"
@@ -96,6 +98,26 @@ void AObshagaGameMode::NotifyPlayer(const APlayerState* PlayerState, const FText
 	if (AObshagaPlayerController* Controller = PlayerState ? Cast<AObshagaPlayerController>(PlayerState->GetOwner()) : nullptr)
 	{
 		Controller->ClientShowNotice(Text);
+	}
+}
+
+int32 AObshagaGameMode::GetKomendantStyle() const
+{
+	for (TActorIterator<AKomendantCharacter> It(GetWorld()); It; ++It)
+	{
+		if (const AKomendantAIController* Brain = Cast<AKomendantAIController>(It->GetController()))
+		{
+			return Brain->GetSpeechStyle();
+		}
+	}
+	return 0;
+}
+
+void AObshagaGameMode::KomendantSay(EKomendantLine Line) const
+{
+	for (TActorIterator<AKomendantCharacter> It(GetWorld()); It; ++It)
+	{
+		It->Say(Line, GetKomendantStyle(), true);
 	}
 }
 
@@ -258,7 +280,18 @@ void AObshagaGameMode::HandleStartingNewPlayer_Implementation(APlayerController*
 	}
 
 	// Пока нет лобби с настоящими именами (M7), игроки — «Жилец 1», «Жилец 2»...
-	PlayerState->SetPlayerName(FString::Printf(TEXT("Жилец %d"), NextPlayerNumber++));
+	// У каждой модели жильца своё имя с прозвищем; ник Steam, если он есть, придёт следом и заменит его.
+	FString ResidentName = ObshagaStory::ResidentName(PlayerState->GetLookSlot());
+	for (const AObshagaPlayerState* Other : GetObshagaPlayers())
+	{
+		if (Other != PlayerState && Other->GetPlayerName() == ResidentName)
+		{
+			ResidentName += FString::Printf(TEXT(" %d"), NextPlayerNumber);
+			break;
+		}
+	}
+	++NextPlayerNumber;
+	PlayerState->SetPlayerName(ResidentName);
 	AssignHomeRoom(NewPlayer);
 
 	// Кто вошёл уже во время раунда, тоже получает задания (обычным жильцом).
@@ -527,6 +560,9 @@ void AObshagaGameMode::StartRound()
 		const float Interval = Config->GetTotalSeconds() / Config->SmsCount;
 		GetWorldTimerManager().SetTimer(SmsTimer, this, &AObshagaGameMode::SendSms, Interval, true, Interval * 0.5f);
 	}
+	// Завязка вечера подбирается под характер коменданта этого раунда (его к этому моменту уже выбрали).
+	State->SetStory(GetKomendantStyle() * ObshagaStory::StoriesPerStyle + FMath::RandRange(0, ObshagaStory::StoriesPerStyle - 1));
+
 	// Новичкам сразу говорим, откуда ждать опасность.
 	NotifyAll(LOCTEXT("KomendantWhere", "Комендант на вахте, 1 этаж. Скоро пойдёт в обход — не попадайся"));
 	UE_LOG(LogObshaga, Log, TEXT("Round started: %.0f s, %d players"), Config->GetTotalSeconds(), Players.Num());
@@ -914,6 +950,7 @@ bool AObshagaGameMode::StartInterrogation(AObshagaCharacter* Suspect, const FVec
 	GetWorldTimerManager().SetTimer(InterrogationTimer, this, &AObshagaGameMode::ResolveInterrogation, Duration, false);
 	UGameEventSubsystem::PublishFrom(Suspect, EGameEventType::PlayerCaught, CaughtWith);
 	UE_LOG(LogObshaga, Verbose, TEXT("Interrogation started: %s (contraband=%d)"), *PlayerState->GetPlayerName(), bSuspectHadContraband ? 1 : 0);
+	KomendantSay(EKomendantLine::Caught);
 
 	// Поймали того, на кого недавно стучала Крыса, — ей бонус.
 	AObshagaPlayerState* Rat = TipRat.Get();
@@ -1051,6 +1088,22 @@ void AObshagaGameMode::ResolveInterrogation()
 		Suspect->SetFrozen(false);
 		UGameEventSubsystem::PublishFrom(Suspect, EventType);
 
+		// Комендант отвечает на то, что услышал.
+		EKomendantLine Reply = EKomendantLine::Silent;
+		if (EventType == EGameEventType::InterrogationConfessed)
+		{
+			Reply = EKomendantLine::Confess;
+		}
+		else if (EventType == EGameEventType::InterrogationLieSucceeded)
+		{
+			Reply = EKomendantLine::LieOk;
+		}
+		else if (EventType == EGameEventType::InterrogationLieFailed)
+		{
+			Reply = EKomendantLine::LieFail;
+		}
+		KomendantSay(Reply);
+
 		// Алиби засчитывается только если ложь удалась.
 		for (const TWeakObjectPtr<AObshagaCharacter>& Helper : AlibiBy)
 		{
@@ -1111,6 +1164,34 @@ void AObshagaGameMode::EndRound()
 	}
 	AssignTitles(RevealedPlayers, Players);
 	WriteTelemetry(Players);
+
+	// Стенгазета: заголовок по самому громкому событию раунда.
+	FString EvictedName;
+	FString CaughtName;
+	FString WinnerName;
+	int32 TotalStrikes = 0;
+	int32 MostStrikes = 0;
+	int32 WinnerScore = MIN_int32;
+	for (const AObshagaPlayerState* PlayerState : Players)
+	{
+		const int32 Strikes = PlayerState->GetSuspicionComponent()->GetStrikes();
+		TotalStrikes += Strikes;
+		if (Strikes > MostStrikes)
+		{
+			MostStrikes = Strikes;
+			CaughtName = PlayerState->GetPlayerName();
+		}
+		if (PlayerState->IsEvicted() && EvictedName.IsEmpty())
+		{
+			EvictedName = PlayerState->GetPlayerName();
+		}
+		if (FMath::RoundToInt32(PlayerState->GetScore()) > WinnerScore)
+		{
+			WinnerScore = FMath::RoundToInt32(PlayerState->GetScore());
+			WinnerName = PlayerState->GetPlayerName();
+		}
+	}
+	State->SetNewspaper(ObshagaStory::Headline(EvictedName, CaughtName, TotalStrikes), ObshagaStory::Subhead(WinnerName, WinnerScore));
 
 	State->FinishRound(RevealedTasks, RevealedPlayers, BuildChronicle());
 	if (UGameEventSubsystem* Bus = UGameEventSubsystem::Get(this))

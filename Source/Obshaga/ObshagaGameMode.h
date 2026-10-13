@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/GameModeBase.h"
+#include "ObshagaStory.h"
 #include "ObshagaGameMode.generated.h"
 
 class AObshagaCharacter;
@@ -77,6 +78,9 @@ protected:
 	TArray<AObshagaPlayerState*> GetObshagaPlayers() const;
 	void NotifyPlayer(const APlayerState* PlayerState, const FText& Text) const;
 	void NotifyAll(const FText& Text) const;
+	/** Манера речи коменданта в этом раунде и реплика от его имени. */
+	int32 GetKomendantStyle() const;
+	void KomendantSay(EKomendantLine Line) const;
 
 	/** Настройки раунда; назначаются в BP_ObshagaGameMode. */
 	UPROPERTY(EditDefaultsOnly, Category = "Round")

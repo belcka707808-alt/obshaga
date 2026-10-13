@@ -2,6 +2,12 @@
 
 #include "KomendantAIController.h"
 #include "KomendantPersonality.h"
+
+namespace
+{
+	// Комендант не тараторит: между обычными репликами проходит хотя бы столько секунд.
+	constexpr float SayCooldownSeconds = 5.f;
+}
 #include "ObshagaLookComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
@@ -46,6 +52,26 @@ const UKomendantPersonality* AKomendantCharacter::PickPersonality() const
 		}
 	}
 	return Valid.IsEmpty() ? GetDefault<UKomendantPersonality>() : Valid[FMath::RandRange(0, Valid.Num() - 1)];
+}
+
+void AKomendantCharacter::Say(EKomendantLine Situation, int32 Style, bool bForce)
+{
+	const float Now = GetWorld()->GetTimeSeconds();
+	if (!HasAuthority() || (!bForce && Now - LastSayServerTime < SayCooldownSeconds))
+	{
+		return;
+	}
+	LastSayServerTime = Now;
+	MulticastSay(static_cast<uint8>(Situation), static_cast<uint8>(Style), static_cast<uint8>(FMath::RandRange(0, ObshagaStory::LinesPerSituation - 1)));
+}
+
+void AKomendantCharacter::MulticastSay_Implementation(uint8 Situation, uint8 Style, uint8 Variant)
+{
+	if (Situation < static_cast<uint8>(EKomendantLine::Count))
+	{
+		SpokenLine = ObshagaStory::KomendantLine(static_cast<EKomendantLine>(Situation), Style, Variant);
+		SpokenTime = GetWorld()->GetTimeSeconds();
+	}
 }
 
 void AKomendantCharacter::SetAlert(EKomendantAlert NewAlert)

@@ -43,4 +43,8 @@ private:
 	/** Выбранная раскладка экрана итогов и то, для чего она выбрана (чтобы не мерить заново каждый кадр). */
 	int32 ResultsVariant = INDEX_NONE;
 	uint32 ResultsKey = 0;
+
+	/** Когда на этой машине начался текущий раунд — для карточки с завязкой вечера. */
+	float RoundStartLocalTime = -100.f;
+	bool bWasInProgress = false;
 };

@@ -80,6 +80,13 @@ public:
 	const TArray<FRevealedPlayer>& GetRevealedPlayers() const { return RevealedPlayers; }
 	const TArray<FText>& GetChronicle() const { return Chronicle; }
 
+	/** Завязка этого вечера (номер в ObshagaStory) и стенгазета по итогам. */
+	int32 GetStoryIndex() const { return StoryIndex; }
+	const FText& GetHeadline() const { return Headline; }
+	const FText& GetSubhead() const { return Subhead; }
+	void SetStory(int32 NewIndex);
+	void SetNewspaper(const FText& InHeadline, const FText& InSubhead);
+
 	const FInterrogationInfo& GetInterrogation() const { return Interrogation; }
 	float GetInterrogationRemainingSeconds() const;
 	/** Радиус, в котором можно подтвердить алиби (приходит с сервера из DA_RoundConfig). */
@@ -117,6 +124,15 @@ protected:
 
 	UPROPERTY(Replicated)
 	FInterrogationInfo Interrogation;
+
+	UPROPERTY(Replicated)
+	uint8 StoryIndex = 0;
+
+	UPROPERTY(Replicated)
+	FText Headline;
+
+	UPROPERTY(Replicated)
+	FText Subhead;
 
 	UPROPERTY(Replicated)
 	float AlibiRadius = 800.f;
