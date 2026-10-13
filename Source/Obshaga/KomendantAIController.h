@@ -86,6 +86,8 @@ public:
 	void RefreshSenses() { ApplyPersonality(); }
 	/** Отправить коменданта в точку и держать его там заданное время (чинит трубу). false — он занят погоней или допросом. */
 	bool HoldAt(const FVector& Location, float Seconds);
+	/** Только для проверок: начать погоню за этим игроком прямо сейчас (дальше всё как в игре). */
+	void DebugChase(AObshagaCharacter* Target) { StartChase(Target); }
 	/** Идёт ли сейчас это событие ночи. */
 	bool IsNightEvent(ENightEvent Event) const;
 	bool IsDeaneryMorning() const;

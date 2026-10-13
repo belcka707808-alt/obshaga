@@ -52,6 +52,27 @@ private:
 	int32 ResultsVariant = INDEX_NONE;
 	uint32 ResultsKey = 0;
 
+	/**
+	 * «Фото» героя газеты. Под картой на секунду собирается фотобудка: копия модели героя, фон с ростовой
+	 * линейкой, лампа и камера, которая один раз снимает в текстуру. Всё на своей машине, по сети не ходит.
+	 */
+	void UpdateHeroPhoto(const AObshagaGameState* GameState);
+	void ClearHeroPhoto();
+
+	UPROPERTY(Transient)
+	TObjectPtr<class UTextureRenderTarget2D> HeroPhoto;
+
+	UPROPERTY(Transient)
+	TArray<TObjectPtr<AActor>> PhotoBooth;
+
+	UPROPERTY(Transient)
+	TObjectPtr<class USceneCaptureComponent2D> PhotoCapture;
+
+	FString HeroPhotoName;
+	float PhotoShootTime = 0.f;
+	bool bHeroPhotoStarted = false;
+	bool bHeroPhotoReady = false;
+
 	/** Когда на этой машине начался текущий раунд — для карточки с завязкой вечера. */
 	float RoundStartLocalTime = -100.f;
 	bool bWasInProgress = false;

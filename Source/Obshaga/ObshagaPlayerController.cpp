@@ -2,6 +2,7 @@
 
 #include "CarryComponent.h"
 #include "InteractionComponent.h"
+#include "KomendantAIController.h"
 #include "KomendantCharacter.h"
 #include "ObshagaCharacter.h"
 #include "ObshagaCharacterConfig.h"
@@ -10,7 +11,14 @@
 #include "RHI.h"
 #include "Obshaga.h"
 #include "Components/AudioComponent.h"
+#include "ItemActor.h"
+#include "ObshagaItemData.h"
+#include "Misc/CommandLine.h"
+#include "Misc/Parse.h"
 #include "Camera/CameraActor.h"
+#include "HAL/FileManager.h"
+#include "Misc/Paths.h"
+#include "UnrealClient.h"
 #include "Components/PointLightComponent.h"
 #include "Engine/PointLight.h"
 #include "Camera/CameraComponent.h"
@@ -57,11 +65,17 @@ namespace
 	// Допрос: высота лампы над серединой сцены, время перехода камеры и расстояние, ближе которого камеру сбоку не ставим.
 	constexpr float InterrogationLampHeight = 150.f;
 	constexpr float InterrogationCameraBlendSeconds = 0.4f;
-	constexpr float InterrogationCameraMinDistance = 150.f;
+	constexpr float InterrogationCameraMinDistance = 190.f;
 	// Насколько камера допроса выше середины сцены.
-	constexpr float InterrogationCameraLift = 70.f;
+	constexpr float InterrogationCameraLift = 35.f;
+	/** Камера целится ниже середины сцены и чуть левее: герои встают правее и выше, панель допроса — слева. */
+	constexpr float InterrogationLookDrop = 45.f;
+	constexpr float InterrogationLookYaw = -13.f;
 	// Радиус шара, которым проверяется место для камеры допроса.
 	constexpr float InterrogationCameraProbe = 22.f;
+	// Камера «через плечо коменданта»: насколько позади него, сбоку и выше его пояса.
+	constexpr float ShoulderBack = 100.f;
+	constexpr float ShoulderUp = 150.f;
 	constexpr float CameraHideSelfDistance = 130.f;
 	constexpr float CameraHideHeadHeight = 45.f;
 
@@ -300,6 +314,45 @@ void AObshagaPlayerController::ClientReturnToMainMenuWithTextReason_Implementati
 	Super::ClientReturnToMainMenuWithTextReason_Implementation(ReturnReason);
 }
 
+void AObshagaPlayerController::ServerDebug_Implementation(uint8 What)
+{
+#if !UE_BUILD_SHIPPING
+	AObshagaCharacter* Me = GetObshagaCharacter();
+	AObshagaGameMode* GameMode = GetWorld()->GetAuthGameMode<AObshagaGameMode>();
+	if (!Me || !GameMode || !FParse::Param(FCommandLine::Get(), TEXT("ObshagaDebugKeys")))
+	{
+		return;
+	}
+	if (What == 0)
+	{
+		// Комендант встаёт перед игроком и начинает обычный допрос.
+		for (TActorIterator<AKomendantCharacter> It(GetWorld()); It; ++It)
+		{
+			// Ставим его вплотную и запускаем обычную погоню: поймает он сам, и допрос пойдёт как в игре.
+			const FVector Front = Me->GetActorLocation() + Me->GetActorForwardVector() * 120.f;
+			It->SetActorLocationAndRotation(Front, (-Me->GetActorForwardVector()).Rotation(), false, nullptr, ETeleportType::TeleportPhysics);
+			if (AKomendantAIController* Brain = Cast<AKomendantAIController>(It->GetController()))
+			{
+				Brain->DebugChase(Me);
+			}
+			break;
+		}
+	}
+	else
+	{
+		for (TActorIterator<AItemActor> It(GetWorld()); It; ++It)
+		{
+			if (It->GetItemData() && It->GetItemData()->bHeavy)
+			{
+				It->SetActorLocation(Me->GetActorLocation() + Me->GetActorForwardVector() * 80.f, false, nullptr, ETeleportType::TeleportPhysics);
+				Me->GetCarryComponent()->PickUp(*It);
+				break;
+			}
+		}
+	}
+#endif
+}
+
 void AObshagaPlayerController::UpdateInterrogationScene()
 {
 	// Допрос — маленькая сцена: над пойманным загорается тёплая лампа (её видят все), а сам пойманный
@@ -353,7 +406,7 @@ void AObshagaPlayerController::UpdateInterrogationScene()
 		// хватает места, а если такого нет — самое просторное. Камера стоит выше голов и смотрит чуть вниз.
 		FVector Best = FVector::ZeroVector;
 		float BestDistance = InterrogationCameraMinDistance;
-		for (const float Angle : { 90.f, -90.f, 125.f, -125.f, 55.f, -55.f, 155.f, -155.f })
+		for (const float Angle : { 90.f, -90.f, 125.f, -125.f, 55.f, -55.f })
 		{
 			if (BestDistance >= Cfg->InterrogationCameraDistance * 0.85f)
 			{
@@ -383,6 +436,28 @@ void AObshagaPlayerController::UpdateInterrogationScene()
 			}
 			BestDistance = Distance;
 			Best = Candidate;
+			UE_LOG(LogObshaga, Verbose, TEXT("Interrogation camera: side %.0f deg, %.0f cm"), Angle, Distance);
+		}
+		if (Best.IsZero())
+		{
+			// Сбоку места нет (узкий коридор): смотрим через плечо коменданта на пойманного, лицом к лицу.
+			const FVector Side = FVector::CrossProduct(Forward, FVector::UpVector);
+			FCollisionQueryParams Params(SCENE_QUERY_STAT(InterrogationShoulder), false);
+			Params.AddIgnoredActor(Suspect);
+			Params.AddIgnoredActor(Komendant);
+			// Чем дальше камера вбок, тем меньше спина коменданта закрывает пойманного; сначала правое плечо
+			// (комендант встаёт в кадре слева, под панелью допроса), потом левое, потом ближе к спине.
+			for (const float Offset : { 115.f, -115.f, 85.f, -85.f })
+			{
+				const FVector Shoulder = Komendant->GetActorLocation() + Forward * ShoulderBack + Side * Offset + FVector(0.f, 0.f, ShoulderUp);
+				FHitResult Hit;
+				if (!GetWorld()->SweepSingleByChannel(Hit, Komendant->GetActorLocation(), Shoulder, FQuat::Identity, ECC_Camera, FCollisionShape::MakeSphere(InterrogationCameraProbe), Params))
+				{
+					Best = Shoulder;
+					break;
+				}
+			}
+			UE_LOG(LogObshaga, Verbose, TEXT("Interrogation camera: no room at the side, over the shoulder %s"), Best.IsZero() ? TEXT("blocked too") : TEXT("ok"));
 		}
 		if (!Best.IsZero())
 		{
@@ -396,7 +471,12 @@ void AObshagaPlayerController::UpdateInterrogationScene()
 			}
 			if (InterrogationCamera)
 			{
-				InterrogationCamera->SetActorLocationAndRotation(Best, (Middle - Best).Rotation());
+				// Целимся в голову пойманного, если смотрим из-за плеча, и в середину сцены, если сбоку.
+				const bool bShoulder = FVector::Dist2D(Best, Komendant->GetActorLocation()) < 160.f;
+				const FVector LookAt = bShoulder ? Suspect->GetActorLocation() : Middle - FVector(0.f, 0.f, InterrogationLookDrop);
+				FRotator Look = (LookAt - Best).Rotation();
+				Look.Yaw += bShoulder ? 0.f : InterrogationLookYaw;
+				InterrogationCamera->SetActorLocationAndRotation(Best, Look);
 				SetViewTargetWithBlend(InterrogationCamera, InterrogationCameraBlendSeconds);
 				bInterrogationCamera = true;
 			}
@@ -455,6 +535,31 @@ bool AObshagaPlayerController::InputKey(const FInputKeyEventArgs& Params)
 		{
 			ServerRequestStart();
 		}
+		return true;
+	}
+
+#if !UE_BUILD_SHIPPING
+	// Проверочные клавиши: K — комендант сразу ловит меня, L — тяжёлый предмет мне в руки.
+	if (Params.Event == IE_Pressed && (Params.Key == EKeys::K || Params.Key == EKeys::L) && FParse::Param(FCommandLine::Get(), TEXT("ObshagaDebugKeys")))
+	{
+		ServerDebug(Params.Key == EKeys::K ? 0 : 1);
+		return true;
+	}
+#endif
+
+	// F12 — снимок экрана в папку «Изображения\Obshaga» (экран итогов сделан, чтобы им делились).
+	if (Params.Event == IE_Pressed && Params.Key == EKeys::F12)
+	{
+		const FString Folder = FPaths::Combine(FPlatformProcess::UserDir(), TEXT("../Pictures/Obshaga"));
+		const FString File = FPaths::ConvertRelativePathToFull(FPaths::Combine(Folder, FString::Printf(TEXT("Obshaga_%s.png"), *FDateTime::Now().ToString(TEXT("%Y%m%d_%H%M%S")))));
+		IFileManager::Get().MakeDirectory(*Folder, true);
+		// С интерфейсом: на снимке должны быть газета и итоги, а не только комната.
+		FScreenshotRequest::RequestScreenshot(File, true, false);
+		FString Shown = File;
+		FPaths::MakePlatformFilename(Shown);
+		ClientShowNotice_Implementation(FText::Format(NSLOCTEXT("ObshagaRoom", "Screenshot", "Снимок сохранён: {0}"), FText::FromString(Shown)));
+		ScreenshotPath = Shown;
+		ScreenshotTime = GetWorld()->GetRealTimeSeconds();
 		return true;
 	}
 

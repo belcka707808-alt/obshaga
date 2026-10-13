@@ -40,6 +40,9 @@ public:
 	bool IsPhoneOpen() const { return bPhoneOpen; }
 	bool IsEmoteWheelOpen() const { return bEmoteWheelOpen; }
 	bool IsSettingsOpen() const { return bSettingsOpen; }
+	/** Куда сохранён последний снимок экрана (F12) и когда — экран итогов показывает путь несколько секунд. */
+	const FString& GetScreenshotPath() const { return ScreenshotPath; }
+	float GetScreenshotTime() const { return ScreenshotTime; }
 	/** Показывается ли этому игроку заставка прямо сейчас (он её не пропустил). */
 	bool IsWatchingIntro() const { return bIntroCamera; }
 
@@ -93,6 +96,10 @@ protected:
 	UFUNCTION(Server, Reliable)
 	void ServerAccuse(AObshagaCharacter* Suspect);
 
+	/** Только для проверок (не в Shipping и только с ключом запуска -ObshagaDebugKeys): 0 — «поймай меня», 1 — «дай телевизор». */
+	UFUNCTION(Server, Reliable)
+	void ServerDebug(uint8 What);
+
 	/** Игрок стучит на жилую комнату, в которой стоит. */
 	UFUNCTION(Server, Reliable)
 	void ServerTipOffRoom();
@@ -102,6 +109,8 @@ private:
 	float LeavePressTime = -100.f;
 	bool bDisplayNameSet = false;
 	bool bSettingsOpen = false;
+	FString ScreenshotPath;
+	float ScreenshotTime = -100.f;
 
 	/** Заставка: пролёт камеры по коридорам. Камера у каждого игрока своя, по сети не ходит. */
 	void UpdateIntro();

@@ -102,7 +102,9 @@ public:
 	const FText& GetHeadline() const { return Headline; }
 	const FText& GetSubhead() const { return Subhead; }
 	void SetStory(int32 NewIndex);
-	void SetNewspaper(const FText& InHeadline, const FText& InSubhead, const TArray<FText>& InNotes);
+	void SetNewspaper(const FText& InHeadline, const FText& InSubhead, const TArray<FText>& InNotes, APlayerState* InHero);
+	/** Про кого заголовок газеты (или победитель, если заголовок ни про кого) — его «фото» стоит в газете. */
+	APlayerState* GetPaperHero() const { return PaperHero; }
 	const TArray<FText>& GetPaperNotes() const { return PaperNotes; }
 
 	/** Событие этой ночи: 0 — нет, дальше как в ENightEvent. Идёт ли оно прямо сейчас — IsNightEventActive. */
@@ -204,6 +206,9 @@ protected:
 
 	UPROPERTY(Replicated)
 	TArray<FText> PaperNotes;
+
+	UPROPERTY(Replicated)
+	TObjectPtr<APlayerState> PaperHero;
 
 	UPROPERTY(Replicated)
 	float AlibiRadius = 800.f;

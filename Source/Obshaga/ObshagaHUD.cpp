@@ -10,6 +10,8 @@
 #include "ObshagaCharacter.h"
 #include "ObshagaCharacterConfig.h"
 #include "ObshagaGameState.h"
+#include "ObshagaLookComponent.h"
+#include "ObshagaVisuals.h"
 #include "ObshagaPlayerController.h"
 #include "ObshagaPlayerState.h"
 #include "ObshagaSessionSubsystem.h"
@@ -19,7 +21,19 @@
 #include "RoomVolume.h"
 #include "SuspicionComponent.h"
 #include "TaskComponent.h"
+#include "Animation/AnimSequenceBase.h"
+#include "Animation/SkeletalMeshActor.h"
+#include "Components/PointLightComponent.h"
+#include "Components/SceneCaptureComponent2D.h"
+#include "Components/SkeletalMeshComponent.h"
+#include "Components/StaticMeshComponent.h"
 #include "Engine/Canvas.h"
+#include "Engine/PointLight.h"
+#include "Engine/SceneCapture2D.h"
+#include "Engine/SkeletalMesh.h"
+#include "Engine/StaticMesh.h"
+#include "Engine/StaticMeshActor.h"
+#include "Engine/TextureRenderTarget2D.h"
 #include "Engine/Engine.h"
 #include "EngineUtils.h"
 
@@ -33,6 +47,21 @@ namespace
 	constexpr float KomendantVoiceDistance = 1500.f;
 	// Сколько секунд в начале раунда висит карточка с завязкой вечера.
 	constexpr float StoryCardSeconds = 9.f;
+	// Сколько секунд после F12 на экране итогов виден путь к сохранённому снимку.
+	constexpr float ScreenshotNoticeSeconds = 6.f;
+	// Фотобудка для «фото» героя газеты: глубоко под картой, чтобы её никто не увидел.
+	const FVector PhotoBoothOrigin(0.f, 0.f, -6000.f);
+	constexpr int32 PhotoPixels = 256;
+	constexpr float PhotoCameraDistance = 200.f;
+	constexpr float PhotoCameraHeight = 82.f;
+	constexpr float PhotoCameraFov = 40.f;
+	// Через сколько секунд после сборки будки делается снимок (модель успевает встать в позу) и когда будка убирается.
+	constexpr float PhotoPoseSeconds = 0.6f;
+	constexpr float PhotoCleanupSeconds = 0.5f;
+	constexpr float PhotoLampIntensity = 7.f;
+	// Сторона фото на экране итогов (до масштаба интерфейса) и толщина белой рамки.
+	constexpr float PhotoSize = 92.f;
+	constexpr float PhotoFrame = 4.f;
 
 	FText RoleName(EPlayerRole Role)
 	{
@@ -136,8 +165,9 @@ void AObshagaHUD::DrawHUD()
 
 	if (GameState->GetRoundState() != ERoundState::Finished)
 	{
-		// Следующие итоги выберут раскладку заново.
+		// Следующие итоги выберут раскладку заново и снимут новое фото.
 		ResultsVariant = INDEX_NONE;
+		ClearHeroPhoto();
 	}
 
 	if (PhoneWidget)
@@ -685,8 +715,156 @@ void AObshagaHUD::DrawPhoneLines(const AObshagaPlayerState* MyState, const AObsh
 	}
 }
 
+void AObshagaHUD::ClearHeroPhoto()
+{
+	for (AActor* Actor : PhotoBooth)
+	{
+		if (Actor)
+		{
+			Actor->Destroy();
+		}
+	}
+	PhotoBooth.Reset();
+	PhotoCapture = nullptr;
+	bHeroPhotoStarted = false;
+	bHeroPhotoReady = false;
+}
+
+void AObshagaHUD::UpdateHeroPhoto(const AObshagaGameState* GameState)
+{
+	const float Now = GetWorld()->GetRealTimeSeconds();
+	if (bHeroPhotoStarted)
+	{
+		if (!bHeroPhotoReady && PhotoCapture && Now >= PhotoShootTime)
+		{
+			PhotoCapture->CaptureScene();
+			bHeroPhotoReady = true;
+		}
+		else if (bHeroPhotoReady && !PhotoBooth.IsEmpty() && Now >= PhotoShootTime + PhotoCleanupSeconds)
+		{
+			// Снимок сделан — будка больше не нужна; текстура с фото остаётся.
+			for (AActor* Actor : PhotoBooth)
+			{
+				if (Actor)
+				{
+					Actor->Destroy();
+				}
+			}
+			PhotoBooth.Reset();
+			PhotoCapture = nullptr;
+		}
+		return;
+	}
+
+	// Герой известен всем машинам (реплицируется), а модель берём по номеру внешности его персонажа.
+	const APlayerState* Hero = GameState->GetPaperHero();
+	const AObshagaCharacter* HeroCharacter = Hero ? Cast<AObshagaCharacter>(Hero->GetPawn()) : nullptr;
+	const UObshagaLookConfig* Looks = UObshagaLookConfig::Get();
+	if (!HeroCharacter || Looks->ResidentMeshes.IsEmpty())
+	{
+		return;
+	}
+	USkeletalMesh* Model = Looks->ResidentMeshes[HeroCharacter->GetLookSlot() % Looks->ResidentMeshes.Num()];
+	UStaticMesh* Cube = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cube.Cube"));
+	bHeroPhotoStarted = true;
+	if (!Model || !Cube)
+	{
+		return;
+	}
+	HeroPhotoName = Hero->GetPlayerName();
+
+	// Пойманный хоть раз снимается в позе «пойман», остальные — с первым жестом.
+	bool bCaught = false;
+	for (const FRevealedPlayer& Player : GameState->GetRevealedPlayers())
+	{
+		bCaught |= Player.PlayerName == HeroPhotoName && Player.Strikes > 0;
+	}
+	UAnimSequenceBase* Pose = bCaught && Looks->Caught ? Looks->Caught.Get() : (Looks->EmoteGestures.IsEmpty() ? nullptr : Looks->EmoteGestures[0].Get());
+	Pose = Pose ? Pose : Looks->Idle.Get();
+
+	// Модель: ногами на пол будки, лицом к камере (камера стоит на оси X).
+	const FBoxSphereBounds Bounds = Model->GetBounds();
+	const float ModelScale = Looks->ResidentHeight / FMath::Max(Bounds.BoxExtent.Z * 2.f, 1.f);
+	const float FeetZ = (Bounds.Origin.Z - Bounds.BoxExtent.Z) * ModelScale;
+	if (ASkeletalMeshActor* Body = GetWorld()->SpawnActor<ASkeletalMeshActor>(PhotoBoothOrigin - FVector(0.f, 0.f, FeetZ), FRotator(0.f, Looks->ModelYaw, 0.f)))
+	{
+		USkeletalMeshComponent* Mesh = Body->GetSkeletalMeshComponent();
+		Mesh->SetSkeletalMesh(Model);
+		Body->SetActorScale3D(FVector(ModelScale));
+		// Будку не видит ни одна обычная камера, поэтому позу надо считать принудительно.
+		Mesh->VisibilityBasedAnimTickOption = EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones;
+		Mesh->SetCastShadow(false);
+		if (Pose)
+		{
+			Mesh->PlayAnimation(Pose, true);
+		}
+		PhotoBooth.Add(Body);
+	}
+
+	// Фон и «ростовая линейка», как на фото в личное дело.
+	auto AddBox = [this, Cube](const FVector& Offset, const FVector& Size, const FLinearColor& Color)
+	{
+		if (AStaticMeshActor* Box = GetWorld()->SpawnActor<AStaticMeshActor>(PhotoBoothOrigin + Offset, FRotator::ZeroRotator))
+		{
+			UStaticMeshComponent* Mesh = Box->GetStaticMeshComponent();
+			Mesh->SetMobility(EComponentMobility::Movable);
+			Mesh->SetStaticMesh(Cube);
+			Mesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+			Mesh->SetCastShadow(false);
+			Box->SetActorScale3D(Size / 100.f);
+			ObshagaVisuals::Tint(Mesh, Color);
+			PhotoBooth.Add(Box);
+		}
+	};
+	AddBox(FVector(-70.f, 0.f, 100.f), FVector(4.f, 500.f, 400.f), FLinearColor(0.80f, 0.74f, 0.58f));
+	for (const float Height : { 60.f, 90.f, 120.f, 150.f })
+	{
+		AddBox(FVector(-66.f, 0.f, Height), FVector(4.f, 500.f, 2.5f), FLinearColor(0.25f, 0.22f, 0.18f));
+	}
+
+	if (APointLight* Lamp = GetWorld()->SpawnActor<APointLight>(PhotoBoothOrigin + FVector(160.f, 90.f, 190.f), FRotator::ZeroRotator))
+	{
+		UPointLightComponent* Light = Lamp->PointLightComponent;
+		Light->SetMobility(EComponentMobility::Movable);
+		Light->bUseInverseSquaredFalloff = false;
+		Light->SetLightFalloffExponent(2.f);
+		Light->SetCastShadows(false);
+		Light->SetIntensity(PhotoLampIntensity);
+		Light->SetAttenuationRadius(700.f);
+		PhotoBooth.Add(Lamp);
+	}
+
+	if (!HeroPhoto)
+	{
+		HeroPhoto = NewObject<UTextureRenderTarget2D>(this);
+		HeroPhoto->RenderTargetFormat = RTF_RGBA8;
+		HeroPhoto->InitAutoFormat(PhotoPixels, PhotoPixels);
+		HeroPhoto->UpdateResourceImmediate(true);
+	}
+	const FVector CameraAt = PhotoBoothOrigin + FVector(PhotoCameraDistance, 0.f, PhotoCameraHeight);
+	if (ASceneCapture2D* Camera = GetWorld()->SpawnActor<ASceneCapture2D>(CameraAt, FRotator(0.f, 180.f, 0.f)))
+	{
+		PhotoCapture = Camera->GetCaptureComponent2D();
+		PhotoCapture->TextureTarget = HeroPhoto;
+		PhotoCapture->CaptureSource = SCS_FinalColorLDR;
+		PhotoCapture->FOVAngle = PhotoCameraFov;
+		PhotoCapture->bCaptureEveryFrame = false;
+		PhotoCapture->bCaptureOnMovement = false;
+		// В кадр попадает только будка — ни неба, ни карты над ней.
+		PhotoCapture->PrimitiveRenderMode = ESceneCapturePrimitiveRenderMode::PRM_UseShowOnlyList;
+		for (AActor* Actor : PhotoBooth)
+		{
+			PhotoCapture->ShowOnlyActors.Add(Actor);
+		}
+		PhotoBooth.Add(Camera);
+	}
+	PhotoShootTime = Now + PhotoPoseSeconds;
+}
+
 void AObshagaHUD::DrawRoundResults(const AObshagaGameState* GameState)
 {
+	UpdateHeroPhoto(GameState);
+	const bool bPhoto = bHeroPhotoReady && HeroPhoto;
 	const float PanelY = 34.f * Scale;
 	const float Pad = 12.f * Scale;
 	const FLinearColor Dim(0.82f, 0.82f, 0.88f);
@@ -742,14 +920,43 @@ void AObshagaHUD::DrawRoundResults(const AObshagaGameState* GameState)
 			const bool bHost = GetNetMode() != NM_Client;
 			DrawText((bHost ? LOCTEXT("RematchHost", "[Enter] Реванш — новые роли и задания") : LOCTEXT("RematchClient", "Ждём, пока хост начнёт реванш")).ToString(),
 				FLinearColor::Yellow, X, RematchY, Font, Scale);
+			// Справа внизу — как сохранить этот экран; после F12 несколько секунд показываем, куда он лёг.
+			// На сам снимок эта строка с путём не попадает: снимок делается раньше, чем она появится.
+			const AObshagaPlayerController* Me = Cast<AObshagaPlayerController>(GetOwningPlayerController());
+			const bool bSaved = Me && GetWorld()->GetRealTimeSeconds() - Me->GetScreenshotTime() < ScreenshotNoticeSeconds;
+			const FString ShotLine = bSaved ? FText::Format(LOCTEXT("ShotSaved", "Сохранено: {0}"), FText::FromString(Me->GetScreenshotPath())).ToString() : LOCTEXT("ShotHint", "[F12] сохранить снимок").ToString();
+			float ShotWidth = 0.f;
+			float ShotHeight = 0.f;
+			GetTextSize(ShotLine, ShotWidth, ShotHeight, Font, Scale * 0.85f);
+			// Путь длинный, поэтому он встаёт строкой выше «Реванша», а не поверх него.
+			DrawText(ShotLine, bSaved ? FLinearColor(0.6f, 1.f, 0.6f) : Dim, FMath::Max(PanelX + PanelWidth - Pad - ShotWidth, PanelX + Pad), bSaved ? RematchY - 18.f * Scale : RematchY, Font, Scale * 0.85f);
 		}
 
 		if (!GameState->GetHeadline().IsEmpty())
 		{
 			// Стенгазета: заголовок по самому громкому событию раунда.
-			Y = DrawWrapped(LOCTEXT("PaperName", "СТЕНГАЗЕТА ОБЩАГИ №7").ToString(), FLinearColor(0.6f, 0.6f, 0.68f), X, Y, TextWidth, Line - 2.f, bDraw);
-			Y = DrawWrapped(GameState->GetHeadline().ToString(), FLinearColor::Yellow, X, Y, TextWidth, Line, bDraw);
-			Y = DrawWrapped(GameState->GetSubhead().ToString(), FLinearColor::White, X, Y, TextWidth, Line, bDraw);
+			// Слева — фото героя номера в белой рамке с подписью, справа от него — название газеты и заголовок.
+			const float Side = bPhoto ? PhotoSize * Scale : 0.f;
+			const float Indent = bPhoto ? Side + Pad : 0.f;
+			const float PaperTop = Y;
+			if (bPhoto && bDraw)
+			{
+				const float Frame = PhotoFrame * Scale;
+				const float CaptionHeight = 15.f * Scale;
+				DrawRect(FLinearColor(0.95f, 0.94f, 0.90f), X, PaperTop, Side, Side + CaptionHeight);
+				DrawTexture(HeroPhoto, X + Frame, PaperTop + Frame, Side - Frame * 2.f, Side - Frame * 2.f, 0.f, 0.f, 1.f, 1.f, FLinearColor::White, BLEND_Opaque);
+				float NameWidth = 0.f;
+				float NameHeight = 0.f;
+				GetTextSize(HeroPhotoName, NameWidth, NameHeight, Font, Scale * 0.7f);
+				DrawText(HeroPhotoName, FLinearColor(0.1f, 0.1f, 0.12f), X + FMath::Max((Side - NameWidth) * 0.5f, Frame), PaperTop + Side - Frame * 0.5f, Font, Scale * 0.7f);
+			}
+			Y = DrawWrapped(LOCTEXT("PaperName", "СТЕНГАЗЕТА ОБЩАГИ №7").ToString(), FLinearColor(0.6f, 0.6f, 0.68f), X + Indent, Y, TextWidth - Indent, Line - 2.f, bDraw);
+			Y = DrawWrapped(GameState->GetHeadline().ToString(), FLinearColor::Yellow, X + Indent, Y, TextWidth - Indent, Line, bDraw);
+			Y = DrawWrapped(GameState->GetSubhead().ToString(), FLinearColor::White, X + Indent, Y, TextWidth - Indent, Line, bDraw);
+			if (bPhoto)
+			{
+				Y = FMath::Max(Y, PaperTop + Side + 19.f * Scale);
+			}
 			for (const FText& Note : GameState->GetPaperNotes())
 			{
 				Y = DrawWrapped(FText::Format(LOCTEXT("PaperNote", "• {0}"), Note).ToString(), Dim, X, Y, TextWidth, Line - 2.f, bDraw);
@@ -808,7 +1015,7 @@ void AObshagaHUD::DrawRoundResults(const AObshagaGameState* GameState)
 
 	// Мерить раскладки дорого, поэтому выбор запоминаем, пока не изменится экран или состав итогов.
 	const uint32 Key = HashCombine(HashCombine(GetTypeHash(Canvas->ClipX), GetTypeHash(Canvas->ClipY)),
-		HashCombine(GetTypeHash(GameState->GetChronicle().Num()), HashCombine(GetTypeHash(GameState->GetRevealedPlayers().Num()), GetTypeHash(GameState->GetRevealedTasks().Num()))));
+		HashCombine(GetTypeHash(GameState->GetChronicle().Num()), HashCombine(GetTypeHash(GameState->GetRevealedPlayers().Num()), HashCombine(GetTypeHash(GameState->GetRevealedTasks().Num()), GetTypeHash(bPhoto)))));
 	if (ResultsVariant == INDEX_NONE || ResultsKey != Key)
 	{
 		// Берём первую раскладку, которая помещается над «Реваншем»; если не помещается ни одна — самую низкую.
@@ -849,9 +1056,10 @@ void AObshagaHUD::DrawInterrogation(const AObshagaPlayerState* MyState, const AO
 	}
 
 	const int32 Seconds = FMath::CeilToInt32(GameState->GetInterrogationRemainingSeconds());
-	const float PanelWidth = FMath::Min(Canvas->ClipX - 40.f * Scale, 420.f * Scale);
-	const float PanelX = (Canvas->ClipX - PanelWidth) * 0.5f;
-	const float PanelY = Canvas->ClipY * 0.28f;
+	// Панель — у левого края: середину и правую часть экрана занимает сама сцена допроса (пойманный и комендант).
+	const float PanelWidth = FMath::Min(Canvas->ClipX * 0.42f, 420.f * Scale);
+	const float PanelX = 14.f * Scale;
+	const float PanelY = Canvas->ClipY * 0.30f;
 	const float Pad = 12.f * Scale;
 	const float TextWidth = PanelWidth - Pad * 2.f;
 	const float X = PanelX + Pad;
@@ -859,7 +1067,7 @@ void AObshagaHUD::DrawInterrogation(const AObshagaPlayerState* MyState, const AO
 
 	if (Info.Suspect == MyState)
 	{
-		DrawRect(FLinearColor(0.25f, 0.02f, 0.02f, 0.85f), PanelX, PanelY, PanelWidth, 150.f * Scale);
+		DrawRect(FLinearColor(0.25f, 0.02f, 0.02f, 0.85f), PanelX, PanelY, PanelWidth, 190.f * Scale);
 		Y = DrawWrapped(FText::Format(LOCTEXT("InterrogationTitle", "ДОПРОС! Осталось {0} с"), FText::AsNumber(Seconds)).ToString(), FLinearColor::White, X, Y, TextWidth);
 		if (Info.Choice == EInterrogationChoice::None)
 		{
