@@ -145,6 +145,18 @@ mel.connect_material_property(paint_rough, "", unreal.MaterialProperty.MP_ROUGHN
 paint.set_editor_property("used_with_instanced_static_meshes", True)
 mel.recompile_material(paint)
 unreal.EditorAssetLibrary.save_loaded_asset(paint)
+# Самая дешёвая краска для потолков: ровный цвет без расчёта света.
+flat = unreal.EditorAssetLibrary.load_asset(FOLDER + "/M_Flat")
+if not flat:
+    flat = unreal.AssetToolsHelpers.get_asset_tools().create_asset("M_Flat", FOLDER, unreal.Material, unreal.MaterialFactoryNew())
+mel.delete_all_material_expressions(flat)
+flat.set_editor_property("shading_model", unreal.MaterialShadingModel.MSM_UNLIT)
+flat_color = mel.create_material_expression(flat, unreal.MaterialExpressionVectorParameter, -400, 0)
+flat_color.set_editor_property("parameter_name", "Color")
+flat_color.set_editor_property("default_value", unreal.LinearColor(0.5, 0.5, 0.5, 1.0))
+mel.connect_material_property(flat_color, "", unreal.MaterialProperty.MP_EMISSIVE_COLOR)
+mel.recompile_material(flat)
+unreal.EditorAssetLibrary.save_loaded_asset(flat)
 path = "%s/%s" % (FOLDER, NAME)
 asset = unreal.EditorAssetLibrary.load_asset(path)
 if not asset:

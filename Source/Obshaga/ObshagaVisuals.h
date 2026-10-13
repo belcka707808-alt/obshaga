@@ -12,6 +12,12 @@ namespace ObshagaVisuals
 	OBSHAGA_API void Tint(UStaticMeshComponent* Mesh, const FLinearColor& Color);
 
 	/**
+	 * Красит самой дешёвой краской (материал M_Flat): ровный цвет, свет на него не считается. Для потолков.
+	 * Возвращает материал: раз свет на него не действует, ночью цвет надо затемнять самим. Нет M_Flat — nullptr.
+	 */
+	OBSHAGA_API class UMaterialInstanceDynamic* PaintFlat(UStaticMeshComponent* Mesh, const FLinearColor& Color);
+
+	/**
 	 * Делает куб мелкого предмета узнаваемым без модели: записке рисует строчки, конверту — клапан и печать,
 	 * ключ собирает из кольца, стержня и зубцов. Вид предмета определяется по его коду (Note, Envelope, Key).
 	 */

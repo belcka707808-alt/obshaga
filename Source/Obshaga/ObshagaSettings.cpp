@@ -61,6 +61,12 @@ namespace
 	}
 }
 
+bool ObshagaSettings::IsLowQuality()
+{
+	const UGameUserSettings* Settings = Video();
+	return Settings && QualityLevel(Settings) == 0;
+}
+
 float ObshagaSettings::MusicVolume()
 {
 	LoadVolumes();
@@ -82,7 +88,7 @@ FText ObshagaSettings::Describe(int32 Option)
 	case 0:
 	{
 		static const FText Names[] = { LOCTEXT("QualityLow", "низкое"), LOCTEXT("QualityMedium", "среднее"), LOCTEXT("QualityHigh", "высокое") };
-		return FText::Format(LOCTEXT("Quality", "[1] Качество графики: {0}"), Settings ? Names[QualityLevel(Settings)] : FText::GetEmpty());
+		return FText::Format(LOCTEXT("Quality", "[1] Качество графики: {0}  (украшения комнат — со следующей комнаты)"), Settings ? Names[QualityLevel(Settings)] : FText::GetEmpty());
 	}
 	case 1:
 		return FText::Format(LOCTEXT("Resolution", "[2] Чёткость картинки: {0}%  (меньше — быстрее)"), FText::AsNumber(Settings ? ResolutionPercent(Settings) : 100));

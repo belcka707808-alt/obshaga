@@ -66,6 +66,19 @@ protected:
 	UPROPERTY(Transient)
 	TArray<TObjectPtr<class UMaterialInstanceDynamic>> GlowMaterials;
 
+	/** Материалы потолка (без освещения) и его дневной цвет. */
+	UPROPERTY(Transient)
+	TArray<TObjectPtr<class UMaterialInstanceDynamic>> FlatMaterials;
+
+	FLinearColor FlatColor = FLinearColor::White;
+
+	/** Украшения-модели этой зоны: у них нет столкновений, поэтому те, в которые въехала камера, прячем. */
+	UPROPERTY(Transient)
+	TArray<TObjectPtr<class UStaticMeshComponent>> DecorItems;
+
+	FTimerHandle CameraTimer;
+	void HideDecorNearCamera();
+
 	FTimerHandle GlowTimer;
 	float AppliedDarkness = -1.f;
 

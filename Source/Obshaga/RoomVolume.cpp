@@ -2,6 +2,7 @@
 
 #include "ObshagaDecorConfig.h"
 #include "ObshagaGameState.h"
+#include "ObshagaSettings.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "TimerManager.h"
 #include "ObshagaVisuals.h"
@@ -32,6 +33,9 @@ namespace
 	constexpr float MaxWallHeight = 400.f;
 	constexpr float RugLift = 1.2f;
 	constexpr float GlowUpdateSeconds = 0.3f;
+	// Как часто проверяем, не въехала ли камера в украшение, и на каком расстоянии от него оно прячется.
+	constexpr float CameraCheckSeconds = 0.1f;
+	constexpr float CameraHideDistance = 35.f;
 	// Краска не подходит к дверному проёму ближе этого расстояния.
 	constexpr float DoorwayClearance = 6.f;
 	constexpr float FloorProbeUp = 120.f;
@@ -138,7 +142,11 @@ void ARoomVolume::BeginPlay()
 	{
 		GlowMaterials.Add(Material);
 	}
-	if (!GlowMaterials.IsEmpty())
+	if (!DecorItems.IsEmpty())
+	{
+		GetWorldTimerManager().SetTimer(CameraTimer, this, &ARoomVolume::HideDecorNearCamera, CameraCheckSeconds, true);
+	}
+	if (!GlowMaterials.IsEmpty() || !FlatMaterials.IsEmpty())
 	{
 		GetWorldTimerManager().SetTimer(GlowTimer, this, &ARoomVolume::UpdateGlow, GlowUpdateSeconds, true);
 	}
@@ -180,6 +188,28 @@ ARoomVolume* ARoomVolume::FindRoomById(const UObject* WorldContextObject, FName 
 	return nullptr;
 }
 
+void ARoomVolume::HideDecorNearCamera()
+{
+	// Камера от третьего лица упирается только в стены и мебель; украшения она проходит насквозь, и вешалка
+	// или торшер за спиной закрывали бы пол-экрана. Что оказалось вплотную к камере — на это время не рисуем.
+	const APlayerController* Controller = GetWorld()->GetFirstPlayerController();
+	if (!Controller || !Controller->PlayerCameraManager)
+	{
+		return;
+	}
+	const FVector Camera = Controller->PlayerCameraManager->GetCameraLocation();
+	// Камера далеко от зоны — проверять каждое украшение незачем.
+	const bool bNearZone = Box->Bounds.GetBox().ExpandBy(CameraHideDistance * 2.f).IsInsideOrOn(Camera);
+	for (UStaticMeshComponent* Item : DecorItems)
+	{
+		const bool bHide = bNearZone && Item->Bounds.GetBox().ExpandBy(CameraHideDistance).IsInsideOrOn(Camera);
+		if (Item->IsVisible() == bHide)
+		{
+			Item->SetVisibility(!bHide);
+		}
+	}
+}
+
 float ARoomVolume::FindFloorZ() const
 {
 	// Низ зоны не всегда лежит точно на полу, поэтому пол ищем лучом вниз из середины зоны.
@@ -205,17 +235,26 @@ float ARoomVolume::FindFloorZ() const
 void ARoomVolume::UpdateGlow()
 {
 	const AObshagaGameState* GameState = GetWorld()->GetGameState<AObshagaGameState>();
+	// «Пробки» считаем добавкой к темноте, чтобы их начало и конец тоже перекрашивали потолок.
 	const float Darkness = GameState ? GameState->GetDarkness() : 0.f;
-	if (FMath::IsNearlyEqual(Darkness, AppliedDarkness, 0.01f))
+	const float Key = Darkness + (GameState && GameState->IsBlackout() ? 10.f : 0.f);
+	if (FMath::IsNearlyEqual(Key, AppliedDarkness, 0.01f))
 	{
 		return;
 	}
-	AppliedDarkness = Darkness;
+	AppliedDarkness = Key;
 	const UObshagaDecorConfig* Config = UObshagaDecorConfig::Get();
 	const float Glow = FMath::Lerp(Config->PaintGlow, Config->PaintGlowAtNight, Darkness);
 	for (UMaterialInstanceDynamic* Material : GlowMaterials)
 	{
 		Material->SetScalarParameterValue(TEXT("Glow"), Glow);
+	}
+	// Потолок светом не освещается, поэтому ночью темнеет вручную (при «пробках» — ещё сильнее).
+	const float EventScale = GameState && GameState->IsBlackout() ? Config->CeilingBlackoutScale : 1.f;
+	const FLinearColor Ceiling = FlatColor * Config->CeilingBrightness * FMath::Lerp(1.f, Config->CeilingNightScale, Darkness) * EventScale;
+	for (UMaterialInstanceDynamic* Material : FlatMaterials)
+	{
+		Material->SetVectorParameterValue(TEXT("Color"), Ceiling);
 	}
 }
 
@@ -226,6 +265,7 @@ void ARoomVolume::Decorate(const FRoomStyle& Style, int32 Ordinal)
 	const FBox Bounds = Box->Bounds.GetBox();
 	const FVector Size = Bounds.GetSize();
 	const float Floor = FindFloorZ();
+	const bool bLowQuality = ObshagaSettings::IsLowQuality();
 	const float Step = FMath::Max(Config->PaintStep, 10.f);
 
 	// 1. Где у зоны настоящие стены. Проёмы дверей и открытые стороны остаются пустыми.
@@ -390,6 +430,7 @@ void ARoomVolume::Decorate(const FRoomStyle& Style, int32 Ordinal)
 		Item->SetWorldScale3D(FVector(Scale));
 		Item->SetWorldRotation(Rotation);
 		Item->SetWorldLocation(BottomCenter - Rotation.RotateVector(Pivot * Scale));
+		DecorItems.Add(Item);
 	};
 
 	for (const FDecorEntry& Entry : Style.Decor)
@@ -399,6 +440,11 @@ void ARoomVolume::Decorate(const FRoomStyle& Style, int32 Ordinal)
 			continue;
 		}
 		const FVector ModelSize = Entry.Model->GetBounds().BoxExtent * 2.f * Entry.Scale;
+		// На низком качестве мелочь (горшки, книги, бра) не ставим — остаётся крупная мебель и ковёр.
+		if (bLowQuality && Entry.Place != EDecorPlace::Center && ModelSize.GetMax() < Config->SmallDecorSize)
+		{
+			continue;
+		}
 
 		if (Entry.Place == EDecorPlace::Center)
 		{
@@ -468,6 +514,7 @@ void ARoomVolume::Decorate(const FRoomStyle& Style, int32 Ordinal)
 	{
 		return;
 	}
+	// Glow < 0 — деталь красится самой дешёвой краской без освещения (потолок).
 	auto AddBlock = [this, CubeMesh](const FVector& Center, const FRotator& Rotation, const FVector& SizeCm, const FLinearColor& BlockColor, float Glow)
 	{
 		UStaticMeshComponent* Block = NewObject<UStaticMeshComponent>(this);
@@ -482,7 +529,16 @@ void ARoomVolume::Decorate(const FRoomStyle& Style, int32 Ordinal)
 		Block->SetWorldLocation(Center);
 		Block->SetWorldRotation(Rotation);
 		Block->SetWorldScale3D(SizeCm / 100.f);
-		if (UMaterialInstanceDynamic* Material = ObshagaVisuals::Paint(Block, BlockColor, Glow))
+		if (Glow < 0.f)
+		{
+			if (UMaterialInstanceDynamic* Flat = ObshagaVisuals::PaintFlat(Block, BlockColor))
+			{
+				FlatMaterials.Add(Flat);
+				FlatColor = BlockColor;
+				AppliedDarkness = -1.f;
+			}
+		}
+		else if (UMaterialInstanceDynamic* Material = ObshagaVisuals::Paint(Block, BlockColor, Glow))
 		{
 			GlowMaterials.Add(Material);
 		}
@@ -496,7 +552,7 @@ void ARoomVolume::Decorate(const FRoomStyle& Style, int32 Ordinal)
 		const bool bHasCeiling = TraceWall(World, Center + FVector(0.f, 0.f, 120.f), Center + FVector(0.f, 0.f, MaxWallHeight + 80.f), FVector(0.f, 0.f, -1.f), Unused);
 		if (!bHasCeiling)
 		{
-			AddBlock(Center + FVector(0.f, 0.f, WallTop + 2.f), FRotator::ZeroRotator, FVector(Size.X, Size.Y, 4.f), Config->CeilingColor, Config->PaintGlow);
+			AddBlock(Center + FVector(0.f, 0.f, WallTop + 2.f), FRotator::ZeroRotator, FVector(Size.X, Size.Y, 4.f), Config->CeilingColor, -1.f);
 		}
 	}
 
@@ -530,6 +586,12 @@ void ARoomVolume::Decorate(const FRoomStyle& Style, int32 Ordinal)
 		}
 		return true;
 	};
+
+	// На низком качестве графики стены остаются голыми: окна, плакаты и доски — первое, чем жертвуем на слабых ноутбуках.
+	if (bLowQuality)
+	{
+		return;
+	}
 
 	const int32 WideSpan = FMath::CeilToInt32(60.f / Step);
 	for (const FWallSide& Side : Sides)

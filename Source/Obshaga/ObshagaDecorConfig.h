@@ -125,12 +125,26 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Light", meta = (Units = "cm"))
 	float LampHeight = 235.f;
 
+	/** Украшения мельче этого размера на низком качестве графики не ставятся. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Decor", meta = (Units = "cm"))
+	float SmallDecorSize = 90.f;
+
 	/** Потолок там, где его нет на карте (второй этаж). Тени он не даёт, чтобы комнаты не потемнели. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Paint")
 	bool bCeilings = true;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Paint")
 	FLinearColor CeilingColor = FLinearColor(0.8f, 0.78f, 0.7f);
+
+	/** Потолок красится без расчёта света: яркость днём и доля от неё ночью и при «пробках». */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Paint")
+	float CeilingBrightness = 0.7f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Paint")
+	float CeilingNightScale = 0.18f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Paint")
+	float CeilingBlackoutScale = 0.3f;
 
 	/** Цвет стекла окон днём и цвета плакатов (берутся по очереди). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Paint")

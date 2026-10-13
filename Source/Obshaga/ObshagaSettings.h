@@ -16,6 +16,9 @@ namespace ObshagaSettings
 	/** Переключает настройку на следующее значение, применяет и сохраняет. */
 	OBSHAGA_API void Step(int32 Option);
 
+	/** Выбрано ли низкое качество графики: тогда комнаты обходятся без окон, плакатов и мелких украшений. */
+	OBSHAGA_API bool IsLowQuality();
+
 	/** Громкость музыки и звуков по выбору игрока, 0–1. */
 	OBSHAGA_API float MusicVolume();
 	OBSHAGA_API float SoundVolume();

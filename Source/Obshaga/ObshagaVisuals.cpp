@@ -56,6 +56,18 @@ void ObshagaVisuals::Dress(UStaticMeshComponent* Cube, UStaticMesh* Model, float
 	Cube->SetVisibility(false, false);
 }
 
+UMaterialInstanceDynamic* ObshagaVisuals::PaintFlat(UStaticMeshComponent* Mesh, const FLinearColor& Color)
+{
+	UMaterialInterface* Base = Mesh ? LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/Obshaga/Map/Furniture/M_Flat.M_Flat"), nullptr, LOAD_NoWarn) : nullptr;
+	if (UMaterialInstanceDynamic* Material = Base ? Mesh->CreateDynamicMaterialInstance(0, Base) : nullptr)
+	{
+		Material->SetVectorParameterValue(TEXT("Color"), Color);
+		return Material;
+	}
+	Tint(Mesh, Color);
+	return nullptr;
+}
+
 void ObshagaVisuals::Emblem(UStaticMeshComponent* Cube, FName ItemId)
 {
 	if (!Cube)
