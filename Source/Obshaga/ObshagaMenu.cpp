@@ -2,6 +2,7 @@
 
 #include "ObshagaSessionSubsystem.h"
 #include "ObshagaSettings.h"
+#include "ObshagaWidgets.h"
 #include "Engine/Canvas.h"
 #include "Engine/Engine.h"
 #include "Engine/GameInstance.h"
@@ -37,15 +38,38 @@ AObshagaMenuGameMode::AObshagaMenuGameMode()
 	HUDClass = AObshagaMenuHUD::StaticClass();
 }
 
+void AObshagaMenuController::BeginPlay()
+{
+	Super::BeginPlay();
+
+	// В меню нужна мышь: кнопки нажимаются и ею, и клавишами.
+	if (IsLocalController())
+	{
+		FInputModeGameAndUI Mode;
+		Mode.SetHideCursorDuringCapture(false);
+		Mode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+		SetInputMode(Mode);
+		SetShowMouseCursor(true);
+	}
+}
+
 bool AObshagaMenuController::InputKey(const FInputKeyEventArgs& Params)
 {
-	UObshagaSessionSubsystem* Rooms = GetGameInstance() ? GetGameInstance()->GetSubsystem<UObshagaSessionSubsystem>() : nullptr;
-	if (!Rooms || Params.Event != IE_Pressed || Rooms->IsBusy())
+	if (Params.Event == IE_Pressed && HandleMenuKey(Params.Key))
 	{
-		return Super::InputKey(Params);
+		return true;
+	}
+	return Super::InputKey(Params);
+}
+
+bool AObshagaMenuController::HandleMenuKey(const FKey& Key)
+{
+	UObshagaSessionSubsystem* Rooms = GetGameInstance() ? GetGameInstance()->GetSubsystem<UObshagaSessionSubsystem>() : nullptr;
+	if (!Rooms || Rooms->IsBusy())
+	{
+		return false;
 	}
 
-	const FKey Key = Params.Key;
 	if (bSettings)
 	{
 		static const FKey OptionKeys[] = { EKeys::One, EKeys::Two, EKeys::Three, EKeys::Four, EKeys::Five };
@@ -62,7 +86,7 @@ bool AObshagaMenuController::InputKey(const FInputKeyEventArgs& Params)
 				return true;
 			}
 		}
-		return Super::InputKey(Params);
+		return false;
 	}
 	if (!bEnteringCode)
 	{
@@ -87,7 +111,7 @@ bool AObshagaMenuController::InputKey(const FInputKeyEventArgs& Params)
 		}
 		else
 		{
-			return Super::InputKey(Params);
+			return false;
 		}
 		return true;
 	}
@@ -121,7 +145,7 @@ bool AObshagaMenuController::InputKey(const FInputKeyEventArgs& Params)
 	}
 	else
 	{
-		return Super::InputKey(Params);
+		return false;
 	}
 	return true;
 }
@@ -136,9 +160,29 @@ void AObshagaMenuHUD::DrawLine(const FString& Line, const FLinearColor& Color, f
 	DrawText(Line, Color, (Canvas->ClipX - Width) * 0.5f, Canvas->ClipY * YFraction, Font, Scale);
 }
 
+void AObshagaMenuHUD::BeginPlay()
+{
+	Super::BeginPlay();
+
+	// Меню рисует виджет; если он почему-то не создался, остаётся прежнее текстовое меню ниже.
+	if (APlayerController* Controller = GetOwningPlayerController())
+	{
+		MenuWidget = CreateWidget<UObshagaMenuWidget>(Controller, UObshagaMenuWidget::StaticClass());
+		if (MenuWidget)
+		{
+			MenuWidget->AddToViewport();
+		}
+	}
+}
+
 void AObshagaMenuHUD::DrawHUD()
 {
 	Super::DrawHUD();
+
+	if (MenuWidget)
+	{
+		return;
+	}
 
 	const AObshagaMenuController* Controller = Cast<AObshagaMenuController>(GetOwningPlayerController());
 	const UObshagaSessionSubsystem* Rooms = GetGameInstance() ? GetGameInstance()->GetSubsystem<UObshagaSessionSubsystem>() : nullptr;

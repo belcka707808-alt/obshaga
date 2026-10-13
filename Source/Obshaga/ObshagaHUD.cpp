@@ -15,6 +15,7 @@
 #include "ObshagaSessionSubsystem.h"
 #include "ObshagaSettings.h"
 #include "ObshagaStory.h"
+#include "ObshagaWidgets.h"
 #include "RoomVolume.h"
 #include "SuspicionComponent.h"
 #include "TaskComponent.h"
@@ -71,6 +72,10 @@ void AObshagaHUD::DrawHUD()
 	// Заставка: только чёрные полосы и строки текста, остальной интерфейс прячем.
 	if (Controller->IsWatchingIntro())
 	{
+		if (PhoneWidget)
+		{
+			PhoneWidget->SetVisibility(ESlateVisibility::Collapsed);
+		}
 		const float Bar = Canvas->ClipY * 0.12f;
 		DrawRect(FLinearColor::Black, 0.f, 0.f, Canvas->ClipX, Bar);
 		DrawRect(FLinearColor::Black, 0.f, Canvas->ClipY - Bar, Canvas->ClipX, Bar);
@@ -82,12 +87,13 @@ void AObshagaHUD::DrawHUD()
 		// Строки появляются по одной, каждая — на свою четверть заставки.
 		const float Progress = GameState->GetIntroProgress() * UE_ARRAY_COUNT(Lines);
 		const int32 LineIndex = FMath::Min(FMath::FloorToInt32(Progress), static_cast<int32>(UE_ARRAY_COUNT(Lines)) - 1);
-		const float Fade = FMath::Clamp(FMath::Min(Progress - LineIndex, LineIndex + 1.f - Progress) * 5.f, 0.f, 1.f);
+		// Строка проявляется и гаснет за десятую часть своего времени, остальное время горит в полную силу.
+		const float Fade = FMath::Clamp(FMath::Min(Progress - LineIndex, LineIndex + 1.f - Progress) * 10.f, 0.f, 1.f);
 		const FString Line = Lines[LineIndex].ToString();
 		float Width = 0.f;
 		float Height = 0.f;
-		GetTextSize(Line, Width, Height, Font, Scale * 1.8f);
-		DrawText(Line, FLinearColor(1.f, 0.95f, 0.8f, Fade), (Canvas->ClipX - Width) * 0.5f, Canvas->ClipY - Bar * 0.5f - Height * 0.5f, Font, Scale * 1.8f);
+		GetTextSize(Line, Width, Height, Font, Scale * 2.2f);
+		DrawText(Line, FLinearColor(1.f, 0.92f, 0.45f, Fade), (Canvas->ClipX - Width) * 0.5f, Canvas->ClipY - Bar * 0.5f - Height * 0.5f, Font, Scale * 2.2f);
 		const FString Skip = LOCTEXT("IntroSkip", "[Пробел] пропустить").ToString();
 		GetTextSize(Skip, Width, Height, Font, Scale);
 		DrawText(Skip, FLinearColor(1.f, 1.f, 1.f, 0.5f), Canvas->ClipX - Width - 16.f * Scale, (Bar - Height) * 0.5f, Font, Scale);
@@ -132,6 +138,12 @@ void AObshagaHUD::DrawHUD()
 	{
 		// Следующие итоги выберут раскладку заново.
 		ResultsVariant = INDEX_NONE;
+	}
+
+	if (PhoneWidget)
+	{
+		const bool bShowPhone = Controller->IsPhoneOpen() && GameState->GetRoundState() != ERoundState::Finished && !Controller->IsWatchingIntro();
+		PhoneWidget->SetVisibility(bShowPhone ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
 	}
 
 	if (GameState->GetRoundState() == ERoundState::Finished)
@@ -329,6 +341,13 @@ void AObshagaHUD::DrawCentered(const FString& Line, const FLinearColor& Color, f
 
 float AObshagaHUD::DrawWrapped(const FString& Text, const FLinearColor& Color, float X, float Y, float MaxWidth, float LineHeight, bool bDraw)
 {
+	// Строки телефона сейчас собираются для виджета, а не рисуются: белые строки в нём — заголовки.
+	if (PhoneCollect)
+	{
+		PhoneCollect->Add({ Text, Color, Color == FLinearColor::White });
+		return Y;
+	}
+
 	TArray<FString> Parsed;
 	Text.ParseIntoArray(Parsed, TEXT(" "));
 
@@ -556,14 +575,48 @@ void AObshagaHUD::DrawNoise(const AObshagaPlayerController* Controller, const FV
 	}
 }
 
+void AObshagaHUD::BeginPlay()
+{
+	Super::BeginPlay();
+
+	// Телефон показывает виджет; если он не создался, телефон рисуется текстом, как раньше.
+	if (APlayerController* Controller = GetOwningPlayerController())
+	{
+		PhoneWidget = CreateWidget<UObshagaPhoneWidget>(Controller, UObshagaPhoneWidget::StaticClass());
+		if (PhoneWidget)
+		{
+			PhoneWidget->AddToViewport();
+			PhoneWidget->SetVisibility(ESlateVisibility::Collapsed);
+		}
+	}
+}
+
 void AObshagaHUD::DrawPhone(const AObshagaPlayerState* MyState, const AObshagaGameState* GameState)
+{
+	if (!PhoneWidget)
+	{
+		DrawPhoneLines(MyState, GameState);
+		return;
+	}
+	// Те же строки, что рисовались бы текстом, собираем в список и отдаём виджету.
+	TArray<FPhoneLine> Lines;
+	PhoneCollect = &Lines;
+	DrawPhoneLines(MyState, GameState);
+	PhoneCollect = nullptr;
+	PhoneWidget->SetLines(Lines);
+}
+
+void AObshagaHUD::DrawPhoneLines(const AObshagaPlayerState* MyState, const AObshagaGameState* GameState)
 {
 	const float PanelWidth = 300.f * Scale;
 	const float PanelX = Canvas->ClipX - PanelWidth - 12.f * Scale;
 	const float PanelY = 40.f * Scale;
 	const float Pad = 12.f * Scale;
 	const float TextWidth = PanelWidth - Pad * 2.f;
-	DrawRect(FLinearColor(0.02f, 0.02f, 0.05f, 0.85f), PanelX, PanelY, PanelWidth, Canvas->ClipY - PanelY - 50.f * Scale);
+	if (!PhoneCollect)
+	{
+		DrawRect(FLinearColor(0.02f, 0.02f, 0.05f, 0.85f), PanelX, PanelY, PanelWidth, Canvas->ClipY - PanelY - 50.f * Scale);
+	}
 
 	const FLinearColor Dim(0.7f, 0.7f, 0.75f);
 	const float X = PanelX + Pad;

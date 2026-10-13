@@ -23,7 +23,10 @@ class OBSHAGA_API AObshagaMenuController : public APlayerController
 	GENERATED_BODY()
 
 public:
+	virtual void BeginPlay() override;
 	virtual bool InputKey(const FInputKeyEventArgs& Params) override;
+	/** Нажатие клавиши меню — с клавиатуры или от кнопки виджета. true — клавиша что-то сделала. */
+	bool HandleMenuKey(const FKey& Key);
 
 	bool IsEnteringCode() const { return bEnteringCode; }
 	bool IsInSettings() const { return bSettings; }
@@ -42,7 +45,11 @@ class OBSHAGA_API AObshagaMenuHUD : public AHUD
 	GENERATED_BODY()
 
 public:
+	virtual void BeginPlay() override;
 	virtual void DrawHUD() override;
+
+	UPROPERTY(Transient)
+	TObjectPtr<class UObshagaMenuWidget> MenuWidget;
 
 private:
 	void DrawLine(const FString& Line, const FLinearColor& Color, float YFraction, float SizeScale = 1.f);

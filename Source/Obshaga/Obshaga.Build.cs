@@ -18,6 +18,6 @@ public class Obshaga : ModuleRules
 			PrivateDefinitions.Add("OBSHAGA_WITH_STEAM=0");
 		}
 
-		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "InputCore", "EnhancedInput", "AIModule", "GameplayTasks", "Json", "RenderCore", "RHI", "OnlineSubsystem", "OnlineSubsystemUtils", "ApplicationCore" });
+		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "InputCore", "EnhancedInput", "AIModule", "GameplayTasks", "Json", "RenderCore", "RHI", "OnlineSubsystem", "OnlineSubsystemUtils", "ApplicationCore", "UMG", "Slate", "SlateCore" });
 	}
 }

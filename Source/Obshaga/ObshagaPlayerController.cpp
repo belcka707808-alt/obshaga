@@ -193,6 +193,13 @@ void AObshagaPlayerController::BeginPlay()
 {
 	Super::BeginPlay();
 
+	// После меню с мышью возвращаем управление игре: курсор скрыт, клавиши и мышь идут персонажу.
+	if (IsLocalController())
+	{
+		SetInputMode(FInputModeGameOnly());
+		SetShowMouseCursor(false);
+	}
+
 	// Обучение показывается только при первом запуске игры на этом компьютере.
 	bool bTutorialDone = false;
 	GConfig->GetBool(TutorialConfigSection, TutorialConfigKey, bTutorialDone, GGameUserSettingsIni);

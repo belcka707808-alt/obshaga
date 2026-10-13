@@ -16,6 +16,7 @@ class OBSHAGA_API AObshagaHUD : public AHUD
 	GENERATED_BODY()
 
 public:
+	virtual void BeginPlay() override;
 	virtual void DrawHUD() override;
 
 private:
@@ -23,6 +24,13 @@ private:
 	void DrawCharacterInfo(const AObshagaCharacter* Character);
 	void DrawNoise(const AObshagaPlayerController* Controller, const FVector& ListenerLocation);
 	void DrawPhone(const AObshagaPlayerState* MyState, const AObshagaGameState* GameState);
+	/** Строки телефона: либо рисует их текстом, либо (если задан PhoneCollect) складывает в список для виджета. */
+	void DrawPhoneLines(const AObshagaPlayerState* MyState, const AObshagaGameState* GameState);
+
+	UPROPERTY(Transient)
+	TObjectPtr<class UObshagaPhoneWidget> PhoneWidget;
+
+	TArray<struct FPhoneLine>* PhoneCollect = nullptr;
 	void DrawRoundResults(const AObshagaGameState* GameState);
 	void DrawInterrogation(const AObshagaPlayerState* MyState, const AObshagaGameState* GameState, const FVector& MyLocation);
 	void DrawKomendantLabels(const FVector& MyLocation);
