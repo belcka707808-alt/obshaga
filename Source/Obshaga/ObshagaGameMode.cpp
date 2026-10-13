@@ -1029,6 +1029,7 @@ void AObshagaGameMode::Accuse(AObshagaPlayerState* Accuser, AObshagaCharacter* S
 		|| !Accuser->CanAccuse() || Accuser->IsEvicted() || AccuserCharacter->IsHiding() || AccuserCharacter->IsFrozen()
 		|| Suspect->IsHiding() || Suspect->IsGhost())
 	{
+		UE_LOG(LogObshaga, Verbose, TEXT("Accuse by %s rejected: round, accuser or suspect state (can accuse: %d)"), Accuser ? *Accuser->GetPlayerName() : TEXT("-"), Accuser ? Accuser->CanAccuse() : 0);
 		return;
 	}
 
@@ -1038,6 +1039,8 @@ void AObshagaGameMode::Accuse(AObshagaPlayerState* Accuser, AObshagaCharacter* S
 	if (!Row || FVector::Dist(AccuserCharacter->GetActorLocation(), Suspect->GetActorLocation()) > MaxDistance
 		|| !AccuserCharacter->GetInteractionComponent()->HasLineOfSight(Suspect))
 	{
+		UE_LOG(LogObshaga, Verbose, TEXT("Accuse by %s rejected: %s"), *Accuser->GetPlayerName(),
+			!Row ? TEXT("no accusation task") : (FVector::Dist(AccuserCharacter->GetActorLocation(), Suspect->GetActorLocation()) > MaxDistance ? TEXT("too far") : TEXT("no line of sight")));
 		return;
 	}
 
@@ -1049,6 +1052,7 @@ void AObshagaGameMode::Accuse(AObshagaPlayerState* Accuser, AObshagaCharacter* S
 	}
 	if (!bCanListen)
 	{
+		UE_LOG(LogObshaga, Verbose, TEXT("Accuse by %s postponed: komendant is busy"), *Accuser->GetPlayerName());
 		NotifyPlayer(Accuser, LOCTEXT("AccuseBusy", "Комендант занят — скажи позже"));
 		return;
 	}
@@ -1058,6 +1062,8 @@ void AObshagaGameMode::Accuse(AObshagaPlayerState* Accuser, AObshagaCharacter* S
 	Accuser->SetTaskAbilities(false, Accuser->CanTipRoom());
 	// У задания «найди автора слуха» доказательство — записка, которую подкинул обвиняемый.
 	AItemActor* StolenItem = UTaskComponent::IsRumorRow(this, *Row) ? UTaskComponent::FindRumorNote(this, SuspectState) : UTaskComponent::FindStolenItem(this, SuspectState, *Row);
+	UE_LOG(LogObshaga, Verbose, TEXT("Accuse by %s of %s: %s (rumor task: %d, proof: %s)"), *Accuser->GetPlayerName(), *SuspectState->GetPlayerName(),
+		StolenItem ? TEXT("right") : TEXT("wrong"), UTaskComponent::IsRumorRow(this, *Row), *GetNameSafe(StolenItem));
 	UGameEventSubsystem::PublishFrom(AccuserCharacter, EGameEventType::Accusation, StolenItem, Suspect);
 
 	if (StolenItem)
@@ -1415,7 +1421,7 @@ void AObshagaGameMode::BuildNewspaper(const TArray<AObshagaPlayerState*>& Player
 		return;
 	}
 
-	auto NameOf = [](const APlayerState* Who) { return Who ? FText::FromString(Who->GetPlayerName().ToUpper()) : LOCTEXT("PaperSomeone", "КТО-ТО"); };
+	auto NameOf = [](const APlayerState* Who) { return Who ? FText::FromString(Who->GetPlayerName()).ToUpper() : LOCTEXT("PaperSomeone", "КТО-ТО"); };
 	auto First = [Bus](EGameEventType Type) -> const FGameEvent*
 	{
 		return Bus->GetEventLog().FindByPredicate([Type](const FGameEvent& Event) { return Event.Type == Type; });
@@ -1797,13 +1803,6 @@ TArray<FText> AObshagaGameMode::BuildChronicle() const
 			break;
 		case EGameEventType::PlayerCaught:
 			Line.Priority = 5;
-			if (Event.Item && Event.Item->GetItemData()->bReadable)
-			{
-				Line.Text = FText::Format(Pick({
-					LOCTEXT("ChrExpose1", "{0} вычислил автора слуха: это {1}. Почерк подвёл"),
-					LOCTEXT("ChrExpose2", "{0} показал коменданту, кто пишет записки: {1}") }), Who, Whom);
-				break;
-			}
 			Line.Text = Event.Item
 				? FText::Format(Pick({
 					LOCTEXT("ChrCaughtItem1", "{0} пойман ({1}). В руках: {2}. Как оно там оказалось — загадка"),
