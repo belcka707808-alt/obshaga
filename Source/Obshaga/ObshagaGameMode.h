@@ -97,6 +97,8 @@ private:
 	FTimerHandle SmsTimer;
 	FTimerHandle InterrogationTimer;
 	FTimerHandle SelfBreakTimer;
+	FTimerHandle IntroTimer;
+	bool bIntroShown = false;
 	FTimerHandle NightEventTimer;
 	FTimerHandle NightEventEndTimer;
 	FTimerHandle FireAlarmTimer;

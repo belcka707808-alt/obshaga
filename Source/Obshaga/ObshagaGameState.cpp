@@ -112,6 +112,8 @@ void AObshagaGameState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& Ou
 	DOREPLIFETIME(AObshagaGameState, RevealedPlayers);
 	DOREPLIFETIME(AObshagaGameState, Chronicle);
 	DOREPLIFETIME(AObshagaGameState, StoryIndex);
+	DOREPLIFETIME(AObshagaGameState, IntroEndServerTime);
+	DOREPLIFETIME(AObshagaGameState, IntroSeconds);
 	DOREPLIFETIME(AObshagaGameState, NightEvent);
 	DOREPLIFETIME(AObshagaGameState, NightEventEndServerTime);
 	DOREPLIFETIME(AObshagaGameState, NightEventSkyScale);
@@ -211,6 +213,15 @@ void AObshagaGameState::EndNightEvent()
 	if (HasAuthority())
 	{
 		NightEventEndServerTime = FMath::Min(NightEventEndServerTime, GetServerWorldTimeSeconds());
+	}
+}
+
+void AObshagaGameState::SetIntro(float Seconds)
+{
+	if (HasAuthority())
+	{
+		IntroSeconds = Seconds;
+		IntroEndServerTime = Seconds > 0.f ? GetServerWorldTimeSeconds() + Seconds : 0.f;
 	}
 }
 

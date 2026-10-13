@@ -219,6 +219,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tasks")
 	TArray<FName> DebugMainTasks;
 
+	/** Заставка перед первым раундом комнаты: пролёт камеры по коридорам. 0 — без заставки. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Round", meta = (ClampMin = "0", Units = "s"))
+	float IntroSeconds = 9.f;
+
 	// --- События ночи: одно на раунд, сервер выбирает случайно ---
 
 	/** Через сколько секунд после начала ночи случается событие. */

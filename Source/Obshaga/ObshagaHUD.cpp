@@ -68,6 +68,32 @@ void AObshagaHUD::DrawHUD()
 	Font = GEngine->GetMediumFont();
 	Scale = FMath::Max(1.f, Canvas->ClipY / 540.f);
 
+	// Заставка: только чёрные полосы и строки текста, остальной интерфейс прячем.
+	if (Controller->IsWatchingIntro())
+	{
+		const float Bar = Canvas->ClipY * 0.12f;
+		DrawRect(FLinearColor::Black, 0.f, 0.f, Canvas->ClipX, Bar);
+		DrawRect(FLinearColor::Black, 0.f, Canvas->ClipY - Bar, Canvas->ClipX, Bar);
+		static const FText Lines[] = {
+			LOCTEXT("Intro1", "Общага №7."),
+			LOCTEXT("Intro2", "Завтра проверка из деканата."),
+			LOCTEXT("Intro3", "Комендант Палыч не спит."),
+			LOCTEXT("Intro4", "Каждому есть что скрывать.") };
+		// Строки появляются по одной, каждая — на свою четверть заставки.
+		const float Progress = GameState->GetIntroProgress() * UE_ARRAY_COUNT(Lines);
+		const int32 LineIndex = FMath::Min(FMath::FloorToInt32(Progress), static_cast<int32>(UE_ARRAY_COUNT(Lines)) - 1);
+		const float Fade = FMath::Clamp(FMath::Min(Progress - LineIndex, LineIndex + 1.f - Progress) * 5.f, 0.f, 1.f);
+		const FString Line = Lines[LineIndex].ToString();
+		float Width = 0.f;
+		float Height = 0.f;
+		GetTextSize(Line, Width, Height, Font, Scale * 1.8f);
+		DrawText(Line, FLinearColor(1.f, 0.95f, 0.8f, Fade), (Canvas->ClipX - Width) * 0.5f, Canvas->ClipY - Bar * 0.5f - Height * 0.5f, Font, Scale * 1.8f);
+		const FString Skip = LOCTEXT("IntroSkip", "[Пробел] пропустить").ToString();
+		GetTextSize(Skip, Width, Height, Font, Scale);
+		DrawText(Skip, FLinearColor(1.f, 1.f, 1.f, 0.5f), Canvas->ClipX - Width - 16.f * Scale, (Bar - Height) * 0.5f, Font, Scale);
+		return;
+	}
+
 	const bool bInProgress = GameState->GetRoundState() == ERoundState::InProgress;
 	if (GameState->GetDarkness() > 0.f)
 	{
@@ -152,7 +178,7 @@ void AObshagaHUD::DrawHUD()
 		const float PanelX = (Canvas->ClipX - PanelWidth) * 0.5f;
 		const float TextX = PanelX + 14.f * Scale;
 		const float TextWidth = PanelWidth - 28.f * Scale;
-		const FString Who = FText::Format(LOCTEXT("StoryWho", "Ты — {0}. {1}"), FText::FromString(MyState->GetPlayerName()), ObshagaStory::ResidentTrait(MyState->GetLookSlot())).ToString();
+		const FString Who = FText::Format(LOCTEXT("StoryWho", "Ты — {0}. {1}"), FText::FromString(MyState->GetPlayerName()), ObshagaStory::ResidentTrait(Character ? Character->GetLookSlot() : MyState->GetLookSlot())).ToString();
 		const FString Text = ObshagaStory::StoryText(GameState->GetStoryIndex()).ToString();
 		// Сначала меряем высоту текста, потом рисуем подложку под неё.
 		float Bottom = DrawWrapped(Text, FLinearColor::White, TextX, 0.f, TextWidth, 20.f, false);

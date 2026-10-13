@@ -10,6 +10,9 @@
 #include "RHI.h"
 #include "Obshaga.h"
 #include "Components/AudioComponent.h"
+#include "Camera/CameraActor.h"
+#include "Camera/CameraComponent.h"
+#include "Components/BoxComponent.h"
 #include "Components/SpotLightComponent.h"
 #include "EngineUtils.h"
 #include "GameFramework/CharacterMovementComponent.h"
@@ -48,6 +51,9 @@ namespace
 	// Ник Steam бывает до 32 символов.
 	constexpr int32 MaxDisplayNameLength = 32;
 	constexpr float LeaveConfirmSeconds = 3.f;
+	// Заставка: высота камеры над полом коридора и отступ от его торцов.
+	constexpr float IntroCameraHeight = 170.f;
+	constexpr float IntroEndInset = 150.f;
 	constexpr float CameraHideSelfDistance = 130.f;
 	constexpr float CameraHideHeadHeight = 45.f;
 
@@ -279,8 +285,76 @@ void AObshagaPlayerController::ClientReturnToMainMenuWithTextReason_Implementati
 	Super::ClientReturnToMainMenuWithTextReason_Implementation(ReturnReason);
 }
 
+void AObshagaPlayerController::UpdateIntro()
+{
+	const AObshagaGameState* GameState = GetWorld()->GetGameState<AObshagaGameState>();
+	const bool bActive = GameState && GameState->IsIntroActive();
+	if (!bActive)
+	{
+		bIntroSkipped = false;
+	}
+	const bool bShow = bActive && !bIntroSkipped;
+	if (bShow != bIntroCamera)
+	{
+		bIntroCamera = bShow;
+		SetIgnoreMoveInput(bShow);
+		if (bShow && !IntroCamera)
+		{
+			IntroCamera = GetWorld()->SpawnActor<ACameraActor>();
+			if (IntroCamera)
+			{
+				IntroCamera->GetCameraComponent()->bConstrainAspectRatio = false;
+			}
+		}
+		SetViewTarget(bShow && IntroCamera ? static_cast<AActor*>(IntroCamera) : static_cast<AActor*>(GetPawn()));
+	}
+	if (!bShow || !IntroCamera)
+	{
+		return;
+	}
+
+	// Маршрут: по каждому коридору из конца в конец, сначала первый этаж, потом второй.
+	TArray<const ARoomVolume*> Corridors;
+	for (TActorIterator<ARoomVolume> It(GetWorld()); It; ++It)
+	{
+		if (It->RoomType == ERoomType::Corridor)
+		{
+			Corridors.Add(*It);
+		}
+	}
+	if (Corridors.IsEmpty())
+	{
+		return;
+	}
+	Corridors.Sort([](const ARoomVolume& A, const ARoomVolume& B) { return A.GetActorLocation().Z < B.GetActorLocation().Z; });
+
+	const float Scaled = GameState->GetIntroProgress() * Corridors.Num();
+	const int32 Index = FMath::Min(FMath::FloorToInt32(Scaled), Corridors.Num() - 1);
+	const float Along = FMath::SmoothStep(0.f, 1.f, Scaled - Index);
+	const FBox Bounds = Corridors[Index]->GetBox()->Bounds.GetBox();
+	const bool bAlongX = Bounds.GetSize().X >= Bounds.GetSize().Y;
+	const FVector Axis = bAlongX ? FVector(1.f, 0.f, 0.f) : FVector(0.f, 1.f, 0.f);
+	const float HalfLength = (bAlongX ? Bounds.GetExtent().X : Bounds.GetExtent().Y) - IntroEndInset;
+	// На чётных отрезках летим в одну сторону, на нечётных — обратно: так второй этаж начинается над концом первого.
+	const float Direction = Index % 2 == 0 ? 1.f : -1.f;
+	const FVector Center(Bounds.GetCenter().X, Bounds.GetCenter().Y, Bounds.Min.Z + IntroCameraHeight);
+	IntroCamera->SetActorLocation(Center + Axis * Direction * FMath::Lerp(-HalfLength, HalfLength, Along));
+	IntroCamera->SetActorRotation(FRotator(-8.f, (Axis * Direction).Rotation().Yaw, 0.f));
+}
+
 bool AObshagaPlayerController::InputKey(const FInputKeyEventArgs& Params)
 {
+	// Заставку можно пропустить пробелом: у себя — сразу, а хост пропускает её всем.
+	if (bIntroCamera && Params.Event == IE_Pressed && Params.Key == EKeys::SpaceBar)
+	{
+		bIntroSkipped = true;
+		if (GetNetMode() != NM_Client)
+		{
+			ServerRequestStart();
+		}
+		return true;
+	}
+
 	// Esc открывает и закрывает настройки; пока они открыты, цифры меняют настройки, а не выбирают фразы.
 	if (Params.Event == IE_Pressed && Params.Key == EKeys::Escape)
 	{
@@ -969,6 +1043,8 @@ void AObshagaPlayerController::PlayerTick(float DeltaTime)
 				Me->GetMesh()->SetOwnerNoSee(bTooClose);
 			}
 		}
+
+		UpdateIntro();
 
 		// «Выбило пробки»: у каждого жильца в руке фонарик. Состояние события у всех одно, поэтому каждая машина
 		// зажигает фонарики сама — рассылать по сети нечего.

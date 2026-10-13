@@ -121,6 +121,12 @@ public:
 	/** Идут ли прямо сейчас «пробки» — тогда у жильцов горят фонарики. */
 	bool IsBlackout() const { return NightEvent == ENightEvent::Blackout && IsNightEventActive(); }
 
+	/** Заставка перед первым раундом: идёт ли она и какая её доля уже прошла (0–1). */
+	bool IsIntroActive() const { return IntroEndServerTime > 0.f && GetServerWorldTimeSeconds() < IntroEndServerTime; }
+	float GetIntroProgress() const { return IntroSeconds > 0.f ? FMath::Clamp(1.f - (IntroEndServerTime - GetServerWorldTimeSeconds()) / IntroSeconds, 0.f, 1.f) : 1.f; }
+	/** Только сервер: начать заставку на столько секунд; 0 — закончить сейчас. */
+	void SetIntro(float Seconds);
+
 	const FInterrogationInfo& GetInterrogation() const { return Interrogation; }
 	float GetInterrogationRemainingSeconds() const;
 	/** Радиус, в котором можно подтвердить алиби (приходит с сервера из DA_RoundConfig). */
@@ -161,6 +167,12 @@ protected:
 
 	UPROPERTY(Replicated)
 	uint8 StoryIndex = 0;
+
+	UPROPERTY(Replicated)
+	float IntroEndServerTime = 0.f;
+
+	UPROPERTY(Replicated)
+	float IntroSeconds = 0.f;
 
 	UPROPERTY(Replicated)
 	ENightEvent NightEvent = ENightEvent::None;

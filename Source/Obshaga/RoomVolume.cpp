@@ -30,7 +30,8 @@ namespace
 	constexpr float WallTraceReach = 110.f;
 	// Краска — тонкий лист, прижатый к стене.
 	constexpr float PaintThickness = 1.2f;
-	constexpr float MaxWallHeight = 400.f;
+	// Стены красим не выше одного этажа: зона лестницы тянется на оба, и её побелка ложилась поверх краски коридора второго этажа.
+	constexpr float MaxWallHeight = 300.f;
 	constexpr float RugLift = 1.2f;
 	// Насколько стул задвинут под стол.
 	constexpr float FrontTuck = 12.f;

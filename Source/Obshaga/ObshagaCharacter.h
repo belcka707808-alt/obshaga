@@ -92,6 +92,12 @@ protected:
 	UFUNCTION()
 	void OnRep_LookIndex();
 
+public:
+	/** Номер модели жильца (тот же, что у сервера в PlayerState; до клиентов доходит только здесь). */
+	int32 GetLookSlot() const { return LookIndex > 0 ? LookIndex - 1 : 0; }
+
+protected:
+
 	UFUNCTION()
 	void OnRep_HidingSpot();
 

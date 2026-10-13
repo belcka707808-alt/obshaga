@@ -40,6 +40,8 @@ public:
 	bool IsPhoneOpen() const { return bPhoneOpen; }
 	bool IsEmoteWheelOpen() const { return bEmoteWheelOpen; }
 	bool IsSettingsOpen() const { return bSettingsOpen; }
+	/** Показывается ли этому игроку заставка прямо сейчас (он её не пропустил). */
+	bool IsWatchingIntro() const { return bIntroCamera; }
 
 	/** Насколько близка опасность: 0 — коменданта рядом нет, 1 — он вплотную. Считается у локального игрока. */
 	float GetDangerLevel() const { return DangerLevel; }
@@ -100,6 +102,13 @@ private:
 	float LeavePressTime = -100.f;
 	bool bDisplayNameSet = false;
 	bool bSettingsOpen = false;
+
+	/** Заставка: пролёт камеры по коридорам. Камера у каждого игрока своя, по сети не ходит. */
+	void UpdateIntro();
+	UPROPERTY(Transient)
+	TObjectPtr<class ACameraActor> IntroCamera;
+	bool bIntroCamera = false;
+	bool bIntroSkipped = false;
 	bool bFlashlightsOn = false;
 
 	/** Раскладка MVP задаётся в коде: WASD, мышь, Shift, Ctrl, пробел, E, F, G, Tab, 1–8, Y, T, R, B, Q, H, Enter, левая кнопка мыши. */

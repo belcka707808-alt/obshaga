@@ -434,7 +434,26 @@ void AObshagaGameMode::RequestStart(APlayerController* By)
 	if (State->GetRoundState() == ERoundState::WaitingToStart)
 	{
 		GetWorldTimerManager().ClearTimer(PhaseTimer);
-		StartRound();
+		AObshagaGameState* MutableState = GetGameState<AObshagaGameState>();
+		if (MutableState->IsIntroActive())
+		{
+			// Хост нажал ещё раз во время заставки — пропускаем её для всех.
+			GetWorldTimerManager().ClearTimer(IntroTimer);
+			MutableState->SetIntro(0.f);
+			StartRound();
+		}
+		else if (!bIntroShown && GetRoundConfig()->IntroSeconds > 0.f)
+		{
+			// Первый раунд комнаты начинается с заставки; раунд стартует, когда она кончится.
+			bIntroShown = true;
+			MutableState->SetIntro(GetRoundConfig()->IntroSeconds);
+			UE_LOG(LogObshaga, Log, TEXT("Intro started: %.0f s"), GetRoundConfig()->IntroSeconds);
+			GetWorldTimerManager().SetTimer(IntroTimer, this, &AObshagaGameMode::StartRound, GetRoundConfig()->IntroSeconds, false);
+		}
+		else
+		{
+			StartRound();
+		}
 	}
 	else if (State->GetRoundState() == ERoundState::Finished)
 	{
