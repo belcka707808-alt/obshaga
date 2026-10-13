@@ -3,7 +3,9 @@
 #include "CarryComponent.h"
 #include "KomendantCharacter.h"
 #include "Obshaga.h"
+#include "ObshagaAnimInstance.h"
 #include "ObshagaCharacter.h"
+#include "Animation/AnimSequence.h"
 #include "Animation/AnimSequenceBase.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
@@ -68,8 +70,10 @@ void UObshagaLookComponent::ApplyLook(int32 Index)
 	const float Scale = (bKomendant ? Config->KomendantHeight : Config->ResidentHeight) / ModelHeight;
 	const float FeetZ = (Bounds.Origin.Z - Bounds.BoxExtent.Z) * Scale;
 
-	Mesh->SetAnimationMode(EAnimationMode::AnimationSingleNode);
+	// Свой аниматор вместо «одного клипа»: он плавно перетекает из клипа в клип.
 	Mesh->SetSkeletalMesh(Model);
+	Mesh->SetAnimationMode(EAnimationMode::AnimationBlueprint);
+	Mesh->SetAnimInstanceClass(UObshagaAnimInstance::StaticClass());
 	Mesh->SetRelativeScale3D(FVector(Scale));
 	Mesh->SetRelativeRotation(FRotator(0.f, Config->ModelYaw, 0.f));
 	// Высота меша для стоящего персонажа; в приседе капсула ниже, и меш поднимается на ту же разницу.
@@ -184,8 +188,16 @@ void UObshagaLookComponent::TickComponent(float DeltaTime, ELevelTick TickType, 
 	UAnimSequenceBase* Wanted = PickAnimation(bLoop);
 	if (Wanted && Wanted != Current)
 	{
+		USkeletalMeshComponent* Mesh = CastChecked<ACharacter>(GetOwner())->GetMesh();
+		UObshagaAnimInstance* Animator = Cast<UObshagaAnimInstance>(Mesh->GetAnimInstance());
+		UAnimSequence* Sequence = Cast<UAnimSequence>(Wanted);
+		if (!Animator || !Sequence)
+		{
+			// Аниматор ещё не создан (модель только что сменили) — попробуем на следующем кадре.
+			return;
+		}
 		Current = Wanted;
-		CastChecked<ACharacter>(GetOwner())->GetMesh()->PlayAnimation(Wanted, bLoop);
+		Animator->Play(Sequence, bLoop, UObshagaLookConfig::Get()->BlendSeconds);
 		UE_LOG(LogObshaga, Verbose, TEXT("[%s] %s anim: %s"), *GetNameSafe(GetWorld()), *GetOwner()->GetName(), *Wanted->GetName());
 	}
 }

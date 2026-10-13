@@ -75,6 +75,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Animation")
 	TArray<TObjectPtr<UAnimSequenceBase>> EmoteGestures;
 
+	/** За сколько секунд одна анимация перетекает в другую (ходьба в стойку, стойка в присед). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Animation", meta = (ClampMin = "0", Units = "s"))
+	float BlendSeconds = 0.2f;
+
 	/** Быстрее этой скорости персонаж считается идущим. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Animation", meta = (ClampMin = "0", Units = "cm/s"))
 	float MoveSpeedThreshold = 20.f;
