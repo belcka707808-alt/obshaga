@@ -108,7 +108,7 @@ void AKomendantAIController::ApplyPersonality()
 	SightConfig->SightRadius = SightRadius;
 	SightConfig->LoseSightRadius = SightRadius * 1.15f;
 	// Выбило пробки: в темноте он видит только прямо перед собой.
-	const bool bBlackout = GameState && GameState->IsNightEventActive() && GameState->GetNightEvent() == ENightEvent::Blackout;
+	const bool bBlackout = IsNightEvent(ENightEvent::Blackout);
 	SightConfig->PeripheralVisionAngleDegrees = Personality->SightHalfAngle * (bBlackout ? Config->BlackoutSightScale : 1.f);
 	HearingConfig->HearingRange = Personality->HearingRange * (bNight ? Config->NightHearingMultiplier : 1.f);
 	Perception->ConfigureSense(*SightConfig);
@@ -545,9 +545,15 @@ void AKomendantAIController::OnPerceptionUpdated(AActor* Actor, FAIStimulus Stim
 		return;
 	}
 
-	if (const ARoomVolume* Room = ARoomVolume::FindRoomAt(this, Stimulus.StimulusLocation))
+	const ARoomVolume* NoiseRoom = ARoomVolume::FindRoomAt(this, Stimulus.StimulusLocation);
+	// День рождения: в комнате именинника шуметь можно — комендант знает, что там празднуют.
+	if (NoiseRoom && IsNightEvent(ENightEvent::Birthday) && NoiseRoom->RoomId == GetRoundConfig()->BirthdayRoomId)
 	{
-		RoomHeat.FindOrAdd(Room->RoomId) += Stimulus.Strength * 10.f;
+		return;
+	}
+	if (NoiseRoom)
+	{
+		RoomHeat.FindOrAdd(NoiseRoom->RoomId) += Stimulus.Strength * 10.f;
 	}
 
 	// Тихий шум (скрип двери) только «греет» комнату; на громкий он идёт смотреть.
@@ -568,6 +574,30 @@ void AKomendantAIController::StartInvestigate(const FVector& Location)
 	InvestigateLocation = Location;
 	bInvestigateArrived = !PlanPathTo(Location);
 	InvestigateLookTime = 0.f;
+	InvestigateHoldSeconds = GetRoundConfig()->InvestigateSeconds;
+}
+
+bool AKomendantAIController::HoldAt(const FVector& Location, float Seconds)
+{
+	if (!CanTakeTip())
+	{
+		return false;
+	}
+	StartInvestigate(Location);
+	InvestigateHoldSeconds = Seconds;
+	return true;
+}
+
+bool AKomendantAIController::IsNightEvent(ENightEvent Event) const
+{
+	const AObshagaGameState* GameState = GetWorld()->GetGameState<AObshagaGameState>();
+	return GameState && GameState->IsNightEventActive() && GameState->GetNightEvent() == Event;
+}
+
+bool AKomendantAIController::IsDeaneryMorning() const
+{
+	const AObshagaGameState* GameState = GetWorld()->GetGameState<AObshagaGameState>();
+	return IsNightEvent(ENightEvent::Deanery) && GameState->GetPhase() == ERoundPhase::Morning;
 }
 
 void AKomendantAIController::StartChase(AObshagaCharacter* Target)
@@ -613,7 +643,17 @@ void AKomendantAIController::TickPatrol(float DeltaSeconds)
 		return;
 	}
 
-	if (!FollowPath(Personality->PatrolSpeed, DeltaSeconds))
+	// К тайнику не идём вплотную: его точка лежит внутри самой мебели, комендант упирался в неё и «застревал».
+	// Подошёл на расстояние вытянутой руки и видит тайник — значит, пришёл.
+	bool bAtSpot = false;
+	if (const AHidingSpot* Queued = QueuedSpot.Get())
+	{
+		const FVector SpotLocation = GetSpotStandLocation(Queued);
+		const FVector ToSpot = SpotLocation - Komendant->GetActorLocation();
+		bAtSpot = ToSpot.Size2D() < InspectReachDistance && FMath::Abs(ToSpot.Z) < SameFloorHeight && HasClearLine(Komendant->GetActorLocation(), SpotLocation);
+	}
+	const float DeanerySpeed = IsDeaneryMorning() ? GetRoundConfig()->DeanerySpeedScale : 1.f;
+	if (!bAtSpot && !FollowPath(Personality->PatrolSpeed * DeanerySpeed, DeltaSeconds))
 	{
 		return;
 	}
@@ -654,7 +694,7 @@ void AKomendantAIController::TickInvestigate(float DeltaSeconds)
 
 	LookAround();
 	InvestigateLookTime += DeltaSeconds;
-	if (InvestigateLookTime >= GetRoundConfig()->InvestigateSeconds)
+	if (InvestigateLookTime >= InvestigateHoldSeconds)
 	{
 		SetState(EKomendantState::Patrol);
 	}
@@ -765,7 +805,7 @@ void AKomendantAIController::TickInspect(float DeltaSeconds)
 	const float Distance = ToSpot.Size2D();
 	if (SearchTime <= 0.f && Distance > InspectApproachDistance && StateTime < InspectApproachSeconds)
 	{
-		MoveToward(SpotLocation, Personality->PatrolSpeed * 1.4f);
+		MoveToward(SpotLocation, Personality->PatrolSpeed * 1.4f * (IsDeaneryMorning() ? GetRoundConfig()->DeanerySpeedScale : 1.f));
 		return;
 	}
 
@@ -781,7 +821,7 @@ void AKomendantAIController::TickInspect(float DeltaSeconds)
 
 	FaceLocation(SpotLocation);
 	SearchTime += DeltaSeconds;
-	if (SearchTime >= GetRoundConfig()->InspectSeconds)
+	if (SearchTime >= GetRoundConfig()->InspectSeconds * (IsDeaneryMorning() ? GetRoundConfig()->DeaneryInspectScale : 1.f))
 	{
 		SearchSpot(Spot);
 	}

@@ -220,30 +220,53 @@ public:
 	TArray<FName> DebugMainTasks;
 
 	// --- События ночи: одно на раунд, сервер выбирает случайно ---
-	// Пока это обычные числа, а не настройки ассета: добавить поля в ассет можно только пересобрав редактор
-	// (иначе упакованная игра читает DA_RoundConfig со сдвигом и теряет таблицу заданий). После пересборки
-	// редактора каждому полю вернуть UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "NightEvent").
 
 	/** Через сколько секунд после начала ночи случается событие. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "NightEvent", meta = (ClampMin = "0"))
 	float NightEventDelaySeconds = 8.f;
 
 	/** «Выбило пробки»: сколько длится темнота. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "NightEvent", meta = (ClampMin = "0"))
 	float BlackoutSeconds = 60.f;
 
 	/** «Выбило пробки»: во сколько раз темнее обычной ночи (доля ночного света неба). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "NightEvent", meta = (ClampMin = "0"))
 	float BlackoutSkyScale = 0.3f;
 
 	/** «Выбило пробки»: во сколько раз сужается угол зрения коменданта. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "NightEvent", meta = (ClampMin = "0"))
 	float BlackoutSightScale = 0.6f;
 
 	/** «Пожарная тревога»: сколько секунд надо стоять в коридоре. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "NightEvent", meta = (ClampMin = "0"))
 	float FireAlarmSeconds = 30.f;
 
 	/** «Пожарная тревога»: сколько секунд даётся, чтобы выйти из комнаты. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "NightEvent", meta = (ClampMin = "0"))
 	float FireAlarmGraceSeconds = 8.f;
 
 	/** «Пожарная тревога»: подозрение в секунду тому, кто остался в жилой комнате. */
-	float FireAlarmSuspicionPerSecond = 8.f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "NightEvent", meta = (ClampMin = "0"))
+	float FireAlarmSuspicionPerSecond = 2.f;
+
+	/** «Проверка из деканата»: во сколько раз утром комендант ходит быстрее. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "NightEvent", meta = (ClampMin = "1"))
+	float DeanerySpeedScale = 1.3f;
+
+	/** «Проверка из деканата»: доля обычного времени на обыск одного тайника (меньше — успеет больше комнат). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "NightEvent", meta = (ClampMin = "0.1", ClampMax = "1"))
+	float DeaneryInspectScale = 0.6f;
+
+	/** «День рождения»: сколько секунд комендант не реагирует на шум в комнате именинника и какая это комната. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "NightEvent", meta = (ClampMin = "1", Units = "s"))
+	float BirthdaySeconds = 90.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "NightEvent")
+	FName BirthdayRoomId = TEXT("Room203");
+
+	/** «Прорвало трубу»: сколько секунд комендант чинит её в санузле. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "NightEvent", meta = (ClampMin = "1", Units = "s"))
+	float PipeSeconds = 90.f;
 
 	float GetTotalSeconds() const { return EveningSeconds + NightSeconds + MorningSeconds; }
 

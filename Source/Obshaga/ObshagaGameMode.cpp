@@ -580,47 +580,133 @@ void AObshagaGameMode::StartNightEvent()
 		return;
 	}
 
-	// Событие не переживает ночь: утром свет и правила обычные.
-	const bool bBlackout = FMath::RandBool();
-	const float Seconds = FMath::Min(bBlackout ? Config->BlackoutSeconds : Config->FireAlarmSeconds, State->GetPhaseRemainingSeconds());
+	ENightEvent Event = static_cast<ENightEvent>(FMath::RandRange(1, static_cast<int32>(ENightEvent::PipeBurst)));
+	// Для проверок: -TestNightEvent=N включает событие с номером N (1 — пробки, 2 — тревога, 3 — деканат, 4 — день рождения, 5 — труба).
+	int32 Forced = 0;
+	if (FParse::Value(FCommandLine::Get(), TEXT("TestNightEvent="), Forced) && Forced > 0)
+	{
+		Event = static_cast<ENightEvent>(FMath::Clamp(Forced, 1, static_cast<int32>(ENightEvent::PipeBurst)));
+	}
+
+	const ARoomVolume* BirthdayRoom = ARoomVolume::FindRoomById(this, Config->BirthdayRoomId);
+	const ARoomVolume* Bathroom = nullptr;
+	for (TActorIterator<ARoomVolume> It(GetWorld()); It && !Bathroom; ++It)
+	{
+		Bathroom = It->RoomType == ERoomType::Bathroom ? *It : nullptr;
+	}
+	// Событию нужна комната, которой на карте нет, — берём то, что комнат не требует.
+	if ((Event == ENightEvent::Birthday && !BirthdayRoom) || (Event == ENightEvent::PipeBurst && !Bathroom))
+	{
+		Event = ENightEvent::Blackout;
+	}
+
+	float Seconds = 0.f;
+	float SkyScale = 1.f;
+	FText Banner;
+	FName EventName;
+	switch (Event)
+	{
+	case ENightEvent::FireAlarm:
+		Seconds = Config->FireAlarmSeconds;
+		EventName = TEXT("FireAlarm");
+		Banner = LOCTEXT("EventFireAlarm", "Пожарная тревога! Все в коридор — кто останется в комнате, тот под подозрением");
+		break;
+	case ENightEvent::Deanery:
+		// Действует до конца раунда: предупреждение ночью, сама проверка утром.
+		Seconds = Config->GetTotalSeconds();
+		EventName = TEXT("Deanery");
+		Banner = LOCTEXT("EventDeanery", "Утром проверка из деканата! Комендант будет обыскивать комнаты быстрее обычного");
+		break;
+	case ENightEvent::Birthday:
+		Seconds = Config->BirthdaySeconds;
+		EventName = TEXT("Birthday");
+		Banner = FText::Format(LOCTEXT("EventBirthday", "День рождения! {0}: на шум оттуда комендант не идёт. Но заглянет поздравить"), BirthdayRoom->DisplayName);
+		break;
+	case ENightEvent::PipeBurst:
+		Seconds = Config->PipeSeconds;
+		EventName = TEXT("PipeBurst");
+		Banner = LOCTEXT("EventPipe", "В санузле прорвало трубу! Комендант ушёл чинить — в коридорах пока свободно");
+		break;
+	default:
+		Event = ENightEvent::Blackout;
+		Seconds = Config->BlackoutSeconds;
+		SkyScale = Config->BlackoutSkyScale;
+		EventName = TEXT("Blackout");
+		Banner = LOCTEXT("EventBlackout", "Выбило пробки! В общаге темно — комендант видит только перед собой");
+		break;
+	}
+
+	// Ни одно событие, кроме проверки из деканата, не переживает ночь.
+	if (Event != ENightEvent::Deanery)
+	{
+		Seconds = FMath::Min(Seconds, State->GetPhaseRemainingSeconds());
+	}
 	if (Seconds < 1.f)
 	{
 		return;
 	}
 
-	State->StartNightEvent(bBlackout ? ENightEvent::Blackout : ENightEvent::FireAlarm, Seconds, bBlackout ? Config->BlackoutSkyScale : 1.f);
-	const FText Banner = bBlackout
-		? LOCTEXT("EventBlackout", "Выбило пробки! В общаге темно — комендант видит только перед собой")
-		: LOCTEXT("EventFireAlarm", "Пожарная тревога! Все в коридор — кто останется в комнате, тот под подозрением");
+	State->StartNightEvent(Event, Seconds, SkyScale);
 	NotifyAll(Banner);
 	for (AObshagaPlayerState* PlayerState : GetObshagaPlayers())
 	{
 		PlayerState->AddSms(Banner);
 	}
-	UE_LOG(LogObshaga, Log, TEXT("Night event: %s for %.0f s"), bBlackout ? TEXT("Blackout") : TEXT("FireAlarm"), Seconds);
-
-	if (bBlackout)
+	if (UGameEventSubsystem* Bus = UGameEventSubsystem::Get(this))
 	{
-		for (TActorIterator<AKomendantCharacter> It(GetWorld()); It; ++It)
+		// В хронику и телеметрию: какое событие, пишем в поле комнаты.
+		FGameEvent BusEvent;
+		BusEvent.Type = EGameEventType::NightEvent;
+		BusEvent.RoomId = EventName;
+		Bus->Publish(BusEvent);
+	}
+	UE_LOG(LogObshaga, Log, TEXT("Night event: %s for %.0f s"), *EventName.ToString(), Seconds);
+
+	for (TActorIterator<AKomendantCharacter> It(GetWorld()); It; ++It)
+	{
+		AKomendantAIController* Brain = Cast<AKomendantAIController>(It->GetController());
+		if (!Brain)
 		{
-			if (AKomendantAIController* Brain = Cast<AKomendantAIController>(It->GetController()))
-			{
-				Brain->RefreshSenses();
-			}
+			continue;
+		}
+		if (Event == ENightEvent::Blackout)
+		{
+			Brain->RefreshSenses();
+		}
+		else if (Event == ENightEvent::Birthday)
+		{
+			Brain->InvestigateTip(BirthdayRoom->GetActorLocation());
+		}
+		else if (Event == ENightEvent::PipeBurst)
+		{
+			Brain->HoldAt(Bathroom->GetActorLocation(), Seconds);
 		}
 	}
-	else
+
+	if (Event == ENightEvent::FireAlarm)
 	{
 		FireAlarmStartTime = GetWorld()->GetTimeSeconds();
 		GetWorldTimerManager().SetTimer(FireAlarmTimer, this, &AObshagaGameMode::TickFireAlarm, 1.f, true);
 	}
-	GetWorldTimerManager().SetTimer(NightEventEndTimer, this, &AObshagaGameMode::EndNightEvent, Seconds, false);
+	if (Event != ENightEvent::Deanery)
+	{
+		GetWorldTimerManager().SetTimer(NightEventEndTimer, this, &AObshagaGameMode::EndNightEvent, Seconds, false);
+	}
 }
 
 void AObshagaGameMode::EndNightEvent()
 {
 	GetWorldTimerManager().ClearTimer(FireAlarmTimer);
-	// Зрение коменданта возвращается к обычному (событие к этому моменту уже истекло по часам).
+
+	// Сначала событие кончается в состоянии игры, потом комендант пересчитывает зрение — иначе таймер,
+	// сработавший на кадр раньше часов, оставил бы ему узкий конус «пробок» до утра.
+	AObshagaGameState* State = GetGameState<AObshagaGameState>();
+	if (!State)
+	{
+		return;
+	}
+	const ENightEvent Event = State->GetNightEvent();
+	State->EndNightEvent();
 	for (TActorIterator<AKomendantCharacter> It(GetWorld()); It; ++It)
 	{
 		if (AKomendantAIController* Brain = Cast<AKomendantAIController>(It->GetController()))
@@ -628,13 +714,28 @@ void AObshagaGameMode::EndNightEvent()
 			Brain->RefreshSenses();
 		}
 	}
-	const AObshagaGameState* State = GetGameState<AObshagaGameState>();
-	if (State && State->GetRoundState() == ERoundState::InProgress)
+
+	if (State->GetRoundState() == ERoundState::InProgress)
 	{
-		NotifyAll(State->GetNightEvent() == ENightEvent::Blackout ? LOCTEXT("EventBlackoutEnd", "Свет дали") : LOCTEXT("EventFireAlarmEnd", "Отбой тревоги. По комнатам!"));
+		switch (Event)
+		{
+		case ENightEvent::Blackout:
+			NotifyAll(LOCTEXT("EventBlackoutEnd", "Свет дали"));
+			break;
+		case ENightEvent::FireAlarm:
+			NotifyAll(LOCTEXT("EventFireAlarmEnd", "Отбой тревоги. По комнатам!"));
+			break;
+		case ENightEvent::Birthday:
+			NotifyAll(LOCTEXT("EventBirthdayEnd", "Праздник кончился. Теперь шуметь нельзя нигде"));
+			break;
+		case ENightEvent::PipeBurst:
+			NotifyAll(LOCTEXT("EventPipeEnd", "Трубу починили. Комендант снова в обходе"));
+			break;
+		default:
+			break;
+		}
 	}
 }
-
 void AObshagaGameMode::TickFireAlarm()
 {
 	// Первые секунды — время выйти из комнаты; потом каждый, кто сидит в жилой комнате, копит подозрение.
@@ -650,6 +751,7 @@ void AObshagaGameMode::TickFireAlarm()
 		if (Room && Room->RoomType == ERoomType::Bedroom)
 		{
 			PlayerState->GetSuspicionComponent()->AddSuspicion(Config->FireAlarmSuspicionPerSecond);
+			UE_LOG(LogObshaga, Verbose, TEXT("Fire alarm: %s stays in %s, suspicion %.0f"), *PlayerState->GetPlayerName(), *Room->RoomId.ToString(), PlayerState->GetSuspicionComponent()->GetSuspicion());
 		}
 	}
 }
@@ -1506,6 +1608,29 @@ TArray<FText> AObshagaGameMode::BuildChronicle() const
 				LOCTEXT("ChrAlibi1", "{0} подтвердил алиби, выручен: {1}. Вот это дружба"),
 				LOCTEXT("ChrAlibi2", "{0}: «Он был со мной». Речь про: {1}. Комендант поверил обоим"),
 				LOCTEXT("ChrAlibi3", "{0} спас от страйка, спасённый: {1}. Должок") }), Who, Whom);
+			break;
+		case EGameEventType::NightEvent:
+			Line.Priority = 4;
+			if (Event.RoomId == TEXT("FireAlarm"))
+			{
+				Line.Text = LOCTEXT("ChrFireAlarm", "Пожарная тревога. Горело только у Палыча — терпение");
+			}
+			else if (Event.RoomId == TEXT("Deanery"))
+			{
+				Line.Text = LOCTEXT("ChrDeanery", "Стало известно: утром проверка из деканата. Общага срочно прячет лишнее");
+			}
+			else if (Event.RoomId == TEXT("Birthday"))
+			{
+				Line.Text = LOCTEXT("ChrBirthday", "В общаге день рождения. Палыч сделал вид, что не слышит");
+			}
+			else if (Event.RoomId == TEXT("PipeBurst"))
+			{
+				Line.Text = LOCTEXT("ChrPipe", "В санузле прорвало трубу. Палыч ушёл чинить, общага — пользоваться моментом");
+			}
+			else
+			{
+				Line.Text = LOCTEXT("ChrBlackout", "Выбило пробки. В темноте все стали смелее");
+			}
 			break;
 		case EGameEventType::PlayerEvicted:
 			Line.Priority = 6;

@@ -415,12 +415,32 @@ void AObshagaHUD::DrawTopStatus(const AObshagaGameState* GameState)
 		// Событие ночи — красной строкой под таймером, пока оно идёт.
 		if (GameState->IsNightEventActive())
 		{
-			const FText EventName = GameState->GetNightEvent() == ENightEvent::Blackout
-				? LOCTEXT("TopBlackout", "ВЫБИЛО ПРОБКИ")
-				: LOCTEXT("TopFireAlarm", "ПОЖАРНАЯ ТРЕВОГА — ВСЕ В КОРИДОР!");
+			FText EventName = LOCTEXT("TopBlackout", "ВЫБИЛО ПРОБКИ");
+			bool bTimed = true;
+			switch (GameState->GetNightEvent())
+			{
+			case ENightEvent::FireAlarm:
+				EventName = LOCTEXT("TopFireAlarm", "ПОЖАРНАЯ ТРЕВОГА — ВСЕ В КОРИДОР!");
+				break;
+			case ENightEvent::Deanery:
+				// Идёт до конца раунда, отсчёт ни к чему.
+				EventName = GameState->GetPhase() == ERoundPhase::Morning ? LOCTEXT("TopDeaneryNow", "ПРОВЕРКА ИЗ ДЕКАНАТА") : LOCTEXT("TopDeanery", "УТРОМ ПРОВЕРКА ИЗ ДЕКАНАТА");
+				bTimed = false;
+				break;
+			case ENightEvent::Birthday:
+				EventName = LOCTEXT("TopBirthday", "ДЕНЬ РОЖДЕНИЯ В 203-Й");
+				break;
+			case ENightEvent::PipeBurst:
+				EventName = LOCTEXT("TopPipe", "ПРОРВАЛО ТРУБУ — КОМЕНДАНТ В САНУЗЛЕ");
+				break;
+			default:
+				break;
+			}
 			const float Blink = 0.6f + 0.4f * FMath::Abs(FMath::Sin(GetWorld()->GetRealTimeSeconds() * 4.f));
-			DrawCentered(FText::Format(LOCTEXT("TopEvent", "{0}  {1}"), EventName, FText::FromString(FormatTime(GameState->GetNightEventRemainingSeconds()))).ToString(),
-				FLinearColor(1.f, 0.3f, 0.2f, Blink), 0.085f);
+			const FText EventLine = bTimed
+				? FText::Format(LOCTEXT("TopEvent", "{0}  {1}"), EventName, FText::FromString(FormatTime(GameState->GetNightEventRemainingSeconds())))
+				: EventName;
+			DrawCentered(EventLine.ToString(), FLinearColor(1.f, 0.3f, 0.2f, Blink), 0.085f);
 		}
 		break;
 	}

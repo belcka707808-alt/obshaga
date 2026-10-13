@@ -13,7 +13,13 @@ enum class ENightEvent : uint8
 	/** Выбило пробки: темно, комендант видит уже. */
 	Blackout,
 	/** Пожарная тревога: кто остался в жилой комнате — под подозрением. */
-	FireAlarm
+	FireAlarm,
+	/** Проверка из деканата: утром комендант ходит и обыскивает быстрее. */
+	Deanery,
+	/** День рождения: шум в одной комнате комендант прощает, но разок туда заглянет. */
+	Birthday,
+	/** Прорвало трубу: комендант уходит чинить её в санузел. */
+	PipeBurst
 };
 
 UENUM(BlueprintType)
@@ -104,6 +110,8 @@ public:
 	float GetNightEventRemainingSeconds() const;
 	/** Только сервер: начать событие ночи. SkyScale — доля ночного света на время события (1 — без изменений). */
 	void StartNightEvent(ENightEvent Event, float DurationSeconds, float SkyScale);
+	/** Только сервер: событие кончилось прямо сейчас (какое оно было — остаётся известно для итогов). */
+	void EndNightEvent();
 
 	const FInterrogationInfo& GetInterrogation() const { return Interrogation; }
 	float GetInterrogationRemainingSeconds() const;

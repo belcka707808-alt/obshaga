@@ -59,7 +59,9 @@ enum class EGameEventType : uint8
 	/** Instigator вышел на улицу через ночной выход. */
 	LeftBuilding,
 	/** Instigator вернулся с улицы, пробыв там достаточно долго. */
-	ReturnedToBuilding
+	ReturnedToBuilding,
+	/** Началось событие ночи; какое — в RoomId (Blackout, FireAlarm, Deanery, Birthday, PipeBurst). */
+	NightEvent
 };
 
 /** Одна запись на «доске объявлений»: кто, что сделал, с каким предметом, где и когда. */

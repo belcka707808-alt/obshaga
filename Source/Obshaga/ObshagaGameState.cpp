@@ -191,6 +191,14 @@ void AObshagaGameState::StartNightEvent(ENightEvent Event, float DurationSeconds
 	}
 }
 
+void AObshagaGameState::EndNightEvent()
+{
+	if (HasAuthority())
+	{
+		NightEventEndServerTime = FMath::Min(NightEventEndServerTime, GetServerWorldTimeSeconds());
+	}
+}
+
 void AObshagaGameState::SetStory(int32 NewIndex)
 {
 	if (HasAuthority())
