@@ -411,6 +411,17 @@ void AObshagaHUD::DrawTopStatus(const AObshagaGameState* GameState)
 		}
 		const FText Line = FText::Format(LOCTEXT("TopFormat", "{0}  {1}"), PhaseName, FText::FromString(FormatTime(GameState->GetPhaseRemainingSeconds())));
 		DrawCentered(Line.ToString(), Color, 0.04f);
+
+		// Событие ночи — красной строкой под таймером, пока оно идёт.
+		if (GameState->IsNightEventActive())
+		{
+			const FText EventName = GameState->GetNightEvent() == ENightEvent::Blackout
+				? LOCTEXT("TopBlackout", "ВЫБИЛО ПРОБКИ")
+				: LOCTEXT("TopFireAlarm", "ПОЖАРНАЯ ТРЕВОГА — ВСЕ В КОРИДОР!");
+			const float Blink = 0.6f + 0.4f * FMath::Abs(FMath::Sin(GetWorld()->GetRealTimeSeconds() * 4.f));
+			DrawCentered(FText::Format(LOCTEXT("TopEvent", "{0}  {1}"), EventName, FText::FromString(FormatTime(GameState->GetNightEventRemainingSeconds()))).ToString(),
+				FLinearColor(1.f, 0.3f, 0.2f, Blink), 0.085f);
+		}
 		break;
 	}
 

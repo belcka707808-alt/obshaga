@@ -107,7 +107,9 @@ void AKomendantAIController::ApplyPersonality()
 
 	SightConfig->SightRadius = SightRadius;
 	SightConfig->LoseSightRadius = SightRadius * 1.15f;
-	SightConfig->PeripheralVisionAngleDegrees = Personality->SightHalfAngle;
+	// Выбило пробки: в темноте он видит только прямо перед собой.
+	const bool bBlackout = GameState && GameState->IsNightEventActive() && GameState->GetNightEvent() == ENightEvent::Blackout;
+	SightConfig->PeripheralVisionAngleDegrees = Personality->SightHalfAngle * (bBlackout ? Config->BlackoutSightScale : 1.f);
 	HearingConfig->HearingRange = Personality->HearingRange * (bNight ? Config->NightHearingMultiplier : 1.f);
 	Perception->ConfigureSense(*SightConfig);
 	Perception->ConfigureSense(*HearingConfig);

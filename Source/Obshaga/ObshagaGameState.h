@@ -5,6 +5,17 @@
 #include "TaskTypes.h"
 #include "ObshagaGameState.generated.h"
 
+/** Событие ночи: одно на раунд. */
+UENUM()
+enum class ENightEvent : uint8
+{
+	None,
+	/** Выбило пробки: темно, комендант видит уже. */
+	Blackout,
+	/** Пожарная тревога: кто остался в жилой комнате — под подозрением. */
+	FireAlarm
+};
+
 UENUM(BlueprintType)
 enum class ERoundState : uint8
 {
@@ -87,6 +98,13 @@ public:
 	void SetStory(int32 NewIndex);
 	void SetNewspaper(const FText& InHeadline, const FText& InSubhead);
 
+	/** Событие этой ночи: 0 — нет, дальше как в ENightEvent. Идёт ли оно прямо сейчас — IsNightEventActive. */
+	ENightEvent GetNightEvent() const { return NightEvent; }
+	bool IsNightEventActive() const;
+	float GetNightEventRemainingSeconds() const;
+	/** Только сервер: начать событие ночи. SkyScale — доля ночного света на время события (1 — без изменений). */
+	void StartNightEvent(ENightEvent Event, float DurationSeconds, float SkyScale);
+
 	const FInterrogationInfo& GetInterrogation() const { return Interrogation; }
 	float GetInterrogationRemainingSeconds() const;
 	/** Радиус, в котором можно подтвердить алиби (приходит с сервера из DA_RoundConfig). */
@@ -127,6 +145,19 @@ protected:
 
 	UPROPERTY(Replicated)
 	uint8 StoryIndex = 0;
+
+	UPROPERTY(Replicated)
+	ENightEvent NightEvent = ENightEvent::None;
+
+	/** Когда событие ночи кончится, по серверным часам. */
+	UPROPERTY(Replicated)
+	float NightEventEndServerTime = 0.f;
+
+	UPROPERTY(Replicated)
+	float NightEventSkyScale = 1.f;
+
+	/** Применён ли сейчас свет события на этой машине. */
+	bool bEventLightApplied = false;
 
 	UPROPERTY(Replicated)
 	FText Headline;

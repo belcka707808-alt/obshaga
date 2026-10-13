@@ -95,6 +95,15 @@ private:
 	FTimerHandle SmsTimer;
 	FTimerHandle InterrogationTimer;
 	FTimerHandle SelfBreakTimer;
+	FTimerHandle NightEventTimer;
+	FTimerHandle NightEventEndTimer;
+	FTimerHandle FireAlarmTimer;
+	float FireAlarmStartTime = 0.f;
+
+	/** Событие ночи: выбрать, объявить, вести и закончить. */
+	void StartNightEvent();
+	void EndNightEvent();
+	void TickFireAlarm();
 
 	float RoundStartWorldTime = 0.f;
 	int32 SmsSent = 0;

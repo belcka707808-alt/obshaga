@@ -521,6 +521,9 @@ void AObshagaGameMode::StartRound()
 	}
 
 	GetWorldTimerManager().ClearTimer(SelfBreakTimer);
+	GetWorldTimerManager().ClearTimer(NightEventTimer);
+	GetWorldTimerManager().ClearTimer(NightEventEndTimer);
+	GetWorldTimerManager().ClearTimer(FireAlarmTimer);
 	ScheduleSelfBreakIfNeeded();
 
 	// Крыса заранее знает одно чужое основное задание.
@@ -568,6 +571,89 @@ void AObshagaGameMode::StartRound()
 	UE_LOG(LogObshaga, Log, TEXT("Round started: %.0f s, %d players"), Config->GetTotalSeconds(), Players.Num());
 }
 
+void AObshagaGameMode::StartNightEvent()
+{
+	AObshagaGameState* State = GetGameState<AObshagaGameState>();
+	const UObshagaRoundConfig* Config = GetRoundConfig();
+	if (!State || State->GetRoundState() != ERoundState::InProgress || State->GetPhase() != ERoundPhase::Night)
+	{
+		return;
+	}
+
+	// Событие не переживает ночь: утром свет и правила обычные.
+	const bool bBlackout = FMath::RandBool();
+	const float Seconds = FMath::Min(bBlackout ? Config->BlackoutSeconds : Config->FireAlarmSeconds, State->GetPhaseRemainingSeconds());
+	if (Seconds < 1.f)
+	{
+		return;
+	}
+
+	State->StartNightEvent(bBlackout ? ENightEvent::Blackout : ENightEvent::FireAlarm, Seconds, bBlackout ? Config->BlackoutSkyScale : 1.f);
+	const FText Banner = bBlackout
+		? LOCTEXT("EventBlackout", "Выбило пробки! В общаге темно — комендант видит только перед собой")
+		: LOCTEXT("EventFireAlarm", "Пожарная тревога! Все в коридор — кто останется в комнате, тот под подозрением");
+	NotifyAll(Banner);
+	for (AObshagaPlayerState* PlayerState : GetObshagaPlayers())
+	{
+		PlayerState->AddSms(Banner);
+	}
+	UE_LOG(LogObshaga, Log, TEXT("Night event: %s for %.0f s"), bBlackout ? TEXT("Blackout") : TEXT("FireAlarm"), Seconds);
+
+	if (bBlackout)
+	{
+		for (TActorIterator<AKomendantCharacter> It(GetWorld()); It; ++It)
+		{
+			if (AKomendantAIController* Brain = Cast<AKomendantAIController>(It->GetController()))
+			{
+				Brain->RefreshSenses();
+			}
+		}
+	}
+	else
+	{
+		FireAlarmStartTime = GetWorld()->GetTimeSeconds();
+		GetWorldTimerManager().SetTimer(FireAlarmTimer, this, &AObshagaGameMode::TickFireAlarm, 1.f, true);
+	}
+	GetWorldTimerManager().SetTimer(NightEventEndTimer, this, &AObshagaGameMode::EndNightEvent, Seconds, false);
+}
+
+void AObshagaGameMode::EndNightEvent()
+{
+	GetWorldTimerManager().ClearTimer(FireAlarmTimer);
+	// Зрение коменданта возвращается к обычному (событие к этому моменту уже истекло по часам).
+	for (TActorIterator<AKomendantCharacter> It(GetWorld()); It; ++It)
+	{
+		if (AKomendantAIController* Brain = Cast<AKomendantAIController>(It->GetController()))
+		{
+			Brain->RefreshSenses();
+		}
+	}
+	const AObshagaGameState* State = GetGameState<AObshagaGameState>();
+	if (State && State->GetRoundState() == ERoundState::InProgress)
+	{
+		NotifyAll(State->GetNightEvent() == ENightEvent::Blackout ? LOCTEXT("EventBlackoutEnd", "Свет дали") : LOCTEXT("EventFireAlarmEnd", "Отбой тревоги. По комнатам!"));
+	}
+}
+
+void AObshagaGameMode::TickFireAlarm()
+{
+	// Первые секунды — время выйти из комнаты; потом каждый, кто сидит в жилой комнате, копит подозрение.
+	const UObshagaRoundConfig* Config = GetRoundConfig();
+	if (GetWorld()->GetTimeSeconds() - FireAlarmStartTime < Config->FireAlarmGraceSeconds)
+	{
+		return;
+	}
+	for (AObshagaPlayerState* PlayerState : GetObshagaPlayers())
+	{
+		const AObshagaCharacter* Character = Cast<AObshagaCharacter>(PlayerState->GetPawn());
+		const ARoomVolume* Room = Character && !Character->IsGhost() ? ARoomVolume::FindRoomAt(this, Character->GetActorLocation()) : nullptr;
+		if (Room && Room->RoomType == ERoomType::Bedroom)
+		{
+			PlayerState->GetSuspicionComponent()->AddSuspicion(Config->FireAlarmSuspicionPerSecond);
+		}
+	}
+}
+
 void AObshagaGameMode::BeginPhase(ERoundPhase NewPhase)
 {
 	const UObshagaRoundConfig* Config = GetRoundConfig();
@@ -577,6 +663,7 @@ void AObshagaGameMode::BeginPhase(ERoundPhase NewPhase)
 	{
 		Duration = Config->NightSeconds;
 		Announcement = LOCTEXT("PhaseNight", "Ночь. Отбой! Комендант настороже");
+		GetWorldTimerManager().SetTimer(NightEventTimer, this, &AObshagaGameMode::StartNightEvent, Config->NightEventDelaySeconds, false);
 	}
 	else if (NewPhase == ERoundPhase::Morning)
 	{
@@ -1135,6 +1222,9 @@ void AObshagaGameMode::EndRound()
 	GetWorldTimerManager().ClearTimer(LiveStatusTimer);
 	GetWorldTimerManager().ClearTimer(SmsTimer);
 	GetWorldTimerManager().ClearTimer(SelfBreakTimer);
+	GetWorldTimerManager().ClearTimer(NightEventTimer);
+	GetWorldTimerManager().ClearTimer(NightEventEndTimer);
+	GetWorldTimerManager().ClearTimer(FireAlarmTimer);
 
 	// Подводим итоги и раскрываем всем, кто кем был и что делал.
 	const TArray<AObshagaPlayerState*> Players = GetObshagaPlayers();

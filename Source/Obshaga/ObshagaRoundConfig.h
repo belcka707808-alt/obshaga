@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 #include "CoreMinimal.h"
 #include "Engine/DataAsset.h"
@@ -218,6 +218,32 @@ public:
 	/** Для разработки: основные задания по порядку игрокам (первому — первое и т.д.). Пусто — обычная раздача. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tasks")
 	TArray<FName> DebugMainTasks;
+
+	// --- События ночи: одно на раунд, сервер выбирает случайно ---
+	// Пока это обычные числа, а не настройки ассета: добавить поля в ассет можно только пересобрав редактор
+	// (иначе упакованная игра читает DA_RoundConfig со сдвигом и теряет таблицу заданий). После пересборки
+	// редактора каждому полю вернуть UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "NightEvent").
+
+	/** Через сколько секунд после начала ночи случается событие. */
+	float NightEventDelaySeconds = 8.f;
+
+	/** «Выбило пробки»: сколько длится темнота. */
+	float BlackoutSeconds = 60.f;
+
+	/** «Выбило пробки»: во сколько раз темнее обычной ночи (доля ночного света неба). */
+	float BlackoutSkyScale = 0.3f;
+
+	/** «Выбило пробки»: во сколько раз сужается угол зрения коменданта. */
+	float BlackoutSightScale = 0.6f;
+
+	/** «Пожарная тревога»: сколько секунд надо стоять в коридоре. */
+	float FireAlarmSeconds = 30.f;
+
+	/** «Пожарная тревога»: сколько секунд даётся, чтобы выйти из комнаты. */
+	float FireAlarmGraceSeconds = 8.f;
+
+	/** «Пожарная тревога»: подозрение в секунду тому, кто остался в жилой комнате. */
+	float FireAlarmSuspicionPerSecond = 8.f;
 
 	float GetTotalSeconds() const { return EveningSeconds + NightSeconds + MorningSeconds; }
 

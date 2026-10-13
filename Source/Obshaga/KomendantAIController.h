@@ -81,6 +81,8 @@ private:
 public:
 	/** Манера речи по личности этого раунда: 0 — строгий, 1 — рассеянный, 2 — мстительный. */
 	int32 GetSpeechStyle() const;
+	/** Пересчитать зрение и слух: началось или кончилось событие ночи. */
+	void RefreshSenses() { ApplyPersonality(); }
 
 private:
 	void OnPhaseChanged();

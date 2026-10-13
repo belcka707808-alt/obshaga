@@ -26,6 +26,14 @@ void AObshagaGameState::Tick(float DeltaSeconds)
 		Darkness = FMath::FInterpConstantTo(Darkness, Target, DeltaSeconds, 1.f / FMath::Max(NightFadeSeconds, 0.1f));
 		ApplyDarkness();
 	}
+
+	// Событие ночи меняет свет (выбило пробки) — включаем и выключаем его в нужный момент.
+	const bool bEventLight = IsNightEventActive() && !FMath::IsNearlyEqual(NightEventSkyScale, 1.f);
+	if (bEventLight != bEventLightApplied)
+	{
+		bEventLightApplied = bEventLight;
+		ApplyDarkness();
+	}
 }
 
 void AObshagaGameState::ApplyDarkness()
@@ -78,7 +86,7 @@ void AObshagaGameState::ApplyDarkness()
 	}
 	if (Sky.IsValid())
 	{
-		Sky->SetIntensity(SkyBaseIntensity * FMath::Lerp(1.f, NightSkyScale, Darkness));
+		Sky->SetIntensity(SkyBaseIntensity * FMath::Lerp(1.f, NightSkyScale, Darkness) * (bEventLightApplied ? NightEventSkyScale : 1.f));
 	}
 }
 
@@ -103,6 +111,9 @@ void AObshagaGameState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& Ou
 	DOREPLIFETIME(AObshagaGameState, RevealedPlayers);
 	DOREPLIFETIME(AObshagaGameState, Chronicle);
 	DOREPLIFETIME(AObshagaGameState, StoryIndex);
+	DOREPLIFETIME(AObshagaGameState, NightEvent);
+	DOREPLIFETIME(AObshagaGameState, NightEventEndServerTime);
+	DOREPLIFETIME(AObshagaGameState, NightEventSkyScale);
 	DOREPLIFETIME(AObshagaGameState, Headline);
 	DOREPLIFETIME(AObshagaGameState, Subhead);
 	DOREPLIFETIME(AObshagaGameState, Interrogation);
@@ -141,6 +152,9 @@ void AObshagaGameState::StartRound(float InAlibiRadius, float InAccuseDistance)
 	{
 		AlibiRadius = InAlibiRadius;
 		AccuseDistance = InAccuseDistance;
+		NightEvent = ENightEvent::None;
+		NightEventEndServerTime = 0.f;
+		NightEventSkyScale = 1.f;
 		RevealedTasks.Reset();
 		RevealedPlayers.Reset();
 		Chronicle.Reset();
@@ -154,6 +168,26 @@ void AObshagaGameState::SetPhase(ERoundPhase NewPhase, float DurationSeconds)
 	{
 		Phase = NewPhase;
 		PhaseEndServerTime = static_cast<float>(GetServerWorldTimeSeconds()) + DurationSeconds;
+	}
+}
+
+bool AObshagaGameState::IsNightEventActive() const
+{
+	return NightEvent != ENightEvent::None && RoundState == ERoundState::InProgress && GetServerWorldTimeSeconds() < NightEventEndServerTime;
+}
+
+float AObshagaGameState::GetNightEventRemainingSeconds() const
+{
+	return FMath::Max(NightEventEndServerTime - GetServerWorldTimeSeconds(), 0.f);
+}
+
+void AObshagaGameState::StartNightEvent(ENightEvent Event, float DurationSeconds, float SkyScale)
+{
+	if (HasAuthority())
+	{
+		NightEvent = Event;
+		NightEventEndServerTime = GetServerWorldTimeSeconds() + DurationSeconds;
+		NightEventSkyScale = SkyScale;
 	}
 }
 
