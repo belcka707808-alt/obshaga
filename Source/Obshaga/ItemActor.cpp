@@ -75,6 +75,10 @@ void AItemActor::BeginPlay()
 	ApplyPlacement();
 	ObshagaVisuals::Tint(Mesh, GetItemData()->Color);
 	ObshagaVisuals::Dress(Mesh, GetItemData()->Model, GetItemData()->ModelYaw, GetItemData()->Color);
+	if (!GetItemData()->Model)
+	{
+		ObshagaVisuals::Emblem(Mesh, GetItemData()->ItemId);
+	}
 
 	if (HasAuthority())
 	{

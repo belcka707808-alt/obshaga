@@ -19,6 +19,7 @@
 #include "ObshagaGameState.h"
 #include "ObshagaPlayerState.h"
 #include "ObshagaSessionSubsystem.h"
+#include "ObshagaSettings.h"
 #include "GameFramework/GameStateBase.h"
 #include "GameFramework/PlayerState.h"
 #include "RoomVolume.h"
@@ -278,6 +279,25 @@ void AObshagaPlayerController::ClientReturnToMainMenuWithTextReason_Implementati
 
 bool AObshagaPlayerController::InputKey(const FInputKeyEventArgs& Params)
 {
+	// Esc открывает и закрывает настройки; пока они открыты, цифры меняют настройки, а не выбирают фразы.
+	if (Params.Event == IE_Pressed && Params.Key == EKeys::Escape)
+	{
+		bSettingsOpen = !bSettingsOpen;
+		return true;
+	}
+	if (bSettingsOpen && Params.Event == IE_Pressed)
+	{
+		static const FKey OptionKeys[] = { EKeys::One, EKeys::Two, EKeys::Three, EKeys::Four, EKeys::Five };
+		for (int32 Option = 0; Option < ObshagaSettings::NumOptions; ++Option)
+		{
+			if (Params.Key == OptionKeys[Option])
+			{
+				ObshagaSettings::Step(Option);
+				return true;
+			}
+		}
+	}
+
 	// Выход в меню — со второго нажатия F10 подряд, чтобы хост не закрыл комнату всем случайной клавишей.
 	UObshagaSessionSubsystem* Rooms = GetGameInstance() ? GetGameInstance()->GetSubsystem<UObshagaSessionSubsystem>() : nullptr;
 	if (Params.Key == EKeys::F10 && Params.Event == IE_Pressed && Rooms && !Rooms->GetRoomCode().IsEmpty())
@@ -481,7 +501,7 @@ void AObshagaPlayerController::UpdateMusic(float DeltaTime)
 
 	auto Fade = [&](UAudioComponent* Component, float& Current, float Target)
 	{
-		Current = FMath::FInterpTo(Current, Target * Audio->MusicVolume, DeltaTime, MusicFadeSpeed);
+		Current = FMath::FInterpTo(Current, Target * Audio->MusicVolume * ObshagaSettings::MusicVolume(), DeltaTime, MusicFadeSpeed);
 		if (Component)
 		{
 			// Нулевая громкость остановила бы дорожку — держим её едва слышной.

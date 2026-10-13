@@ -26,10 +26,12 @@ public:
 	virtual bool InputKey(const FInputKeyEventArgs& Params) override;
 
 	bool IsEnteringCode() const { return bEnteringCode; }
+	bool IsInSettings() const { return bSettings; }
 	const FString& GetTypedCode() const { return TypedCode; }
 
 private:
 	bool bEnteringCode = false;
+	bool bSettings = false;
 	FString TypedCode;
 };
 

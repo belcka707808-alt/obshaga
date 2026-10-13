@@ -527,6 +527,8 @@ void AObshagaGameMode::StartRound()
 		const float Interval = Config->GetTotalSeconds() / Config->SmsCount;
 		GetWorldTimerManager().SetTimer(SmsTimer, this, &AObshagaGameMode::SendSms, Interval, true, Interval * 0.5f);
 	}
+	// Новичкам сразу говорим, откуда ждать опасность.
+	NotifyAll(LOCTEXT("KomendantWhere", "Комендант на вахте, 1 этаж. Скоро пойдёт в обход — не попадайся"));
 	UE_LOG(LogObshaga, Log, TEXT("Round started: %.0f s, %d players"), Config->GetTotalSeconds(), Players.Num());
 }
 

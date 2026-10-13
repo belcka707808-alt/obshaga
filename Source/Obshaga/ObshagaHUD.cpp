@@ -13,6 +13,7 @@
 #include "ObshagaPlayerController.h"
 #include "ObshagaPlayerState.h"
 #include "ObshagaSessionSubsystem.h"
+#include "ObshagaSettings.h"
 #include "RoomVolume.h"
 #include "SuspicionComponent.h"
 #include "TaskComponent.h"
@@ -111,7 +112,7 @@ void AObshagaHUD::DrawHUD()
 	}
 	else
 	{
-		const FString Hint = LOCTEXT("PhoneHint", "[Q] сказать  [Tab] телефон").ToString();
+		const FString Hint = LOCTEXT("PhoneHint", "[Q] сказать  [Tab] телефон  [Esc] настройки").ToString();
 		float HintWidth = 0.f;
 		float HintHeight = 0.f;
 		GetTextSize(Hint, HintWidth, HintHeight, Font, Scale);
@@ -129,8 +130,22 @@ void AObshagaHUD::DrawHUD()
 		DrawText(RoomLine, FLinearColor(1.f, 1.f, 1.f, 0.6f), Canvas->ClipX - RoomWidth - 16.f * Scale, 32.f * Scale, Font, Scale);
 		if (GameState->GetRoundState() == ERoundState::WaitingToStart)
 		{
-			DrawCentered(FText::Format(LOCTEXT("RoomCodeBig", "Код комнаты: {0} — продиктуй его друзьям"), FText::FromString(Rooms->GetRoomCode())).ToString(), FLinearColor::White, 0.09f);
+			DrawCentered(FText::Format(LOCTEXT("RoomCodeBig", "Код комнаты: {0} — продиктуй его друзьям"), FText::FromString(Rooms->GetRoomCode())).ToString(), FLinearColor::White, 0.05f);
 		}
+	}
+
+	if (Controller->IsSettingsOpen())
+	{
+		const float PanelWidth = 380.f * Scale;
+		const float PanelX = (Canvas->ClipX - PanelWidth) * 0.5f;
+		float Y = Canvas->ClipY * 0.4f;
+		DrawRect(FLinearColor(0.02f, 0.02f, 0.05f, 0.92f), PanelX, Y - 10.f * Scale, PanelWidth, (ObshagaSettings::NumOptions + 3) * 20.f * Scale + 20.f * Scale);
+		Y = DrawWrapped(LOCTEXT("SettingsTitle", "НАСТРОЙКИ").ToString(), FLinearColor::Yellow, PanelX + 14.f * Scale, Y, PanelWidth);
+		for (int32 Option = 0; Option < ObshagaSettings::NumOptions; ++Option)
+		{
+			Y = DrawWrapped(ObshagaSettings::Describe(Option).ToString(), FLinearColor::White, PanelX + 14.f * Scale, Y, PanelWidth);
+		}
+		DrawWrapped(LOCTEXT("SettingsHint", "Цифра меняет настройку. [Esc] закрыть. Игра при этом идёт!").ToString(), FLinearColor(0.75f, 0.75f, 0.82f), PanelX + 14.f * Scale, Y + 8.f * Scale, PanelWidth - 28.f * Scale);
 	}
 
 	// Сообщения рисуем последними, чтобы телефон их не закрывал.
@@ -326,8 +341,24 @@ void AObshagaHUD::DrawTopStatus(const AObshagaGameState* GameState)
 	switch (GameState->GetRoundState())
 	{
 	case ERoundState::WaitingToStart:
-		DrawCentered((bHost ? LOCTEXT("LobbyHost", "Все зашли? Нажми [Enter], чтобы начать раунд")
-			: LOCTEXT("LobbyClient", "Ждём, пока хост начнёт раунд")).ToString(), FLinearColor::Yellow, 0.04f);
+	{
+		// Крупно и по центру: без старта раунда нет ни заданий, ни коменданта, и новички этого не понимали.
+		const FString Big = (bHost ? LOCTEXT("LobbyHostBig", "Нажми [Enter], чтобы начать раунд") : LOCTEXT("LobbyClientBig", "Ждём, когда хост начнёт раунд")).ToString();
+		const FString Small = FText::Format(LOCTEXT("LobbyCount", "Игроков в комнате: {0}"), FText::AsNumber(GameState->PlayerArray.Num())).ToString();
+		const float BigScale = Scale * 1.7f;
+		// У хоста надпись мигает, у гостей горит ровно.
+		const float Blink = bHost ? 0.55f + 0.45f * FMath::Abs(FMath::Sin(GetWorld()->GetRealTimeSeconds() * 3.f)) : 1.f;
+		float Width = 0.f;
+		float Height = 0.f;
+		GetTextSize(Big, Width, Height, Font, BigScale);
+		const float Y = Canvas->ClipY * 0.2f;
+		DrawRect(FLinearColor(0.f, 0.f, 0.f, 0.45f), (Canvas->ClipX - Width) * 0.5f - 14.f * Scale, Y - 8.f * Scale, Width + 28.f * Scale, Height + 34.f * Scale);
+		DrawText(Big, FLinearColor(1.f, 0.9f, 0.1f, Blink), (Canvas->ClipX - Width) * 0.5f, Y, Font, BigScale);
+		float SmallWidth = 0.f;
+		float SmallHeight = 0.f;
+		GetTextSize(Small, SmallWidth, SmallHeight, Font, Scale);
+		DrawText(Small, FLinearColor::White, (Canvas->ClipX - SmallWidth) * 0.5f, Y + Height + 4.f * Scale, Font, Scale);
+	}
 		// Лицензия музыки (CC BY) требует назвать автора в самой игре.
 		DrawCentered(LOCTEXT("Credits", "Музыка: Kevin MacLeod (incompetech.com), CC BY 4.0. Звуки и мебель: Kenney (kenney.nl), CC0").ToString(),
 			FLinearColor(1.f, 1.f, 1.f, 0.45f), 0.95f);

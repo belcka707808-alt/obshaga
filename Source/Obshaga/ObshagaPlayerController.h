@@ -39,6 +39,7 @@ public:
 	float GetNoticeTime() const { return NoticeTime; }
 	bool IsPhoneOpen() const { return bPhoneOpen; }
 	bool IsEmoteWheelOpen() const { return bEmoteWheelOpen; }
+	bool IsSettingsOpen() const { return bSettingsOpen; }
 
 	/** Насколько близка опасность: 0 — коменданта рядом нет, 1 — он вплотную. Считается у локального игрока. */
 	float GetDangerLevel() const { return DangerLevel; }
@@ -98,6 +99,7 @@ private:
 	/** Когда игрок в прошлый раз нажал «выйти в меню»: выход срабатывает со второго нажатия подряд. */
 	float LeavePressTime = -100.f;
 	bool bDisplayNameSet = false;
+	bool bSettingsOpen = false;
 
 	/** Раскладка MVP задаётся в коде: WASD, мышь, Shift, Ctrl, пробел, E, F, G, Tab, 1–8, Y, T, R, B, Q, H, Enter, левая кнопка мыши. */
 	void CreateDefaultInput();

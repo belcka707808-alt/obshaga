@@ -1,6 +1,7 @@
 #include "ObshagaMenu.h"
 
 #include "ObshagaSessionSubsystem.h"
+#include "ObshagaSettings.h"
 #include "Engine/Canvas.h"
 #include "Engine/Engine.h"
 #include "Engine/GameInstance.h"
@@ -45,8 +46,31 @@ bool AObshagaMenuController::InputKey(const FInputKeyEventArgs& Params)
 	}
 
 	const FKey Key = Params.Key;
+	if (bSettings)
+	{
+		static const FKey OptionKeys[] = { EKeys::One, EKeys::Two, EKeys::Three, EKeys::Four, EKeys::Five };
+		if (Key == EKeys::Escape)
+		{
+			bSettings = false;
+			return true;
+		}
+		for (int32 Option = 0; Option < ObshagaSettings::NumOptions; ++Option)
+		{
+			if (Key == OptionKeys[Option])
+			{
+				ObshagaSettings::Step(Option);
+				return true;
+			}
+		}
+		return Super::InputKey(Params);
+	}
 	if (!bEnteringCode)
 	{
+		if (Key == EKeys::Three || Key == EKeys::NumPadThree)
+		{
+			bSettings = true;
+			return true;
+		}
 		if (Key == EKeys::One || Key == EKeys::NumPadOne)
 		{
 			Rooms->CreateRoom();
@@ -142,7 +166,16 @@ void AObshagaMenuHUD::DrawHUD()
 		DrawLine(LOCTEXT("Leaving", "Выходим…").ToString(), FLinearColor::White, 0.42f);
 		break;
 	default:
-		if (Controller->IsEnteringCode())
+		if (Controller->IsInSettings())
+		{
+			DrawLine(LOCTEXT("SettingsTitle", "НАСТРОЙКИ").ToString(), FLinearColor::White, 0.32f, 1.3f);
+			for (int32 Option = 0; Option < ObshagaSettings::NumOptions; ++Option)
+			{
+				DrawLine(ObshagaSettings::Describe(Option).ToString(), FLinearColor::White, 0.40f + 0.055f * Option);
+			}
+			DrawLine(LOCTEXT("SettingsHint", "Цифра меняет настройку.  [Esc] назад").ToString(), Dim, 0.72f);
+		}
+		else if (Controller->IsEnteringCode())
 		{
 			// Ненабранные символы показываем подчёркиванием, чтобы была видна длина кода.
 			FString Shown = Controller->GetTypedCode();
@@ -164,14 +197,15 @@ void AObshagaMenuHUD::DrawHUD()
 		{
 			DrawLine(LOCTEXT("ItemCreate", "[1] Создать комнату").ToString(), FLinearColor::White, 0.38f, 1.3f);
 			DrawLine(LOCTEXT("ItemJoin", "[2] Войти по коду").ToString(), FLinearColor::White, 0.46f, 1.3f);
-			DrawLine(LOCTEXT("ItemQuit", "[Esc] Выход").ToString(), FLinearColor::White, 0.54f, 1.3f);
+			DrawLine(LOCTEXT("ItemSettings", "[3] Настройки").ToString(), FLinearColor::White, 0.54f, 1.3f);
+			DrawLine(LOCTEXT("ItemQuit", "[Esc] Выход").ToString(), FLinearColor::White, 0.62f, 1.3f);
 		}
 		break;
 	}
 
 	if (!Rooms->GetMessage().IsEmpty())
 	{
-		DrawLine(Rooms->GetMessage().ToString(), FLinearColor(1.f, 0.55f, 0.55f), 0.68f);
+		DrawLine(Rooms->GetMessage().ToString(), FLinearColor(1.f, 0.55f, 0.55f), 0.78f);
 	}
 
 	const FString Name = Rooms->GetLocalPlayerName();

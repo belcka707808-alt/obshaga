@@ -12,6 +12,12 @@ namespace ObshagaVisuals
 	OBSHAGA_API void Tint(UStaticMeshComponent* Mesh, const FLinearColor& Color);
 
 	/**
+	 * Делает куб мелкого предмета узнаваемым без модели: записке рисует строчки, конверту — клапан и печать,
+	 * ключ собирает из кольца, стержня и зубцов. Вид предмета определяется по его коду (Note, Envelope, Key).
+	 */
+	OBSHAGA_API void Emblem(UStaticMeshComponent* Cube, FName ItemId);
+
+	/**
 	 * Красит «светящейся» краской (материал M_Paint): цвет виден и в тени, без единой лампы.
 	 * Glow — доля собственного свечения. Возвращает материал, чтобы свечение можно было менять (ночью оно слабее).
 	 * Если M_Paint нет, красит обычной краской и возвращает nullptr.

@@ -1,5 +1,7 @@
 #include "ObshagaAudioConfig.h"
 
+#include "ObshagaSettings.h"
+
 #include "Obshaga.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
@@ -61,7 +63,7 @@ void UObshagaAudioConfig::PlayAt(const UObject* WorldContextObject, USoundBase* 
 		{
 			return;
 		}
-		UGameplayStatics::PlaySoundAtLocation(WorldContextObject, Sound, Location, FRotator::ZeroRotator, Volume, 1.f, 0.f, GetWorldAttenuation(Get()));
+		UGameplayStatics::PlaySoundAtLocation(WorldContextObject, Sound, Location, FRotator::ZeroRotator, Volume * ObshagaSettings::SoundVolume(), 1.f, 0.f, GetWorldAttenuation(Get()));
 	}
 }
 
@@ -69,6 +71,6 @@ void UObshagaAudioConfig::Play2D(const UObject* WorldContextObject, USoundBase* 
 {
 	if (Sound && Volume > 0.f)
 	{
-		UGameplayStatics::PlaySound2D(WorldContextObject, Sound, Volume);
+		UGameplayStatics::PlaySound2D(WorldContextObject, Sound, Volume * ObshagaSettings::SoundVolume());
 	}
 }
