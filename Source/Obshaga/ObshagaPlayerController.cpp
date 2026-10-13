@@ -11,6 +11,8 @@
 #include "Obshaga.h"
 #include "Components/AudioComponent.h"
 #include "Camera/CameraActor.h"
+#include "Components/PointLightComponent.h"
+#include "Engine/PointLight.h"
 #include "Camera/CameraComponent.h"
 #include "Components/BoxComponent.h"
 #include "Components/SpotLightComponent.h"
@@ -52,6 +54,14 @@ namespace
 	// Ник Steam бывает до 32 символов.
 	constexpr int32 MaxDisplayNameLength = 32;
 	constexpr float LeaveConfirmSeconds = 3.f;
+	// Допрос: высота лампы над серединой сцены, время перехода камеры и расстояние, ближе которого камеру сбоку не ставим.
+	constexpr float InterrogationLampHeight = 150.f;
+	constexpr float InterrogationCameraBlendSeconds = 0.4f;
+	constexpr float InterrogationCameraMinDistance = 150.f;
+	// Насколько камера допроса выше середины сцены.
+	constexpr float InterrogationCameraLift = 70.f;
+	// Радиус шара, которым проверяется место для камеры допроса.
+	constexpr float InterrogationCameraProbe = 22.f;
 	constexpr float CameraHideSelfDistance = 130.f;
 	constexpr float CameraHideHeadHeight = 45.f;
 
@@ -288,6 +298,115 @@ void AObshagaPlayerController::ClientReturnToMainMenuWithTextReason_Implementati
 		return;
 	}
 	Super::ClientReturnToMainMenuWithTextReason_Implementation(ReturnReason);
+}
+
+void AObshagaPlayerController::UpdateInterrogationScene()
+{
+	// Допрос — маленькая сцена: над пойманным загорается тёплая лампа (её видят все), а сам пойманный
+	// смотрит на себя и коменданта со стороны. Всё это картинка на каждой машине, по сети не ходит.
+	const AObshagaGameState* GameState = GetWorld()->GetGameState<AObshagaGameState>();
+	const FInterrogationInfo* Info = GameState && GameState->GetInterrogation().bActive ? &GameState->GetInterrogation() : nullptr;
+	const AObshagaCharacter* Suspect = Info && Info->Suspect ? Cast<AObshagaCharacter>(Info->Suspect->GetPawn()) : nullptr;
+	const AObshagaCharacter* Me = GetObshagaCharacter();
+	const UObshagaCharacterConfig* Cfg = Me ? Me->GetConfig() : nullptr;
+	const AKomendantCharacter* Komendant = nullptr;
+	for (TActorIterator<AKomendantCharacter> It(GetWorld()); It && !Komendant; ++It)
+	{
+		Komendant = *It;
+	}
+
+	const bool bScene = Suspect && Komendant && Cfg;
+	if (bScene && !InterrogationLamp && Cfg->InterrogationLampIntensity > 0.f)
+	{
+		InterrogationLamp = GetWorld()->SpawnActor<APointLight>();
+		if (InterrogationLamp)
+		{
+			UPointLightComponent* Light = InterrogationLamp->PointLightComponent;
+			Light->SetMobility(EComponentMobility::Movable);
+			Light->bUseInverseSquaredFalloff = false;
+			Light->SetLightFalloffExponent(2.f);
+			Light->SetCastShadows(false);
+		}
+	}
+	if (InterrogationLamp)
+	{
+		InterrogationLamp->SetActorHiddenInGame(!bScene);
+		InterrogationLamp->PointLightComponent->SetVisibility(bScene);
+		if (bScene)
+		{
+			InterrogationLamp->SetActorLocation((Suspect->GetActorLocation() + Komendant->GetActorLocation()) * 0.5f + FVector(0.f, 0.f, InterrogationLampHeight));
+			InterrogationLamp->PointLightComponent->SetIntensity(Cfg->InterrogationLampIntensity);
+			InterrogationLamp->PointLightComponent->SetAttenuationRadius(Cfg->InterrogationLampRadius);
+			InterrogationLamp->PointLightComponent->SetLightColor(Cfg->InterrogationLampColor);
+		}
+	}
+
+	// Камера сбоку — только у самого пойманного.
+	const bool bMine = bScene && Suspect == Me && !bIntroCamera;
+	if (bMine && !bInterrogationCamera)
+	{
+		const FVector Middle = (Suspect->GetActorLocation() + Komendant->GetActorLocation()) * 0.5f + FVector(0.f, 0.f, Cfg->InterrogationCameraHeight);
+		const FVector Between = (Komendant->GetActorLocation() - Suspect->GetActorLocation()).GetSafeNormal2D();
+		const FVector Forward = Between.IsNearlyZero() ? Suspect->GetActorForwardVector() : Between;
+		// Лучше всего смотреть сбоку, но в узком коридоре сбоку стена. Поэтому пробуем по очереди: сбоку,
+		// потом наискосок со стороны пойманного и со стороны коменданта — и берём первое место, где камере
+		// хватает места, а если такого нет — самое просторное. Камера стоит выше голов и смотрит чуть вниз.
+		FVector Best = FVector::ZeroVector;
+		float BestDistance = InterrogationCameraMinDistance;
+		for (const float Angle : { 90.f, -90.f, 125.f, -125.f, 55.f, -55.f, 155.f, -155.f })
+		{
+			if (BestDistance >= Cfg->InterrogationCameraDistance * 0.85f)
+			{
+				break;
+			}
+			const FVector Direction = Forward.RotateAngleAxis(Angle, FVector::UpVector);
+			const FVector Wanted = Middle + Direction * Cfg->InterrogationCameraDistance + FVector(0.f, 0.f, InterrogationCameraLift);
+			FHitResult Hit;
+			FCollisionQueryParams Params(SCENE_QUERY_STAT(InterrogationCamera), false);
+			Params.AddIgnoredActor(Suspect);
+			Params.AddIgnoredActor(Komendant);
+			// Шаром, а не лучом: луч проходил в открытую дверь, и камера вставала в соседней комнате за косяком.
+			const bool bBlocked = GetWorld()->SweepSingleByChannel(Hit, Middle, Wanted, FQuat::Identity, ECC_Camera, FCollisionShape::MakeSphere(InterrogationCameraProbe), Params);
+			const float Full = FVector::Dist(Middle, Wanted);
+			const float Distance = bBlocked ? Hit.Distance - 10.f : Full;
+			if (Distance <= BestDistance)
+			{
+				continue;
+			}
+			// С выбранного места должно быть видно обоих — иначе это место не годится.
+			const FVector Candidate = Middle + (Wanted - Middle).GetSafeNormal() * Distance;
+			FHitResult SightHit;
+			if (GetWorld()->LineTraceSingleByChannel(SightHit, Candidate, Suspect->GetActorLocation(), ECC_Camera, Params)
+				|| GetWorld()->LineTraceSingleByChannel(SightHit, Candidate, Komendant->GetActorLocation(), ECC_Camera, Params))
+			{
+				continue;
+			}
+			BestDistance = Distance;
+			Best = Candidate;
+		}
+		if (!Best.IsZero())
+		{
+			if (!InterrogationCamera)
+			{
+				InterrogationCamera = GetWorld()->SpawnActor<ACameraActor>();
+				if (InterrogationCamera)
+				{
+					InterrogationCamera->GetCameraComponent()->bConstrainAspectRatio = false;
+				}
+			}
+			if (InterrogationCamera)
+			{
+				InterrogationCamera->SetActorLocationAndRotation(Best, (Middle - Best).Rotation());
+				SetViewTargetWithBlend(InterrogationCamera, InterrogationCameraBlendSeconds);
+				bInterrogationCamera = true;
+			}
+		}
+	}
+	else if (!bMine && bInterrogationCamera)
+	{
+		bInterrogationCamera = false;
+		SetViewTargetWithBlend(GetPawn(), InterrogationCameraBlendSeconds);
+	}
 }
 
 void AObshagaPlayerController::UpdateIntro()
@@ -1022,13 +1141,15 @@ void AObshagaPlayerController::PlayerTick(float DeltaTime)
 			// Меряем до головы, а не до пояса: именно она закрывает экран.
 			const FVector Head = Me->GetActorLocation() + FVector(0.f, 0.f, CameraHideHeadHeight);
 			const bool bTooClose = PlayerCameraManager && FVector::DistSquared(PlayerCameraManager->GetCameraLocation(), Head) < FMath::Square(CameraHideSelfDistance);
-			if (Me->GetMesh()->bOwnerNoSee != bTooClose)
+			const bool bHideSelf = bTooClose && !bInterrogationCamera;
+			if (Me->GetMesh()->bOwnerNoSee != bHideSelf)
 			{
-				Me->GetMesh()->SetOwnerNoSee(bTooClose);
+				Me->GetMesh()->SetOwnerNoSee(bHideSelf);
 			}
 		}
 
 		UpdateIntro();
+		UpdateInterrogationScene();
 
 		// «Выбило пробки»: у каждого жильца в руке фонарик. Состояние события у всех одно, поэтому каждая машина
 		// зажигает фонарики сама — рассылать по сети нечего.

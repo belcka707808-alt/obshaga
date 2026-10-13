@@ -179,7 +179,8 @@ void AObshagaCharacter::UpdateMovementSpeed()
 	{
 		Speed = Cfg->WalkSpeed * Cfg->HeavyCarrySpeedMultiplier;
 	}
-	GetCharacterMovement()->MaxWalkSpeed = Speed;
+	// Упавший после броска тяжёлого лежит, пока не выйдет время.
+	GetCharacterMovement()->MaxWalkSpeed = IsStumbling() ? 1.f : Speed;
 }
 
 void AObshagaCharacter::OnCarriedItemChanged()
@@ -209,6 +210,27 @@ void AObshagaCharacter::ServerEmote_Implementation(uint8 Index)
 	}
 	LastEmoteServerTime = Now;
 	MulticastEmote(Index);
+}
+
+void AObshagaCharacter::Stumble(float Seconds)
+{
+	if (HasAuthority() && Seconds > 0.f && !IsStumbling())
+	{
+		MulticastStumble(Seconds);
+	}
+}
+
+bool AObshagaCharacter::IsStumbling() const
+{
+	return GetWorld()->GetTimeSeconds() < StumbleEndTime;
+}
+
+void AObshagaCharacter::MulticastStumble_Implementation(float Seconds)
+{
+	// Скорость ходьбы обнуляется и на сервере, и у самого игрока — так его предсказание движения не спорит с сервером.
+	StumbleEndTime = GetWorld()->GetTimeSeconds() + Seconds;
+	UpdateMovementSpeed();
+	GetWorldTimerManager().SetTimer(StumbleTimer, this, &AObshagaCharacter::UpdateMovementSpeed, Seconds + 0.05f, false);
 }
 
 void AObshagaCharacter::MulticastEmote_Implementation(uint8 Index)

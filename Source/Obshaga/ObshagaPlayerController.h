@@ -108,6 +108,14 @@ private:
 	UPROPERTY(Transient)
 	TObjectPtr<class ACameraActor> IntroCamera;
 	bool bIntroCamera = false;
+
+	/** Сцена допроса: лампа над пойманным (у всех) и камера сбоку (у самого пойманного). */
+	void UpdateInterrogationScene();
+	UPROPERTY(Transient)
+	TObjectPtr<class APointLight> InterrogationLamp;
+	UPROPERTY(Transient)
+	TObjectPtr<class ACameraActor> InterrogationCamera;
+	bool bInterrogationCamera = false;
 	bool bIntroSkipped = false;
 	bool bFlashlightsOn = false;
 

@@ -52,6 +52,9 @@ namespace
 
 	// Сколько ждём ответа Steam на поиск по всему миру.
 	constexpr float WorldSearchTimeoutSeconds = 15.f;
+	// Сколько раз подряд ищем комнату, прежде чем сказать «не найдена», и пауза между попытками.
+	constexpr int32 MaxSearchAttempts = 3;
+	constexpr float SearchRetrySeconds = 2.f;
 
 	FString MakeCode()
 	{
@@ -166,7 +169,7 @@ void UObshagaSessionSubsystem::HandleWorldSearchDone(const FString& Address)
 	UE_LOG(LogObshaga, Log, TEXT("Worldwide room search for %s: %s"), *WantedCode, Address.IsEmpty() ? TEXT("not found") : *Address);
 	if (Address.IsEmpty())
 	{
-		Fail(FText::Format(LOCTEXT("NotFound", "Комната с кодом {0} не найдена. Проверь код: хост видит его у себя на экране."), FText::FromString(WantedCode)));
+		RetrySearchOrFail();
 		return;
 	}
 	Busy = ERoomBusy::Joining;
@@ -419,8 +422,29 @@ void UObshagaSessionSubsystem::JoinByCode(const FString& Code)
 	Message = FText::GetEmpty();
 	Busy = ERoomBusy::Searching;
 	WantedCode = Clean;
+	SearchAttempt = 0;
 	// После вылета могла остаться запись о старой комнате — с ней войти заново не дадут.
 	DestroyThen([this] { StartSearch(); });
+}
+
+void UObshagaSessionSubsystem::RetrySearchOrFail()
+{
+	// Только что созданная комната видна в поиске не сразу (и в Steam, и в локальной сети), а одиночный запрос
+	// может просто потеряться. Поэтому «не найдена» говорим только после нескольких попыток подряд.
+	Search.Reset();
+	if (++SearchAttempt < MaxSearchAttempts)
+	{
+		UE_LOG(LogObshaga, Log, TEXT("Room %s not found, attempt %d of %d"), *WantedCode, SearchAttempt, MaxSearchAttempts);
+		GetGameInstance()->GetTimerManager().SetTimer(RetryTimer, FTimerDelegate::CreateWeakLambda(this, [this]
+		{
+			if (Busy == ERoomBusy::Searching)
+			{
+				StartSearch();
+			}
+		}), SearchRetrySeconds, false);
+		return;
+	}
+	Fail(FText::Format(LOCTEXT("NotFound", "Комната с кодом {0} не найдена. Проверь код: хост видит его у себя на экране."), FText::FromString(WantedCode)));
 }
 
 void UObshagaSessionSubsystem::StartSearch()
@@ -488,7 +512,7 @@ void UObshagaSessionSubsystem::HandleFindComplete(bool bSuccess)
 	}
 	if (!Found)
 	{
-		Fail(FText::Format(LOCTEXT("NotFound", "Комната с кодом {0} не найдена. Проверь код: хост видит его у себя на экране."), FText::FromString(WantedCode)));
+		RetrySearchOrFail();
 		return;
 	}
 	if (Found->Session.NumOpenPublicConnections <= 0)

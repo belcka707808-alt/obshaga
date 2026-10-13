@@ -101,4 +101,25 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Danger", meta = (ClampMin = "0", Units = "cm"))
 	float CaughtShakeAmplitude = 14.f;
+
+	/** Бросил тяжёлое — на столько секунд персонаж падает и не может идти. 0 — не падает. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Carry", meta = (ClampMin = "0", Units = "s"))
+	float HeavyThrowStumbleSeconds = 1.f;
+
+	/** Допрос: камера пойманного встаёт сбоку и показывает его и коменданта. Расстояние от них и высота. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Danger", meta = (ClampMin = "50", Units = "cm"))
+	float InterrogationCameraDistance = 260.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Danger", meta = (Units = "cm"))
+	float InterrogationCameraHeight = 40.f;
+
+	/** Допрос: лампа над пойманным — яркость (0 — без лампы), дальность и цвет. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Danger", meta = (ClampMin = "0"))
+	float InterrogationLampIntensity = 5.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Danger", meta = (ClampMin = "0", Units = "cm"))
+	float InterrogationLampRadius = 420.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Danger")
+	FLinearColor InterrogationLampColor = FLinearColor(1.f, 0.78f, 0.45f);
 };

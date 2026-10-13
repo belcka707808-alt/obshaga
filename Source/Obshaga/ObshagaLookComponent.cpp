@@ -133,6 +133,10 @@ UAnimSequenceBase* UObshagaLookComponent::PickAnimation(bool& bOutLoop)
 		{
 			return Config->Caught;
 		}
+		if (Resident->IsStumbling() && Config->Fall)
+		{
+			return Config->Fall;
+		}
 		// Клип уже шёл, а игрок пошёл — клип отменяется, а не начинается заново после остановки.
 		if (OneShot && bOneShotStarted && Character->GetVelocity().Size2D() >= Config->MoveSpeedThreshold)
 		{

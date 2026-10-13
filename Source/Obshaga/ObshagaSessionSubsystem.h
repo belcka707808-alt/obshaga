@@ -72,6 +72,10 @@ private:
 
 	void StartCreate();
 	void StartSearch();
+	/** Комната не нашлась: попробовать ещё раз чуть позже или, если попытки кончились, сообщить игроку. */
+	void RetrySearchOrFail();
+	int32 SearchAttempt = 0;
+	FTimerHandle RetryTimer;
 	/** Запасной поиск напрямую через Steam, без ограничения по расстоянию. */
 	void StartWorldSearch();
 	void HandleWorldSearchDone(const FString& Address);

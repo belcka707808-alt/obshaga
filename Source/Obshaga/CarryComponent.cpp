@@ -126,9 +126,15 @@ void UCarryComponent::Throw()
 	const FVector FlatAim = FVector(AimDirection.X, AimDirection.Y, 0.f).GetSafeNormal();
 	const FVector Location = FindReleaseLocation(FlatAim, Cfg->DropDistance, Cfg->ThrowHeight);
 
+	const bool bHeavy = Item->GetItemData()->bHeavy;
 	SetCarriedItem(nullptr);
 	Item->ReleaseToWorld(Location, Velocity);
-	UE_LOG(LogObshaga, Verbose, TEXT("%s threw %s"), *Character->GetName(), *Item->GetName());
+	if (bHeavy)
+	{
+		// Швырнул телевизор — сам не удержался на ногах.
+		Character->Stumble(Cfg->HeavyThrowStumbleSeconds);
+	}
+	UE_LOG(LogObshaga, Verbose, TEXT("%s threw %s%s"), *Character->GetName(), *Item->GetName(), bHeavy ? TEXT(" and stumbled") : TEXT(""));
 	UGameEventSubsystem::PublishFrom(Character, EGameEventType::ItemThrown, Item);
 }
 

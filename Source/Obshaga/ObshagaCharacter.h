@@ -82,6 +82,10 @@ protected:
 	UFUNCTION(Server, Reliable)
 	void ServerEmote(uint8 Index);
 
+	/** Бросил тяжёлое и упал: на это время персонаж не может идти, а у всех играет анимация падения. */
+	UFUNCTION(NetMulticast, Reliable)
+	void MulticastStumble(float Seconds);
+
 	/** Фраза — мимолётная вещь: кто не получил, тот ничего не потерял. */
 	UFUNCTION(NetMulticast, Unreliable)
 	void MulticastEmote(uint8 Index);
@@ -95,6 +99,15 @@ protected:
 public:
 	/** Номер модели жильца (тот же, что у сервера в PlayerState; до клиентов доходит только здесь). */
 	int32 GetLookSlot() const { return LookIndex > 0 ? LookIndex - 1 : 0; }
+
+	/** Только сервер: персонаж падает на столько секунд. */
+	void Stumble(float Seconds);
+	/** Лежит ли персонаж сейчас после броска тяжёлого (на каждой машине своё время, по часам этой машины). */
+	bool IsStumbling() const;
+
+private:
+	float StumbleEndTime = -100.f;
+	FTimerHandle StumbleTimer;
 
 protected:
 
