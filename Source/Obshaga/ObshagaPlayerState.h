@@ -46,6 +46,9 @@ public:
 	bool HasUsedTip() const { return bUsedTip; }
 	/** Может ли игрок прямо сейчас назвать коменданту вора (есть такое задание, и он ещё не называл). */
 	bool CanAccuse() const { return bCanAccuse; }
+	/** Обвинение у этого игрока — про автора слуха, а не про вора (от этого зависит только текст подсказки). */
+	bool IsAccuseRumor() const { return bAccuseRumor; }
+	void SetAccuseRumor(bool bNewRumor);
 	/** Может ли настучать на комнату (есть такое задание, и он ещё не стучал). */
 	bool CanTipRoom() const { return bCanTipRoom; }
 
@@ -95,6 +98,9 @@ protected:
 
 	UPROPERTY(Replicated)
 	bool bCanTipRoom = false;
+
+	UPROPERTY(Replicated)
+	bool bAccuseRumor = false;
 
 	/** Выселен: это видят все. */
 	UPROPERTY(Replicated)

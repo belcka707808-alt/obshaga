@@ -567,7 +567,9 @@ void AObshagaHUD::DrawCharacterInfo(const AObshagaCharacter* Character)
 	const AObshagaCharacter* Suspect = Controller ? Controller->FindAccuseTarget() : nullptr;
 	if (Suspect && Suspect->GetPlayerState())
 	{
-		const FText Line = FText::Format(LOCTEXT("AccusePrompt", "[R] Сказать коменданту: вор — {0}"), FText::FromString(Suspect->GetPlayerState()->GetPlayerName()));
+		const AObshagaPlayerState* AccuserState = Controller->GetPlayerState<AObshagaPlayerState>();
+		const FText Line = FText::Format(AccuserState && AccuserState->IsAccuseRumor() ? LOCTEXT("AccuseRumorPrompt", "[R] Сказать коменданту: слух пустил {0}") : LOCTEXT("AccusePrompt", "[R] Сказать коменданту: вор — {0}"),
+			FText::FromString(Suspect->GetPlayerState()->GetPlayerName()));
 		DrawCentered(Line.ToString(), FLinearColor(1.f, 0.6f, 0.6f), 0.82f);
 	}
 	const ARoomVolume* TipRoom = Character->GetCurrentRoom();

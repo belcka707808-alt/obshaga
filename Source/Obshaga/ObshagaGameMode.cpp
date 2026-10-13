@@ -69,6 +69,20 @@ void AObshagaGameMode::BeginPlay()
 	TaskDirector = NewObject<UTaskDirector>(this);
 	TaskDirector->Initialize(GetRoundConfig()->TasksTable);
 	TaskDirector->DebugMainTasks = GetRoundConfig()->DebugMainTasks;
+#if !UE_BUILD_SHIPPING
+	// Для проверок: -DebugMainTasks=start_rumor,expose_liar — основные задания по порядку игроков.
+	FString DebugTasks;
+	if (FParse::Value(FCommandLine::Get(), TEXT("DebugMainTasks="), DebugTasks, false))
+	{
+		TArray<FString> Ids;
+		DebugTasks.ParseIntoArray(Ids, TEXT(","));
+		TaskDirector->DebugMainTasks.Reset();
+		for (const FString& Id : Ids)
+		{
+			TaskDirector->DebugMainTasks.Add(FName(*Id));
+		}
+	}
+#endif
 
 	if (GetRoundConfig()->bAutoStart)
 	{
@@ -308,8 +322,9 @@ void AObshagaGameMode::HandleStartingNewPlayer_Implementation(APlayerController*
 void AObshagaGameMode::GrantTaskAbilities(AObshagaPlayerState* PlayerState) const
 {
 	const UTaskComponent* Tasks = PlayerState->GetTaskComponent();
-	PlayerState->SetTaskAbilities(Tasks->FindRowByCondition(ETaskCondition::CorrectAccusation) != nullptr,
-		Tasks->FindRowByCondition(ETaskCondition::InspectionFoundContrabandInRoom) != nullptr);
+	const FTaskRow* AccuseRow = Tasks->FindRowByCondition(ETaskCondition::CorrectAccusation);
+	PlayerState->SetTaskAbilities(AccuseRow != nullptr, Tasks->FindRowByCondition(ETaskCondition::InspectionFoundContrabandInRoom) != nullptr);
+	PlayerState->SetAccuseRumor(AccuseRow && UTaskComponent::IsRumorRow(this, *AccuseRow));
 }
 
 void AObshagaGameMode::ScheduleSelfBreakIfNeeded()
@@ -1041,7 +1056,8 @@ void AObshagaGameMode::Accuse(AObshagaPlayerState* Accuser, AObshagaCharacter* S
 	// Обвинить можно один раз за раунд. Верно ли обвинение, решается сейчас:
 	// украденный предмет (или ничего) записывается в событие, и задание читает его оттуда.
 	Accuser->SetTaskAbilities(false, Accuser->CanTipRoom());
-	AItemActor* StolenItem = UTaskComponent::FindStolenItem(this, SuspectState, *Row);
+	// У задания «найди автора слуха» доказательство — записка, которую подкинул обвиняемый.
+	AItemActor* StolenItem = UTaskComponent::IsRumorRow(this, *Row) ? UTaskComponent::FindRumorNote(this, SuspectState) : UTaskComponent::FindStolenItem(this, SuspectState, *Row);
 	UGameEventSubsystem::PublishFrom(AccuserCharacter, EGameEventType::Accusation, StolenItem, Suspect);
 
 	if (StolenItem)
@@ -1753,6 +1769,13 @@ TArray<FText> AObshagaGameMode::BuildChronicle() const
 			break;
 		case EGameEventType::PlayerCaught:
 			Line.Priority = 5;
+			if (Event.Item && Event.Item->GetItemData()->bReadable)
+			{
+				Line.Text = FText::Format(Pick({
+					LOCTEXT("ChrExpose1", "{0} вычислил автора слуха: это {1}. Почерк подвёл"),
+					LOCTEXT("ChrExpose2", "{0} показал коменданту, кто пишет записки: {1}") }), Who, Whom);
+				break;
+			}
 			Line.Text = Event.Item
 				? FText::Format(Pick({
 					LOCTEXT("ChrCaughtItem1", "{0} пойман ({1}). В руках: {2}. Как оно там оказалось — загадка"),
@@ -1837,12 +1860,19 @@ TArray<FText> AObshagaGameMode::BuildChronicle() const
 			break;
 		case EGameEventType::Accusation:
 			Line.Priority = 4;
+			if (Event.Item && Event.Item->GetItemData()->bReadable)
+			{
+				Line.Text = FText::Format(Pick({
+					LOCTEXT("ChrExpose1", "{0} вычислил автора слуха: это {1}. Почерк подвёл"),
+					LOCTEXT("ChrExpose2", "{0} показал коменданту, кто пишет записки: {1}") }), Who, Whom);
+				break;
+			}
 			Line.Text = Event.Item
 				? FText::Format(Pick({
 					LOCTEXT("ChrAccuseRight1", "{0} показал коменданту вора: {1}. И не ошибся"),
 					LOCTEXT("ChrAccuseRight2", "Детектив {0} раскрыл дело: вор — {1}") }), Who, Whom)
 				: FText::Format(Pick({
-					LOCTEXT("ChrAccuseWrong1", "{0} обвинил в краже невиновного: {1}. Мимо"),
+					LOCTEXT("ChrAccuseWrong1", "{0} обвинил невиновного: {1}. Мимо"),
 					LOCTEXT("ChrAccuseWrong2", "{0} ткнул пальцем мимо (обвинён: {1}). Комендант запомнил, кто тыкал") }), Who, Whom);
 			break;
 		case EGameEventType::RoomTipOff:

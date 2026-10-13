@@ -342,7 +342,8 @@ void AObshagaPlayerController::ServerDebug_Implementation(uint8 What)
 	{
 		for (TActorIterator<AItemActor> It(GetWorld()); It; ++It)
 		{
-			if (It->GetItemData() && It->GetItemData()->bHeavy)
+			// 1 — тяжёлый предмет (проверка падения после броска), 2 — записка (проверка заданий про слух).
+			if (It->GetItemData() && (What == 2 ? It->GetItemData()->bReadable : It->GetItemData()->bHeavy))
 			{
 				It->SetActorLocation(Me->GetActorLocation() + Me->GetActorForwardVector() * 80.f, false, nullptr, ETeleportType::TeleportPhysics);
 				Me->GetCarryComponent()->PickUp(*It);
@@ -540,9 +541,9 @@ bool AObshagaPlayerController::InputKey(const FInputKeyEventArgs& Params)
 
 #if !UE_BUILD_SHIPPING
 	// Проверочные клавиши: K — комендант сразу ловит меня, L — тяжёлый предмет мне в руки.
-	if (Params.Event == IE_Pressed && (Params.Key == EKeys::K || Params.Key == EKeys::L) && FParse::Param(FCommandLine::Get(), TEXT("ObshagaDebugKeys")))
+	if (Params.Event == IE_Pressed && (Params.Key == EKeys::K || Params.Key == EKeys::L || Params.Key == EKeys::N) && FParse::Param(FCommandLine::Get(), TEXT("ObshagaDebugKeys")))
 	{
-		ServerDebug(Params.Key == EKeys::K ? 0 : 1);
+		ServerDebug(Params.Key == EKeys::K ? 0 : (Params.Key == EKeys::L ? 1 : 2));
 		return true;
 	}
 #endif

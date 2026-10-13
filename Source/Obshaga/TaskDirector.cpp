@@ -69,6 +69,21 @@ bool UTaskDirector::IsFeasible(const AObshagaPlayerState* PlayerState, const FTa
 		}
 		return false;
 
+	case ETaskCondition::CorrectAccusation:
+	{
+		// «Найди автора слуха» раздаётся, только если слух в этом раунде уже кому-то выпал.
+		if (!UTaskComponent::IsRumorRow(PlayerState, Row))
+		{
+			return true;
+		}
+		const AGameStateBase* GameState = World->GetGameState();
+		return GameState && GameState->PlayerArray.ContainsByPredicate([PlayerState](const APlayerState* Other)
+		{
+			const AObshagaPlayerState* OtherState = Cast<AObshagaPlayerState>(Other);
+			return OtherState && OtherState != PlayerState && OtherState->GetTaskComponent()->FindRowByCondition(ETaskCondition::NoteReadByDistinctPlayers);
+		});
+	}
+
 	default:
 		return true;
 	}
@@ -146,7 +161,12 @@ void UTaskDirector::AssignTasksTo(AObshagaPlayerState* PlayerState, int32 NumPla
 	DealtMainIds.Add(MainId);
 
 	// Побочное: любое другое, которое не противоречит собственному основному.
-	const TArray<FName> Sides = Candidates.FilterByPredicate([&](const FName& Id) { return Id != MainId && !AreInConflict(Id, MainId); });
+	// Обвинить можно один раз за раунд, поэтому двух заданий «покажи коменданту на…» у одного игрока не бывает.
+	const bool bMainAccuses = FindRow(MainId)->SuccessCondition == ETaskCondition::CorrectAccusation;
+	const TArray<FName> Sides = Candidates.FilterByPredicate([&](const FName& Id)
+	{
+		return Id != MainId && !AreInConflict(Id, MainId) && !(bMainAccuses && FindRow(Id)->SuccessCondition == ETaskCondition::CorrectAccusation);
+	});
 	if (!Sides.IsEmpty())
 	{
 		const FName SideId = Sides[FMath::RandRange(0, Sides.Num() - 1)];

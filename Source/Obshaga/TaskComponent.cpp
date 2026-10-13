@@ -105,6 +105,44 @@ AItemActor* UTaskComponent::FindStolenItem(const UObject* WorldContextObject, co
 	return nullptr;
 }
 
+bool UTaskComponent::IsRumorRow(const UObject* WorldContextObject, const FTaskRow& Row)
+{
+	const UWorld* World = WorldContextObject ? WorldContextObject->GetWorld() : nullptr;
+	if (!World || Row.ItemId.IsNone())
+	{
+		return false;
+	}
+	for (TActorIterator<AItemActor> It(World); It; ++It)
+	{
+		if (It->GetItemData()->ItemId == Row.ItemId && It->GetItemData()->bReadable)
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+AItemActor* UTaskComponent::FindRumorNote(const UObject* WorldContextObject, const APlayerState* Who)
+{
+	// Автор слуха — тот, у кого задание пустить слух и кто уже оставил записку (положил, бросил или спрятал).
+	// Просто переложить чужую записку — не авторство.
+	const UGameEventSubsystem* Bus = UGameEventSubsystem::Get(WorldContextObject);
+	const AObshagaPlayerState* State = Cast<AObshagaPlayerState>(Who);
+	if (!Bus || !State || !State->GetTaskComponent()->FindRowByCondition(ETaskCondition::NoteReadByDistinctPlayers))
+	{
+		return nullptr;
+	}
+	for (const FGameEvent& Plant : Bus->GetEventLog())
+	{
+		const bool bPlanted = Plant.Type == EGameEventType::ItemDropped || Plant.Type == EGameEventType::ItemThrown || Plant.Type == EGameEventType::ItemHidden;
+		if (bPlanted && Plant.Instigator == Who && Plant.Item && Plant.Item->GetItemData()->bReadable)
+		{
+			return Plant.Item;
+		}
+	}
+	return nullptr;
+}
+
 bool UTaskComponent::HasTask(FName TaskId) const
 {
 	return Tasks.ContainsByPredicate([TaskId](const FTaskState& Task) { return Task.TaskId == TaskId; });

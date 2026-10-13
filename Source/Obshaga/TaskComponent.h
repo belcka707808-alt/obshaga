@@ -36,6 +36,10 @@ public:
 	const FTaskRow* FindRowByCondition(ETaskCondition Condition) const;
 	/** Предмет задания, который игрок вынес из его «родной» комнаты; nullptr, если он ничего не крал. */
 	static AItemActor* FindStolenItem(const UObject* WorldContextObject, const APlayerState* Who, const FTaskRow& Row);
+	/** Задание про записку со слухом (в строке указан предмет, который можно прочитать)? Тогда ищут не вора, а автора слуха. */
+	static bool IsRumorRow(const UObject* WorldContextObject, const FTaskRow& Row);
+	/** Записка, которую подкинул Who, если слух — его задание; nullptr — он не автор слуха. */
+	static AItemActor* FindRumorNote(const UObject* WorldContextObject, const APlayerState* Who);
 	/** Обновляет пометку «выполнено прямо сейчас» для телефона. */
 	void UpdateLiveStatus();
 	/** Конец раунда: фиксирует успех или провал, возвращает заработанные очки. */
