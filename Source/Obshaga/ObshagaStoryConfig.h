@@ -1,0 +1,74 @@
+#pragma once
+
+#include "CoreMinimal.h"
+#include "Engine/DataAsset.h"
+#include "ObshagaStoryConfig.generated.h"
+
+/** Жилец: имя с прозвищем и строка характера. Порядок — как у моделей жильцов в DA_Looks. */
+USTRUCT(BlueprintType)
+struct FResidentInfo
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Story")
+	FString Name;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Story", meta = (MultiLine = true))
+	FText Trait;
+};
+
+/** Реплики коменданта для одной ситуации в одной манере речи; в игре берётся случайная. */
+USTRUCT(BlueprintType)
+struct FKomendantLineSet
+{
+	GENERATED_BODY()
+
+	/** Подпись для того, кто правит тексты: какая это ситуация и манера. На игру не влияет. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Story")
+	FString Label;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Story")
+	TArray<FText> Lines;
+};
+
+/** Завязка вечера: заголовок и пара строк. */
+USTRUCT(BlueprintType)
+struct FStoryInfo
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Story")
+	FText Title;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Story", meta = (MultiLine = true))
+	FText Text;
+};
+
+/**
+ * Тексты «сюжета» в ассете DA_Story: жильцы, реплики коменданта, завязки вечера. Править можно в редакторе.
+ * Если ассета нет или какой-то список в нём пуст, игра берёт тексты, зашитые в код (ObshagaStory.cpp).
+ */
+UCLASS()
+class OBSHAGA_API UObshagaStoryConfig : public UPrimaryDataAsset
+{
+	GENERATED_BODY()
+
+public:
+	/** Тексты проекта (DA_Story) или nullptr, если ассета нет. */
+	static const UObshagaStoryConfig* Get();
+
+	/** Заполнить ассет текстами из кода (кнопка в редакторе; затирает ручные правки). */
+	UFUNCTION(BlueprintCallable, CallInEditor, Category = "Story")
+	void FillFromDefaults();
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Story")
+	TArray<FResidentInfo> Residents;
+
+	/** По одному набору на пару «ситуация, манера»: сначала все манеры первой ситуации, потом второй и так далее. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Story")
+	TArray<FKomendantLineSet> KomendantLines;
+
+	/** По две завязки на манеру коменданта: строгий, рассеянный, мстительный. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Story")
+	TArray<FStoryInfo> Stories;
+};

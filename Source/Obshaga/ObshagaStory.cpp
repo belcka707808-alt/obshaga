@@ -1,5 +1,8 @@
 #include "ObshagaStory.h"
 
+#include "ObshagaStoryConfig.h"
+#include "UObject/StrongObjectPtr.h"
+
 #define LOCTEXT_NAMESPACE "ObshagaStory"
 
 namespace
@@ -28,12 +31,12 @@ namespace
 	}
 }
 
-FString ObshagaStory::ResidentName(int32 LookSlot)
+FString ObshagaStory::DefaultResidentName(int32 LookSlot)
 {
 	return Resident(LookSlot).Name;
 }
 
-FText ObshagaStory::ResidentTrait(int32 LookSlot)
+FText ObshagaStory::DefaultResidentTrait(int32 LookSlot)
 {
 	return Resident(LookSlot).Trait;
 }
@@ -47,7 +50,7 @@ int32 ObshagaStory::StyleFromPersonalityName(const FString& AssetName)
 	return AssetName.Contains(TEXT("Vindictive")) ? 2 : 1;
 }
 
-FText ObshagaStory::KomendantLine(EKomendantLine Situation, int32 Style, int32 Variant)
+FText ObshagaStory::DefaultKomendantLine(EKomendantLine Situation, int32 Style, int32 Variant)
 {
 	// [ситуация][стиль: строгий, рассеянный, мстительный][вариант]
 	static const FText Lines[static_cast<int32>(EKomendantLine::Count)][3][LinesPerSituation] = {
@@ -129,7 +132,7 @@ FText ObshagaStory::KomendantLine(EKomendantLine Situation, int32 Style, int32 V
 	return Lines[SituationIndex][FMath::Clamp(Style, 0, 2)][FMath::Clamp(Variant, 0, LinesPerSituation - 1)];
 }
 
-FText ObshagaStory::StoryTitle(int32 Index)
+FText ObshagaStory::DefaultStoryTitle(int32 Index)
 {
 	static const FText Titles[NumStories] = {
 		LOCTEXT("T0", "Комиссия из деканата"), LOCTEXT("T1", "Палыч не в духе"),
@@ -139,7 +142,7 @@ FText ObshagaStory::StoryTitle(int32 Index)
 	return Titles[FMath::Clamp(Index, 0, NumStories - 1)];
 }
 
-FText ObshagaStory::StoryText(int32 Index)
+FText ObshagaStory::DefaultStoryText(int32 Index)
 {
 	static const FText Texts[NumStories] = {
 		LOCTEXT("X0", "Завтра в общагу едет проверка. Комендант Палыч обходит этажи вдвое внимательнее: за каждую найденную мелочь влетит ему самому."),
@@ -174,6 +177,100 @@ FText ObshagaStory::Subhead(const FString& WinnerName, int32 WinnerScore)
 	return WinnerScore > 0 && !WinnerName.IsEmpty()
 		? FText::Format(LOCTEXT("SubWinner", "Герой ночи — {0}: {1} очков и ни капли совести"), FText::FromString(WinnerName), FText::AsNumber(WinnerScore))
 		: LOCTEXT("SubNobody", "Никто ничего не добился. Зато все выспались — кроме Палыча");
+}
+
+// --- Тексты из ассета DA_Story; если его нет или список пуст — зашитые в код выше ---
+
+const UObshagaStoryConfig* UObshagaStoryConfig::Get()
+{
+	static const TCHAR* AssetPath = TEXT("/Game/Obshaga/Data/DA_Story.DA_Story");
+	static TStrongObjectPtr<const UObshagaStoryConfig> Cached;
+	static bool bTried = false;
+	if (!bTried)
+	{
+		bTried = true;
+		Cached.Reset(LoadObject<UObshagaStoryConfig>(nullptr, AssetPath, nullptr, LOAD_NoWarn));
+	}
+	return Cached.Get();
+}
+
+void UObshagaStoryConfig::FillFromDefaults()
+{
+	Residents.Reset();
+	for (int32 Slot = 0; Slot < ObshagaStory::NumResidents; ++Slot)
+	{
+		Residents.Add({ ObshagaStory::DefaultResidentName(Slot), ObshagaStory::DefaultResidentTrait(Slot) });
+	}
+
+	static const TCHAR* Situations[] = { TEXT("Обход"), TEXT("Услышал шум"), TEXT("Блеф"), TEXT("Погоня"), TEXT("Упустил"), TEXT("Поймал"),
+		TEXT("Поверил вранью"), TEXT("Не поверил"), TEXT("Сознался"), TEXT("Промолчал"), TEXT("Утренняя проверка"), TEXT("Осмотр тайника не утром") };
+	static const TCHAR* Styles[] = { TEXT("строгий"), TEXT("рассеянный"), TEXT("мстительный") };
+	KomendantLines.Reset();
+	for (int32 Situation = 0; Situation < static_cast<int32>(EKomendantLine::Count); ++Situation)
+	{
+		for (int32 Style = 0; Style < 3; ++Style)
+		{
+			FKomendantLineSet& Set = KomendantLines.AddDefaulted_GetRef();
+			Set.Label = FString::Printf(TEXT("%s — %s"), Situations[FMath::Min(Situation, static_cast<int32>(UE_ARRAY_COUNT(Situations)) - 1)], Styles[Style]);
+			for (int32 Variant = 0; Variant < ObshagaStory::LinesPerSituation; ++Variant)
+			{
+				Set.Lines.Add(ObshagaStory::DefaultKomendantLine(static_cast<EKomendantLine>(Situation), Style, Variant));
+			}
+		}
+	}
+
+	Stories.Reset();
+	for (int32 Index = 0; Index < ObshagaStory::NumStories; ++Index)
+	{
+		Stories.Add({ ObshagaStory::DefaultStoryTitle(Index), ObshagaStory::DefaultStoryText(Index) });
+	}
+	MarkPackageDirty();
+}
+
+FString ObshagaStory::ResidentName(int32 LookSlot)
+{
+	const UObshagaStoryConfig* Config = UObshagaStoryConfig::Get();
+	if (Config && !Config->Residents.IsEmpty())
+	{
+		const FString& Name = Config->Residents[FMath::Abs(LookSlot) % Config->Residents.Num()].Name;
+		if (!Name.IsEmpty())
+		{
+			return Name;
+		}
+	}
+	return DefaultResidentName(LookSlot);
+}
+
+FText ObshagaStory::ResidentTrait(int32 LookSlot)
+{
+	const UObshagaStoryConfig* Config = UObshagaStoryConfig::Get();
+	return Config && !Config->Residents.IsEmpty() ? Config->Residents[FMath::Abs(LookSlot) % Config->Residents.Num()].Trait : DefaultResidentTrait(LookSlot);
+}
+
+FText ObshagaStory::KomendantLine(EKomendantLine Situation, int32 Style, int32 Variant)
+{
+	// Variant — любое число: из набора берётся строка с номером «Variant по модулю числа строк», так что
+	// в ассете у ситуации может быть сколько угодно реплик.
+	const UObshagaStoryConfig* Config = UObshagaStoryConfig::Get();
+	const int32 SetIndex = static_cast<int32>(Situation) * 3 + FMath::Clamp(Style, 0, 2);
+	if (Config && Config->KomendantLines.IsValidIndex(SetIndex) && !Config->KomendantLines[SetIndex].Lines.IsEmpty())
+	{
+		const TArray<FText>& Lines = Config->KomendantLines[SetIndex].Lines;
+		return Lines[FMath::Abs(Variant) % Lines.Num()];
+	}
+	return DefaultKomendantLine(Situation, Style, FMath::Abs(Variant) % LinesPerSituation);
+}
+
+FText ObshagaStory::StoryTitle(int32 Index)
+{
+	const UObshagaStoryConfig* Config = UObshagaStoryConfig::Get();
+	return Config && Config->Stories.IsValidIndex(Index) ? Config->Stories[Index].Title : DefaultStoryTitle(Index);
+}
+
+FText ObshagaStory::StoryText(int32 Index)
+{
+	const UObshagaStoryConfig* Config = UObshagaStoryConfig::Get();
+	return Config && Config->Stories.IsValidIndex(Index) ? Config->Stories[Index].Text : DefaultStoryText(Index);
 }
 
 #undef LOCTEXT_NAMESPACE

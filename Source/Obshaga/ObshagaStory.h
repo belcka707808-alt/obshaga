@@ -24,7 +24,8 @@ enum class EKomendantLine : uint8
 
 /**
  * Тексты «сюжета»: кто живёт в общаге, что говорит комендант, чем особенен сегодняшний вечер и что напишет
- * стенгазета. Только слова — на правила игры они не влияют. Лежат в коде, как и шаблоны хроники.
+ * стенгазета. Только слова — на правила игры они не влияют. Берутся из ассета DA_Story (UObshagaStoryConfig),
+ * а если его нет — из кода. Заголовки стенгазеты и шаблоны хроники пока только в коде.
  */
 namespace ObshagaStory
 {
@@ -48,6 +49,13 @@ namespace ObshagaStory
 	/** Завязка вечера: заголовок и пара строк. Index — от 0 до NumStories - 1 (Style * StoriesPerStyle + вариант). */
 	OBSHAGA_API FText StoryTitle(int32 Index);
 	OBSHAGA_API FText StoryText(int32 Index);
+
+	// Те же тексты, зашитые в код: берутся, когда ассета DA_Story нет, и ими же ассет заполняется.
+	OBSHAGA_API FString DefaultResidentName(int32 LookSlot);
+	OBSHAGA_API FText DefaultResidentTrait(int32 LookSlot);
+	OBSHAGA_API FText DefaultKomendantLine(EKomendantLine Situation, int32 Style, int32 Variant);
+	OBSHAGA_API FText DefaultStoryTitle(int32 Index);
+	OBSHAGA_API FText DefaultStoryText(int32 Index);
 
 	/** Заголовок стенгазеты по итогам раунда. */
 	OBSHAGA_API FText Headline(const FString& EvictedName, const FString& CaughtName, int32 TotalStrikes);

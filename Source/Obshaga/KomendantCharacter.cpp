@@ -62,7 +62,7 @@ void AKomendantCharacter::Say(EKomendantLine Situation, int32 Style, bool bForce
 		return;
 	}
 	LastSayServerTime = Now;
-	MulticastSay(static_cast<uint8>(Situation), static_cast<uint8>(Style), static_cast<uint8>(FMath::RandRange(0, ObshagaStory::LinesPerSituation - 1)));
+	MulticastSay(static_cast<uint8>(Situation), static_cast<uint8>(Style), static_cast<uint8>(FMath::RandRange(0, 200)));
 }
 
 void AKomendantCharacter::MulticastSay_Implementation(uint8 Situation, uint8 Style, uint8 Variant)
