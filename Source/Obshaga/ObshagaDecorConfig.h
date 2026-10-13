@@ -72,6 +72,18 @@ struct FRoomStyle
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Style")
 	float LampIntensity = 0.f;
 
+	/** Окна с батареями на наружных стенах (по одному на стену). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Style")
+	bool bWindows = true;
+
+	/** Сколько плакатов повесить на стены. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Style")
+	int32 NumPosters = 0;
+
+	/** Доска объявлений с бумажками. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Style")
+	bool bNoticeBoard = false;
+
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Style")
 	TArray<FDecorEntry> Decor;
 };
@@ -112,4 +124,18 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Light", meta = (Units = "cm"))
 	float LampHeight = 235.f;
+
+	/** Потолок там, где его нет на карте (второй этаж). Тени он не даёт, чтобы комнаты не потемнели. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Paint")
+	bool bCeilings = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Paint")
+	FLinearColor CeilingColor = FLinearColor(0.8f, 0.78f, 0.7f);
+
+	/** Цвет стекла окон днём и цвета плакатов (берутся по очереди). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Paint")
+	FLinearColor WindowColor = FLinearColor(0.55f, 0.8f, 1.f);
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Paint")
+	TArray<FLinearColor> PosterColors = { FLinearColor(0.9f, 0.2f, 0.2f), FLinearColor(0.95f, 0.75f, 0.1f), FLinearColor(0.2f, 0.6f, 0.9f), FLinearColor(0.3f, 0.75f, 0.35f), FLinearColor(0.7f, 0.3f, 0.8f) };
 };

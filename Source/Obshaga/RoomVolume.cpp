@@ -462,4 +462,151 @@ void ARoomVolume::Decorate(const FRoomStyle& Style, int32 Ordinal)
 			}
 		}
 	}
+
+	// 5. Потолок, окна с батареями, плакаты и доска объявлений — плоские цветные детали из простых фигур.
+	if (!CubeMesh)
+	{
+		return;
+	}
+	auto AddBlock = [this, CubeMesh](const FVector& Center, const FRotator& Rotation, const FVector& SizeCm, const FLinearColor& BlockColor, float Glow)
+	{
+		UStaticMeshComponent* Block = NewObject<UStaticMeshComponent>(this);
+		Block->SetStaticMesh(CubeMesh);
+		Block->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		Block->SetCastShadow(false);
+		Block->SetUsingAbsoluteLocation(true);
+		Block->SetUsingAbsoluteRotation(true);
+		Block->SetUsingAbsoluteScale(true);
+		Block->SetupAttachment(Box);
+		Block->RegisterComponent();
+		Block->SetWorldLocation(Center);
+		Block->SetWorldRotation(Rotation);
+		Block->SetWorldScale3D(SizeCm / 100.f);
+		if (UMaterialInstanceDynamic* Material = ObshagaVisuals::Paint(Block, BlockColor, Glow))
+		{
+			GlowMaterials.Add(Material);
+		}
+	};
+
+	// Потолок — только там, где над комнатой нет перекрытия.
+	if (Config->bCeilings && bTopMeasured)
+	{
+		FVector Unused;
+		const FVector Center(Bounds.GetCenter().X, Bounds.GetCenter().Y, Floor);
+		const bool bHasCeiling = TraceWall(World, Center + FVector(0.f, 0.f, 120.f), Center + FVector(0.f, 0.f, MaxWallHeight + 80.f), FVector(0.f, 0.f, -1.f), Unused);
+		if (!bHasCeiling)
+		{
+			AddBlock(Center + FVector(0.f, 0.f, WallTop + 2.f), FRotator::ZeroRotator, FVector(Size.X, Size.Y, 4.f), Config->CeilingColor, Config->PaintGlow);
+		}
+	}
+
+	// Плоская деталь на стене: Along — ширина вдоль стены, Height — высота, Bottom — низ над полом.
+	auto WallItem = [&](const FWallSide& Side, const FWallSlot& Slot, float Along, float Height, float Bottom, float Thickness, const FLinearColor& ItemColor, float Glow, float Shift = 0.f)
+	{
+		const FVector OnWall = Slot.bHigh ? Slot.HighPoint : Slot.LowPoint;
+		const FVector Center = FVector(OnWall.X, OnWall.Y, Floor + Bottom + Height * 0.5f) + Side.Normal * (PaintThickness * 2.f + Thickness * 0.5f) + Side.Tangent * Shift;
+		AddBlock(Center, Side.Normal.Rotation(), FVector(Thickness, Along, Height), ItemColor, Glow);
+	};
+	// Свободен ли кусок стены под деталь (стена сплошная на всю ширину, и на ней ничего не висит).
+	auto WallFree = [&](const FWallSide& Side, int32 SlotIndex, int32 HalfSpan, float Bottom, float Height, float Along, FBox& OutBox)
+	{
+		for (int32 Index = SlotIndex - HalfSpan; Index <= SlotIndex + HalfSpan; ++Index)
+		{
+			if (!Side.Slots.IsValidIndex(Index) || !Side.Slots[Index].bHigh || !Side.Slots[Index].bLow)
+			{
+				return false;
+			}
+		}
+		const FVector OnWall = Side.Slots[SlotIndex].HighPoint;
+		const FVector Center(OnWall.X + Side.Normal.X * 12.f, OnWall.Y + Side.Normal.Y * 12.f, Floor + Bottom + Height * 0.5f);
+		const FVector HalfSize = (Side.Tangent * Along * 0.5f + Side.Normal * 12.f).GetAbs() + FVector(0.f, 0.f, Height * 0.5f);
+		OutBox = FBox(Center - HalfSize, Center + HalfSize);
+		for (const FBox& Other : Used)
+		{
+			if (Other.Intersect(OutBox))
+			{
+				return false;
+			}
+		}
+		return true;
+	};
+
+	const int32 WideSpan = FMath::CeilToInt32(60.f / Step);
+	for (const FWallSide& Side : Sides)
+	{
+		// Окно — на стене, за которой улица (за стеной нет другой зоны).
+		if (!Style.bWindows || Side.Slots.Num() < WideSpan * 2 + 1)
+		{
+			continue;
+		}
+		const int32 Middle = Side.Slots.Num() / 2;
+		for (int32 Offset = 0; Offset <= Middle; ++Offset)
+		{
+			const int32 SlotIndex = Middle + ((Offset % 2) ? Offset / 2 + 1 : -(Offset / 2));
+			FBox WindowBox;
+			if (!Side.Slots.IsValidIndex(SlotIndex) || !WallFree(Side, SlotIndex, WideSpan, 60.f, 170.f, 120.f, WindowBox))
+			{
+				continue;
+			}
+			const FWallSlot& Slot = Side.Slots[SlotIndex];
+			if (ARoomVolume::FindRoomAt(this, Slot.HighPoint - Side.Normal * 200.f + FVector(0.f, 0.f, 50.f)))
+			{
+				break;
+			}
+			const FLinearColor Frame(0.92f, 0.9f, 0.85f);
+			WallItem(Side, Slot, 124.f, 124.f, 108.f, 2.f, Frame, Config->PaintGlow);
+			WallItem(Side, Slot, 54.f, 112.f, 114.f, 3.f, Config->WindowColor, 0.9f, -29.f);
+			WallItem(Side, Slot, 54.f, 112.f, 114.f, 3.f, Config->WindowColor, 0.9f, 29.f);
+			WallItem(Side, Slot, 136.f, 5.f, 102.f, 14.f, Frame, Config->PaintGlow);
+			// Батарея под окном.
+			WallItem(Side, Slot, 96.f, 46.f, 22.f, 9.f, FLinearColor(0.85f, 0.85f, 0.82f), Config->PaintGlow);
+			for (int32 Rib = -3; Rib <= 3; ++Rib)
+			{
+				WallItem(Side, Slot, 4.f, 50.f, 20.f, 11.f, FLinearColor(0.7f, 0.7f, 0.68f), Config->PaintGlow, Rib * 14.f);
+			}
+			Used.Add(WindowBox);
+			break;
+		}
+	}
+
+	// Доска объявлений: коричневая доска и бумажки на ней.
+	bool bBoardPlaced = !Style.bNoticeBoard;
+	int32 PostersLeft = Style.NumPosters;
+	for (int32 Try = 0; Try < 40 && (!bBoardPlaced || PostersLeft > 0); ++Try)
+	{
+		const FWallSide& Side = Sides[Random.RandRange(0, Sides.Num() - 1)];
+		if (Side.Slots.IsEmpty())
+		{
+			continue;
+		}
+		const int32 SlotIndex = Random.RandRange(0, Side.Slots.Num() - 1);
+		const FWallSlot& Slot = Side.Slots[SlotIndex];
+		FBox ItemBox;
+		if (!bBoardPlaced)
+		{
+			if (WallFree(Side, SlotIndex, FMath::CeilToInt32(80.f / Step), 110.f, 100.f, 160.f, ItemBox))
+			{
+				WallItem(Side, Slot, 160.f, 100.f, 110.f, 3.f, FLinearColor(0.45f, 0.28f, 0.14f), Config->PaintGlow);
+				for (int32 Paper = 0; Paper < 6; ++Paper)
+				{
+					const FLinearColor PaperColor = Paper % 3 == 0 ? FLinearColor(1.f, 0.95f, 0.5f) : FLinearColor(0.95f, 0.95f, 0.92f);
+					WallItem(Side, Slot, 26.f + 6.f * (Paper % 2), 30.f + 5.f * (Paper % 3), 120.f + 44.f * (Paper % 2) + Random.FRandRange(-4.f, 4.f), 4.5f, PaperColor, Config->PaintGlow,
+						-55.f + 44.f * (Paper / 2) + Random.FRandRange(-5.f, 5.f));
+				}
+				Used.Add(ItemBox);
+				bBoardPlaced = true;
+			}
+			continue;
+		}
+		if (WallFree(Side, SlotIndex, FMath::CeilToInt32(30.f / Step), 130.f, 80.f, 60.f, ItemBox) && !Config->PosterColors.IsEmpty())
+		{
+			// Плакат: цветной лист с белой полосой «подписи».
+			const FLinearColor PosterColor = Config->PosterColors[Random.RandRange(0, Config->PosterColors.Num() - 1)];
+			WallItem(Side, Slot, 56.f, 76.f, 132.f, 2.f, PosterColor, Config->PaintGlow);
+			WallItem(Side, Slot, 40.f, 8.f, 142.f, 3.f, FLinearColor(0.95f, 0.95f, 0.9f), Config->PaintGlow);
+			WallItem(Side, Slot, 30.f, 30.f, 164.f, 3.f, PosterColor * 0.5f, Config->PaintGlow);
+			Used.Add(ItemBox);
+			--PostersLeft;
+		}
+	}
 }

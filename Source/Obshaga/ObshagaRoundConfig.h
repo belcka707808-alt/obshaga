@@ -231,7 +231,14 @@ public:
 
 	/** «Выбило пробки»: во сколько раз темнее обычной ночи (доля ночного света неба). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "NightEvent", meta = (ClampMin = "0"))
-	float BlackoutSkyScale = 0.3f;
+	float BlackoutSkyScale = 0.1f;
+
+	/** «Выбило пробки»: фонарик у каждого жильца — яркость и дальность. Яркость 0 — без фонариков. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "NightEvent", meta = (ClampMin = "0"))
+	float FlashlightIntensity = 1.4f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "NightEvent", meta = (ClampMin = "0", Units = "cm"))
+	float FlashlightRadius = 450.f;
 
 	/** «Выбило пробки»: во сколько раз сужается угол зрения коменданта. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "NightEvent", meta = (ClampMin = "0"))

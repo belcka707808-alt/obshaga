@@ -100,6 +100,7 @@ private:
 	float LeavePressTime = -100.f;
 	bool bDisplayNameSet = false;
 	bool bSettingsOpen = false;
+	bool bFlashlightsOn = false;
 
 	/** Раскладка MVP задаётся в коде: WASD, мышь, Shift, Ctrl, пробел, E, F, G, Tab, 1–8, Y, T, R, B, Q, H, Enter, левая кнопка мыши. */
 	void CreateDefaultInput();

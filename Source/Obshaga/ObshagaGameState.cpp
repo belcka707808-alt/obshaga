@@ -81,7 +81,8 @@ void AObshagaGameState::ApplyDarkness()
 	static const FLinearColor MoonColor(0.55f, 0.65f, 1.f);
 	if (Sun.IsValid())
 	{
-		Sun->SetIntensity(SunBaseIntensity * FMath::Lerp(1.f, NightSunScale, Darkness));
+		// Событие «пробки» гасит и лунный свет: иначе в комнатах с окнами темнее почти не становилось.
+		Sun->SetIntensity(SunBaseIntensity * FMath::Lerp(1.f, NightSunScale, Darkness) * (bEventLightApplied ? NightEventSkyScale : 1.f));
 		Sun->SetLightColor(FMath::Lerp(SunBaseColor, MoonColor, Darkness));
 	}
 	if (Sky.IsValid())
@@ -114,6 +115,8 @@ void AObshagaGameState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& Ou
 	DOREPLIFETIME(AObshagaGameState, NightEvent);
 	DOREPLIFETIME(AObshagaGameState, NightEventEndServerTime);
 	DOREPLIFETIME(AObshagaGameState, NightEventSkyScale);
+	DOREPLIFETIME(AObshagaGameState, FlashlightIntensity);
+	DOREPLIFETIME(AObshagaGameState, FlashlightRadius);
 	DOREPLIFETIME(AObshagaGameState, Headline);
 	DOREPLIFETIME(AObshagaGameState, Subhead);
 	DOREPLIFETIME(AObshagaGameState, PaperNotes);
@@ -189,6 +192,15 @@ void AObshagaGameState::StartNightEvent(ENightEvent Event, float DurationSeconds
 		NightEvent = Event;
 		NightEventEndServerTime = GetServerWorldTimeSeconds() + DurationSeconds;
 		NightEventSkyScale = SkyScale;
+	}
+}
+
+void AObshagaGameState::SetFlashlight(float Intensity, float Radius)
+{
+	if (HasAuthority())
+	{
+		FlashlightIntensity = Intensity;
+		FlashlightRadius = Radius;
 	}
 }
 

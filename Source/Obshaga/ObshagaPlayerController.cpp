@@ -10,6 +10,7 @@
 #include "RHI.h"
 #include "Obshaga.h"
 #include "Components/AudioComponent.h"
+#include "Components/PointLightComponent.h"
 #include "EngineUtils.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/GameUserSettings.h"
@@ -963,6 +964,37 @@ void AObshagaPlayerController::PlayerTick(float DeltaTime)
 			if (Me->GetMesh()->bOwnerNoSee != bTooClose)
 			{
 				Me->GetMesh()->SetOwnerNoSee(bTooClose);
+			}
+		}
+
+		// «Выбило пробки»: у каждого жильца в руке фонарик. Состояние события у всех одно, поэтому каждая машина
+		// зажигает фонарики сама — рассылать по сети нечего.
+		const AObshagaGameState* LightState = GetWorld()->GetGameState<AObshagaGameState>();
+		const bool bFlashlights = LightState && LightState->IsBlackout() && LightState->GetFlashlightIntensity() > 0.f;
+		if (bFlashlights || bFlashlightsOn)
+		{
+			bFlashlightsOn = bFlashlights;
+			for (TActorIterator<AObshagaCharacter> It(GetWorld()); It; ++It)
+			{
+				static const FName FlashlightName(TEXT("Flashlight"));
+				UPointLightComponent* Flashlight = FindObject<UPointLightComponent>(*It, *FlashlightName.ToString());
+				if (!Flashlight && bFlashlights)
+				{
+					Flashlight = NewObject<UPointLightComponent>(*It, FlashlightName);
+					Flashlight->bUseInverseSquaredFalloff = false;
+					Flashlight->SetupAttachment(It->GetRootComponent());
+					Flashlight->RegisterComponent();
+					Flashlight->SetRelativeLocation(FVector(40.f, 0.f, 30.f));
+					Flashlight->SetLightFalloffExponent(2.f);
+					Flashlight->SetCastShadows(false);
+					Flashlight->SetLightColor(FLinearColor(1.f, 0.9f, 0.7f));
+				}
+				if (Flashlight)
+				{
+					Flashlight->SetIntensity(LightState ? LightState->GetFlashlightIntensity() : 0.f);
+					Flashlight->SetAttenuationRadius(LightState ? LightState->GetFlashlightRadius() : 100.f);
+					Flashlight->SetVisibility(bFlashlights && !It->IsGhost() && !It->IsHiding());
+				}
 			}
 		}
 

@@ -34,6 +34,8 @@ namespace
 	constexpr float MaxLinkDistance = 750.f;
 	// Как часто комендант бормочет себе под нос, возвращаясь к обходу.
 	constexpr float PatrolMutterChance = 0.4f;
+	// Доля радиуса тела коменданта, которой проверяется проход между точками (чуть уже тела: он протискивается).
+	constexpr float BodyRadiusScale = 0.8f;
 	// Если комендант упёрся ближе этого расстояния от последней точки пути, он считается дошедшим.
 	constexpr float StuckNearGoalDistance = 160.f;
 	constexpr float ArriveDistance = 70.f;
@@ -272,6 +274,23 @@ void AKomendantAIController::BuildGraph()
 		Params.AddIgnoredActor(*It);
 	}
 
+	// Для проверки прохода: мешает всё, кроме дверей (он их открывает), предметов (их уносят) и людей.
+	FCollisionQueryParams BodyParams(SCENE_QUERY_STAT(KomendantBody), false);
+	for (ADoorActor* Door : Doors)
+	{
+		BodyParams.AddIgnoredActor(Door);
+	}
+	for (TActorIterator<AItemActor> It(World); It; ++It)
+	{
+		BodyParams.AddIgnoredActor(*It);
+	}
+	for (TActorIterator<APawn> It(World); It; ++It)
+	{
+		BodyParams.AddIgnoredActor(*It);
+	}
+	const float BodyRadius = Komendant ? Komendant->GetSimpleCollisionRadius() * BodyRadiusScale : 30.f;
+	int32 NumBlocked = 0;
+
 	int32 NumLinks = 0;
 	for (AKomendantWaypoint* Waypoint : Waypoints)
 	{
@@ -293,6 +312,16 @@ void AKomendantAIController::BuildGraph()
 			if ((!bSlope || bAligned) && FVector::Dist(LocationA, LocationB) <= MaxLinkDistance
 				&& !World->LineTraceSingleByChannel(Hit, LocationA, LocationB, ECC_Visibility, Params))
 			{
+				// Точки видят друг друга, но пройдёт ли между ними комендант? Луч шёл сквозь мебель и тайники,
+				// и связь могла вести прямо через шкаф — там он и застревал. Проверяем проход шаром с его ширину.
+				FHitResult BodyHit;
+				if (World->SweepSingleByChannel(BodyHit, LocationA, LocationB, FQuat::Identity, ECC_Visibility, FCollisionShape::MakeSphere(BodyRadius), BodyParams))
+				{
+					++NumBlocked;
+					UE_LOG(LogObshaga, Log, TEXT("Komendant graph: link %s - %s dropped, blocked by %s at %s"), *Waypoints[A]->GetName(), *Waypoints[B]->GetName(),
+						*GetNameSafe(BodyHit.GetActor()), *BodyHit.ImpactPoint.ToCompactString());
+					continue;
+				}
 				Waypoints[A]->Neighbors.Add(Waypoints[B]);
 				Waypoints[B]->Neighbors.Add(Waypoints[A]);
 				++NumLinks;
@@ -302,6 +331,36 @@ void AKomendantAIController::BuildGraph()
 
 	bGraphReady = Waypoints.Num() > 0;
 	UE_LOG(LogObshaga, Log, TEXT("Komendant graph: %d waypoints, %d links, %d doors, %d hiding spots"), Waypoints.Num(), NumLinks, Doors.Num(), HidingSpots.Num());
+
+	// Самопроверка карты: все ли точки обхода достижимы друг из друга после того, как заблокированные связи убраны.
+	if (!Waypoints.IsEmpty())
+	{
+		TSet<const AKomendantWaypoint*> Reached;
+		TArray<const AKomendantWaypoint*> Queue;
+		Queue.Add(Waypoints[0]);
+		Reached.Add(Waypoints[0]);
+		while (!Queue.IsEmpty())
+		{
+			const AKomendantWaypoint* Current = Queue.Pop();
+			for (const TWeakObjectPtr<AKomendantWaypoint>& Neighbor : Current->Neighbors)
+			{
+				const AKomendantWaypoint* Next = Neighbor.Get();
+				if (Next && !Reached.Contains(Next))
+				{
+					Reached.Add(Next);
+					Queue.Add(Next);
+				}
+			}
+		}
+		for (const AKomendantWaypoint* Waypoint : Waypoints)
+		{
+			if (!Reached.Contains(Waypoint))
+			{
+				UE_LOG(LogObshaga, Warning, TEXT("Komendant graph: waypoint %s at %s is cut off from the rest"), *Waypoint->GetName(), *Waypoint->GetActorLocation().ToCompactString());
+			}
+		}
+		UE_LOG(LogObshaga, Log, TEXT("Komendant graph check: %d links dropped as blocked, %d of %d waypoints reachable"), NumBlocked, Reached.Num(), Waypoints.Num());
+	}
 }
 
 int32 AKomendantAIController::GetSpeechStyle() const

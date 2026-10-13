@@ -51,7 +51,7 @@ STYLES = [
           [(0.50, 0.30, 0.14), (0.42, 0.26, 0.16), (0.56, 0.36, 0.18), (0.38, 0.24, 0.13)],
           [(0.20, 0.50, 0.28), (0.85, 0.45, 0.18), (0.18, 0.40, 0.70), (0.72, 0.25, 0.38)],
           1.2,
-          [entry("RugRectangle", CENTER), entry("BookcaseOpen"), entry("ChairDesk"), entry("PottedPlant"),
+          [entry("RugRectangle", CENTER), entry("Desk"), entry("BookcaseOpen"), entry("ChairDesk"), entry("PottedPlant"),
            entry("LampRoundFloor"), entry("Books", count=2), entry("Trashcan"), entry("CoatRackStanding"),
            entry("CardboardBoxOpen"), entry("SideTable"), entry("PlantSmall1"), entry("PlantSmall3"),
            entry("LampWall", HIGH, 1, 165.0)]),
@@ -114,6 +114,13 @@ STYLES = [
     # Балкон: стен нет, только пол.
     style(T.BALCONY, [(0.42, 0.40, 0.38)], [], 0.0, []),
 ]
+
+# Плакаты и доски объявлений по типам зон: (сколько плакатов, есть ли доска).
+EXTRAS = {T.BEDROOM: (2, False), T.CORRIDOR: (3, False), T.VAHTA: (1, True), T.KITCHEN: (1, False), T.LIVING_ROOM: (2, True), T.STAIRS: (1, False)}
+for room_style in STYLES:
+    posters, board = EXTRAS.get(room_style.get_editor_property("room_type"), (0, False))
+    room_style.set_editor_property("num_posters", posters)
+    room_style.set_editor_property("notice_board", board)
 
 # Краска, которая видна и в тени: цвет идёт и в основной цвет, и (умноженный на Glow) в собственное свечение.
 mel = unreal.MaterialEditingLibrary
