@@ -32,6 +32,8 @@ namespace
 	constexpr float MaxWallHeight = 400.f;
 	constexpr float RugLift = 1.2f;
 	constexpr float GlowUpdateSeconds = 0.3f;
+	// Краска не подходит к дверному проёму ближе этого расстояния.
+	constexpr float DoorwayClearance = 6.f;
 	constexpr float FloorProbeUp = 120.f;
 	constexpr float FloorProbeDown = 60.f;
 
@@ -248,8 +250,19 @@ void ARoomVolume::Decorate(const FRoomStyle& Style, int32 Ordinal)
 			const FVector OnBorder = Side.Origin + Side.Tangent * (Offset + (Index + 0.5f) * Step);
 			const FVector Start = OnBorder + Side.Normal * WallTraceInset;
 			const FVector End = OnBorder - Side.Normal * WallTraceReach;
-			Slot.bLow = TraceWall(World, Start + FVector(0.f, 0.f, LowZ), End + FVector(0.f, 0.f, LowZ), Side.Normal, Slot.LowPoint);
-			Slot.bHigh = TraceWall(World, Start + FVector(0.f, 0.f, HighZ), End + FVector(0.f, 0.f, HighZ), Side.Normal, Slot.HighPoint);
+			// Стена должна быть под всей шириной куска, а не только под его серединой:
+			// иначе кусок у дверного проёма залезал бы в проём на полширины и «сужал» дверь.
+			auto TraceBand = [&](float Z, FVector& OutPoint)
+			{
+				FVector Edge;
+				const FVector Up(0.f, 0.f, Z);
+				const FVector Half = Side.Tangent * (Step * 0.5f + DoorwayClearance);
+				return TraceWall(World, Start + Up, End + Up, Side.Normal, OutPoint)
+					&& TraceWall(World, Start + Up - Half, End + Up - Half, Side.Normal, Edge)
+					&& TraceWall(World, Start + Up + Half, End + Up + Half, Side.Normal, Edge);
+			};
+			Slot.bLow = TraceBand(LowZ, Slot.LowPoint);
+			Slot.bHigh = TraceBand(HighZ, Slot.HighPoint);
 
 			// Высоту стен меряем один раз: поднимаем луч, пока он упирается в стену.
 			if (Slot.bHigh && !bTopMeasured)

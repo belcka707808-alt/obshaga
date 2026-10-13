@@ -46,6 +46,7 @@ namespace
 	// Ник Steam бывает до 32 символов.
 	constexpr int32 MaxDisplayNameLength = 32;
 	constexpr float LeaveConfirmSeconds = 3.f;
+	constexpr float CameraHideSelfDistance = 95.f;
 
 	// Обучение: общий предел и сколько висит последняя подсказка.
 	constexpr float TutorialMaxSeconds = 90.f;
@@ -934,6 +935,17 @@ void AObshagaPlayerController::PlayerTick(float DeltaTime)
 
 	if (IsLocalController())
 	{
+		// Прижался спиной к стене — камера въезжает в собственную голову и весь экран закрывает затылок.
+		// Пока камера так близко, свою фигурку игрок не видит (остальные видят её как обычно).
+		if (ACharacter* Me = GetCharacter())
+		{
+			const bool bTooClose = PlayerCameraManager && FVector::DistSquared(PlayerCameraManager->GetCameraLocation(), Me->GetActorLocation()) < FMath::Square(CameraHideSelfDistance);
+			if (Me->GetMesh()->bOwnerNoSee != bTooClose)
+			{
+				Me->GetMesh()->SetOwnerNoSee(bTooClose);
+			}
+		}
+
 		// Замер частоты кадров в журнал раз в несколько секунд — для самопроверки (уровень Verbose).
 		FrameSampleSeconds += DeltaTime;
 		++FrameSampleCount;
