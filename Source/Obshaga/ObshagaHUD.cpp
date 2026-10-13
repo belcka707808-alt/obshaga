@@ -176,6 +176,9 @@ void AObshagaHUD::DrawHUD()
 		PhoneWidget->SetVisibility(bShowPhone ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
 	}
 
+	// Куда уходят подсказки справа, если им тесно: под обе строки по центру.
+	const float RightBelowY = Canvas->ClipY * 0.085f + 24.f * Scale;
+	bool bRightBelow = false;
 	if (GameState->GetRoundState() == ERoundState::Finished)
 	{
 		DrawRoundResults(GameState);
@@ -190,7 +193,9 @@ void AObshagaHUD::DrawHUD()
 		float HintWidth = 0.f;
 		float HintHeight = 0.f;
 		GetTextSize(Hint, HintWidth, HintHeight, Font, Scale);
-		DrawText(Hint, FLinearColor(1.f, 1.f, 1.f, 0.6f), Canvas->ClipX - HintWidth - 16.f * Scale, 12.f * Scale, Font, Scale);
+		// В узком окне подсказки доходят до строк по центру (фаза, событие ночи) — тогда они уходят под них.
+		bRightBelow = Canvas->ClipX - HintWidth - 16.f * Scale < TopCenterRight + 12.f * Scale;
+		DrawText(Hint, FLinearColor(1.f, 1.f, 1.f, 0.6f), Canvas->ClipX - HintWidth - 16.f * Scale, bRightBelow ? RightBelowY : 12.f * Scale, Font, Scale);
 	}
 
 	// Код комнаты всегда под рукой: его диктуют друзьям и по нему же заходят снова после вылета.
@@ -201,7 +206,8 @@ void AObshagaHUD::DrawHUD()
 		float RoomWidth = 0.f;
 		float RoomHeight = 0.f;
 		GetTextSize(RoomLine, RoomWidth, RoomHeight, Font, Scale);
-		DrawText(RoomLine, FLinearColor(1.f, 1.f, 1.f, 0.6f), Canvas->ClipX - RoomWidth - 16.f * Scale, 32.f * Scale, Font, Scale);
+		bRightBelow |= Canvas->ClipX - RoomWidth - 16.f * Scale < TopCenterRight + 12.f * Scale;
+		DrawText(RoomLine, FLinearColor(1.f, 1.f, 1.f, 0.6f), Canvas->ClipX - RoomWidth - 16.f * Scale, bRightBelow ? RightBelowY + 20.f * Scale : 32.f * Scale, Font, Scale);
 		if (GameState->GetRoundState() == ERoundState::WaitingToStart)
 		{
 			DrawCentered(FText::Format(LOCTEXT("RoomCodeBig", "Код комнаты: {0} — продиктуй его друзьям"), FText::FromString(Rooms->GetRoomCode())).ToString(), FLinearColor::White, 0.05f);
@@ -248,7 +254,9 @@ void AObshagaHUD::DrawHUD()
 	}
 
 	// Сообщения рисуем последними, чтобы телефон их не закрывал.
-	if (GetWorld()->GetTimeSeconds() - Controller->GetNoticeTime() < AObshagaPlayerController::NoticeSeconds && GameState->GetRoundState() != ERoundState::Finished)
+	// Пойманному во время допроса они не нужны: «Комендант идёт за тобой!» уже неправда, а середину экрана занимает сцена.
+	const bool bMyInterrogation = GameState->GetInterrogation().bActive && GameState->GetInterrogation().Suspect == MyState;
+	if (GetWorld()->GetTimeSeconds() - Controller->GetNoticeTime() < AObshagaPlayerController::NoticeSeconds && GameState->GetRoundState() != ERoundState::Finished && !bMyInterrogation)
 	{
 		const FString Notice = Controller->GetNotice().ToString();
 		float Width = 0.f;
@@ -440,8 +448,18 @@ float AObshagaHUD::DrawWrapped(const FString& Text, const FLinearColor& Color, f
 	return Y;
 }
 
+void AObshagaHUD::DrawTopLine(const FString& Line, const FLinearColor& Color, float YFraction)
+{
+	float Width = 0.f;
+	float Height = 0.f;
+	GetTextSize(Line, Width, Height, Font, Scale);
+	TopCenterRight = FMath::Max(TopCenterRight, (Canvas->ClipX + Width) * 0.5f);
+	DrawCentered(Line, Color, YFraction);
+}
+
 void AObshagaHUD::DrawTopStatus(const AObshagaGameState* GameState)
 {
+	TopCenterRight = 0.f;
 	// Сверху по центру: в лобби — как начать, в раунде — фаза и таймер.
 	const bool bHost = GetNetMode() != NM_Client;
 	switch (GameState->GetRoundState())
@@ -485,7 +503,7 @@ void AObshagaHUD::DrawTopStatus(const AObshagaGameState* GameState)
 			Color = FLinearColor(1.f, 0.6f, 0.4f);
 		}
 		const FText Line = FText::Format(LOCTEXT("TopFormat", "{0}  {1}"), PhaseName, FText::FromString(FormatTime(GameState->GetPhaseRemainingSeconds())));
-		DrawCentered(Line.ToString(), Color, 0.04f);
+		DrawTopLine(Line.ToString(), Color, 0.04f);
 
 		// Событие ночи — красной строкой под таймером, пока оно идёт.
 		if (GameState->IsNightEventActive())
@@ -515,7 +533,7 @@ void AObshagaHUD::DrawTopStatus(const AObshagaGameState* GameState)
 			const FText EventLine = bTimed
 				? FText::Format(LOCTEXT("TopEvent", "{0}  {1}"), EventName, FText::FromString(FormatTime(GameState->GetNightEventRemainingSeconds())))
 				: EventName;
-			DrawCentered(EventLine.ToString(), FLinearColor(1.f, 0.3f, 0.2f, Blink), 0.085f);
+			DrawTopLine(EventLine.ToString(), FLinearColor(1.f, 0.3f, 0.2f, Blink), 0.085f);
 		}
 		break;
 	}
@@ -944,20 +962,28 @@ void AObshagaHUD::DrawRoundResults(const AObshagaGameState* GameState)
 			if (bPhoto && bDraw)
 			{
 				const float Frame = PhotoFrame * Scale;
-				const float CaptionHeight = 15.f * Scale;
+				const FString Why = GameState->GetPaperHeroNote().ToString();
+				const float CaptionHeight = (Why.IsEmpty() ? 15.f : 27.f) * Scale;
 				DrawRect(FLinearColor(0.95f, 0.94f, 0.90f), X, PaperTop, Side, Side + CaptionHeight);
 				DrawTexture(HeroPhoto, X + Frame, PaperTop + Frame, Side - Frame * 2.f, Side - Frame * 2.f, 0.f, 0.f, 1.f, 1.f, FLinearColor::White, BLEND_Opaque);
 				float NameWidth = 0.f;
 				float NameHeight = 0.f;
 				GetTextSize(HeroPhotoName, NameWidth, NameHeight, Font, Scale * 0.7f);
 				DrawText(HeroPhotoName, FLinearColor(0.1f, 0.1f, 0.12f), X + FMath::Max((Side - NameWidth) * 0.5f, Frame), PaperTop + Side - Frame * 0.5f, Font, Scale * 0.7f);
+				if (!Why.IsEmpty())
+				{
+					float WhyWidth = 0.f;
+					float WhyHeight = 0.f;
+					GetTextSize(Why, WhyWidth, WhyHeight, Font, Scale * 0.65f);
+					DrawText(Why, FLinearColor(0.55f, 0.1f, 0.1f), X + FMath::Max((Side - WhyWidth) * 0.5f, Frame * 0.5f), PaperTop + Side + 10.f * Scale, Font, Scale * 0.65f);
+				}
 			}
 			Y = DrawWrapped(LOCTEXT("PaperName", "СТЕНГАЗЕТА ОБЩАГИ №7").ToString(), FLinearColor(0.6f, 0.6f, 0.68f), X + Indent, Y, TextWidth - Indent, Line - 2.f, bDraw);
 			Y = DrawWrapped(GameState->GetHeadline().ToString(), FLinearColor::Yellow, X + Indent, Y, TextWidth - Indent, Line, bDraw);
 			Y = DrawWrapped(GameState->GetSubhead().ToString(), FLinearColor::White, X + Indent, Y, TextWidth - Indent, Line, bDraw);
 			if (bPhoto)
 			{
-				Y = FMath::Max(Y, PaperTop + Side + 19.f * Scale);
+				Y = FMath::Max(Y, PaperTop + Side + (GameState->GetPaperHeroNote().IsEmpty() ? 19.f : 31.f) * Scale);
 			}
 			for (const FText& Note : GameState->GetPaperNotes())
 			{
@@ -1145,7 +1171,8 @@ void AObshagaHUD::DrawKomendantLabels(const FVector& MyLocation)
 		float Width = 0.f;
 		float Height = 0.f;
 		GetTextSize(Label.ToString(), Width, Height, Font, Scale);
-		DrawText(Label.ToString(), Color, Screen.X - Width * 0.5f, Screen.Y - Height, Font, Scale);
+		// Подпись не поднимается в верхнюю полосу экрана: там таймер, событие ночи и подсказки.
+		DrawText(Label.ToString(), Color, Screen.X - Width * 0.5f, FMath::Max(Screen.Y - Height, Canvas->ClipY * 0.085f + 66.f * Scale), Font, Scale);
 	}
 
 	// Сломанный прибор видно издалека — тоже только при прямой видимости.

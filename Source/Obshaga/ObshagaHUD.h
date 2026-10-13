@@ -48,6 +48,11 @@ private:
 
 	float Scale = 1.f;
 
+	/** Правый край строк по центру сверху (фаза, событие ночи) в этом кадре — чтобы подсказки справа на них не налезали. */
+	float TopCenterRight = 0.f;
+	/** Рисует строку по центру сверху и запоминает её правый край. */
+	void DrawTopLine(const FString& Line, const FLinearColor& Color, float YFraction);
+
 	/** Выбранная раскладка экрана итогов и то, для чего она выбрана (чтобы не мерить заново каждый кадр). */
 	int32 ResultsVariant = INDEX_NONE;
 	uint32 ResultsKey = 0;

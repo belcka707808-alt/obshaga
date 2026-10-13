@@ -102,7 +102,9 @@ public:
 	const FText& GetHeadline() const { return Headline; }
 	const FText& GetSubhead() const { return Subhead; }
 	void SetStory(int32 NewIndex);
-	void SetNewspaper(const FText& InHeadline, const FText& InSubhead, const TArray<FText>& InNotes, APlayerState* InHero);
+	void SetNewspaper(const FText& InHeadline, const FText& InSubhead, const TArray<FText>& InNotes, APlayerState* InHero, const FText& InHeroNote);
+	/** Почему он герой номера — вторая строка подписи под фото («пойман 2 раза», «30 очков»). */
+	const FText& GetPaperHeroNote() const { return PaperHeroNote; }
 	/** Про кого заголовок газеты (или победитель, если заголовок ни про кого) — его «фото» стоит в газете. */
 	APlayerState* GetPaperHero() const { return PaperHero; }
 	const TArray<FText>& GetPaperNotes() const { return PaperNotes; }
@@ -209,6 +211,9 @@ protected:
 
 	UPROPERTY(Replicated)
 	TObjectPtr<APlayerState> PaperHero;
+
+	UPROPERTY(Replicated)
+	FText PaperHeroNote;
 
 	UPROPERTY(Replicated)
 	float AlibiRadius = 800.f;

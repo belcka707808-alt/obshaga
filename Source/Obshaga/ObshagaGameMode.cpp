@@ -1459,6 +1459,20 @@ void AObshagaGameMode::BuildNewspaper(const TArray<AObshagaPlayerState*>& Player
 	FText Headline;
 	// Герой номера — тот, про кого заголовок; если он ни про кого, в газету попадает победитель.
 	const APlayerState* Hero = nullptr;
+	FText HeroNote;
+	// Русские окончания после числа: 1 раз, 2 раза, 5 раз; 1 очко, 2 очка, 5 очков.
+	auto Plural = [](int32 Number, const FText& One, const FText& Few, const FText& Many)
+	{
+		const int32 Tens = FMath::Abs(Number) % 100;
+		const int32 Units = Tens % 10;
+		return (Tens >= 11 && Tens <= 14) ? Many : (Units == 1 ? One : ((Units >= 2 && Units <= 4) ? Few : Many));
+	};
+	auto CaughtNote = [&Plural](const AObshagaPlayerState* Who)
+	{
+		const int32 Strikes = Who ? Who->GetSuspicionComponent()->GetStrikes() : 0;
+		return FText::Format(LOCTEXT("HeroCaught", "пойман {0} {1}"), FText::AsNumber(Strikes),
+			Plural(Strikes, LOCTEXT("TimesOne", "раз"), LOCTEXT("TimesFew", "раза"), LOCTEXT("TimesMany", "раз")));
+	};
 	if (const FGameEvent* Evicted = First(EGameEventType::PlayerEvicted))
 	{
 		Headline = FText::Format(PickHead({
@@ -1466,6 +1480,7 @@ void AObshagaGameMode::BuildNewspaper(const TArray<AObshagaPlayerState*>& Player
 			LOCTEXT("HeadEvicted2", "ТРИ СТРАЙКА — И {0} БОЛЬШЕ ЗДЕСЬ НЕ ЖИВЁТ"),
 			LOCTEXT("HeadEvicted3", "ПРОЩАЙ, ОБЩАГА: {0} СДАЁТ КЛЮЧИ И ПОСТЕЛЬНОЕ") }), NameOf(Evicted->Instigator));
 		Hero = Evicted->Instigator;
+		HeroNote = LOCTEXT("HeroEvicted", "выселен");
 	}
 	else if (const FGameEvent* Framed = First(EGameEventType::PlayerFramed))
 	{
@@ -1474,6 +1489,7 @@ void AObshagaGameMode::BuildNewspaper(const TArray<AObshagaPlayerState*>& Player
 			LOCTEXT("HeadFramed2", "{1} НЕ ЗНАЕТ, ОТКУДА ЭТО У НЕГО. ЗАТО ЗНАЕТ {0}"),
 			LOCTEXT("HeadFramed3", "ДРУЖБА ДРУЖБОЙ, А {0} ПОДСТАВИЛ СОСЕДА ({1})") }), NameOf(Framed->Instigator), NameOf(Framed->Target));
 		Hero = Framed->Instigator;
+		HeroNote = LOCTEXT("HeroFramed", "подставил соседа");
 	}
 	else if (const FGameEvent* Confiscated = First(EGameEventType::ContrabandConfiscated))
 	{
@@ -1482,6 +1498,7 @@ void AObshagaGameMode::BuildNewspaper(const TArray<AObshagaPlayerState*>& Player
 			LOCTEXT("HeadContraband2", "ОБЫСК УДАЛСЯ: У {0} ИЗЪЯЛИ ТО, ЧЕГО В ОБЩАГЕ БЫТЬ НЕ ДОЛЖНО"),
 			LOCTEXT("HeadContraband3", "{0}: «ЭТО ДЛЯ ЛАБОРАТОРНОЙ». ПАЛЫЧ НЕ ПОВЕРИЛ") }), NameOf(Confiscated->Instigator));
 		Hero = Confiscated->Instigator;
+		HeroNote = LOCTEXT("HeroContraband", "попался с запрещёнкой");
 	}
 	else if (const FGameEvent* Tip = First(EGameEventType::TipSucceeded))
 	{
@@ -1490,6 +1507,7 @@ void AObshagaGameMode::BuildNewspaper(const TArray<AObshagaPlayerState*>& Player
 			LOCTEXT("HeadTip2", "В ОБЩАГЕ ЗАВЕЛАСЬ КРЫСА. {1} УЖЕ В КУРСЕ"),
 			LOCTEXT("HeadTip3", "{0} ШЕПНУЛ ПАЛЫЧУ ПАРУ СЛОВ. {1} ПИШЕТ ОБЪЯСНИТЕЛЬНУЮ") }), NameOf(Tip->Instigator), NameOf(Tip->Target));
 		Hero = Tip->Target;
+		HeroNote = LOCTEXT("HeroTipped", "на него настучали");
 	}
 	else if (const FGameEvent* Lie = First(EGameEventType::InterrogationLieSucceeded))
 	{
@@ -1498,6 +1516,7 @@ void AObshagaGameMode::BuildNewspaper(const TArray<AObshagaPlayerState*>& Player
 			LOCTEXT("HeadLie2", "ОСКАР ЗА ЛУЧШУЮ РОЛЬ: {0} ВЫКРУТИЛСЯ НА ДОПРОСЕ"),
 			LOCTEXT("HeadLie3", "«Я ПРОСТО ШЁЛ ЗА ВОДОЙ»: {0} УХОДИТ ОТ ПАЛЫЧА ЧИСТЫМ") }), NameOf(Lie->Instigator));
 		Hero = Lie->Instigator;
+		HeroNote = LOCTEXT("HeroLied", "соврал и ушёл чистым");
 	}
 	else if (TotalStrikes >= 2)
 	{
@@ -1506,6 +1525,7 @@ void AObshagaGameMode::BuildNewspaper(const TArray<AObshagaPlayerState*>& Player
 			LOCTEXT("HeadRaid2", "ПАЛЫЧ В УДАРЕ: {0} ПОИМКИ ЗА ОДНУ НОЧЬ"),
 			LOCTEXT("HeadRaid3", "НОЧЬ ДЛИННЫХ ОБЪЯСНИТЕЛЬНЫХ: ПОЙМАНО {0}") }), FText::AsNumber(TotalStrikes));
 		Hero = MostCaught;
+		HeroNote = CaughtNote(MostCaught);
 	}
 	else if (MostCaught)
 	{
@@ -1514,6 +1534,7 @@ void AObshagaGameMode::BuildNewspaper(const TArray<AObshagaPlayerState*>& Player
 			LOCTEXT("HeadCaught2", "{0} ПОПАЛСЯ ПАЛЫЧУ. ОДИН ЗА ВСЕХ"),
 			LOCTEXT("HeadCaught3", "КОРИДОР, НОЧЬ, ПАЛЫЧ: {0} НЕ УСПЕЛ СВЕРНУТЬ") }), NameOf(MostCaught));
 		Hero = MostCaught;
+		HeroNote = CaughtNote(MostCaught);
 	}
 	else if (Night)
 	{
@@ -1598,7 +1619,14 @@ void AObshagaGameMode::BuildNewspaper(const TArray<AObshagaPlayerState*>& Player
 		Notes.Add(Moods[FMath::Clamp(GetKomendantStyle(), 0, 2)]);
 	}
 
-	State->SetNewspaper(Headline, ObshagaStory::Subhead(WinnerName, WinnerScore), Notes, const_cast<APlayerState*>(Hero ? Hero : Winner));
+	if (!Hero)
+	{
+		// Заголовок ни про кого — на фото победитель, и подпись про его очки.
+		Hero = Winner;
+		HeroNote = FText::Format(LOCTEXT("HeroWinner", "{0} {1}"), FText::AsNumber(WinnerScore),
+			Plural(WinnerScore, LOCTEXT("PointsOne", "очко"), LOCTEXT("PointsFew", "очка"), LOCTEXT("PointsMany", "очков")));
+	}
+	State->SetNewspaper(Headline, ObshagaStory::Subhead(WinnerName, WinnerScore), Notes, const_cast<APlayerState*>(Hero), HeroNote);
 }
 void AObshagaGameMode::AssignTitles(TArray<FRevealedPlayer>& Players, const TArray<AObshagaPlayerState*>& States) const
 {
@@ -1882,6 +1910,14 @@ TArray<FText> AObshagaGameMode::BuildChronicle() const
 				LOCTEXT("ChrRoomTip2", "{0} намекнул коменданту, что стоит проверить: {1}") }), Who, RoomName);
 			break;
 		case EGameEventType::NoteRead:
+		{
+			// Тот, кто пускает слух, сам берёт записку в руки и этим её «читает» — про него строки не пишем.
+			const AObshagaPlayerState* Reader = Cast<AObshagaPlayerState>(Event.Instigator);
+			if (Reader && Reader->GetTaskComponent()->FindRowByCondition(ETaskCondition::NoteReadByDistinctPlayers))
+			{
+				continue;
+			}
+		}
 			Line.Priority = 1;
 			Line.Text = FText::Format(Pick({
 				LOCTEXT("ChrNoteRead1", "{0} прочитал записку со слухом ({1})"),
