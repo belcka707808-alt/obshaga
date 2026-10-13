@@ -125,6 +125,20 @@ private:
 	UPROPERTY(Transient)
 	TObjectPtr<class ACameraActor> InterrogationCamera;
 	bool bInterrogationCamera = false;
+
+	/**
+	 * Обход для проверки вида (ключ запуска -ObshagaTour, не в Shipping): камера сама встаёт с обеих сторон каждой
+	 * открытой двери и в двух углах каждой зоны и сохраняет снимки в Saved/Tour.
+	 */
+	void StartTour();
+	void TourStep();
+	TArray<FTransform> TourViews;
+	TArray<FString> TourNames;
+	TArray<TWeakObjectPtr<class ADoorActor>> TourDoors;
+	TWeakObjectPtr<class ACameraActor> TourCamera;
+	FTimerHandle TourTimer;
+	int32 TourIndex = 0;
+	bool bTourShot = false;
 	bool bIntroSkipped = false;
 	bool bFlashlightsOn = false;
 

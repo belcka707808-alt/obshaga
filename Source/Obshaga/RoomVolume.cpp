@@ -388,6 +388,21 @@ void ARoomVolume::Decorate(const FRoomStyle& Style, int32 Ordinal)
 			NumLintels += Slot.bLintel ? 1 : 0;
 		}
 	}
+	for (const FBox& Doorway : Doorways)
+	{
+		UE_LOG(LogObshaga, Verbose, TEXT("Decor %s doorway %s"), *RoomId.ToString(), *Doorway.ToString());
+	}
+	for (const FWallSide& Side : Sides)
+	{
+		FString Row;
+		for (const FWallSlot& Slot : Side.Slots)
+		{
+			Row += Slot.bDoor ? TEXT("D") : (Slot.bLow && Slot.bHigh ? TEXT("#") : (Slot.bLow ? TEXT("l") : (Slot.bHigh ? TEXT("h") : TEXT("."))));
+		}
+		const FWallSlot* Any = Side.Slots.FindByPredicate([](const FWallSlot& Slot) { return Slot.bLow; });
+		UE_LOG(LogObshaga, Verbose, TEXT("Decor %s side n=(%.0f,%.0f) origin=%s wall at %s: %s"), *RoomId.ToString(), Side.Normal.X, Side.Normal.Y, *Side.Origin.ToString(), Any ? *Any->LowPoint.ToString() : TEXT("-"), *Row);
+	}
+
 	// Щели в углах: куски краски идут с шагом и до угла не дотягиваются. Крайний кусок (у которого сосед не покрашен
 	// и это не дверь) дотягиваем до ближайшей поперечной стены или колонны, если она рядом.
 	int32 NumExtended = 0;
@@ -434,6 +449,11 @@ void ARoomVolume::Decorate(const FRoomStyle& Style, int32 Ordinal)
 			Sheet->SetStaticMesh(CubeMesh);
 			Sheet->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 			Sheet->SetCastShadow(false);
+			// Краска не наследует размеры зоны. Зона-коридор сильно вытянута, и куски, повёрнутые на 90° внутри такой
+			// растянутой коробки, получались в несколько раз шире шага: сплошная полоса закрывала дверные проёмы.
+			Sheet->SetUsingAbsoluteLocation(true);
+			Sheet->SetUsingAbsoluteRotation(true);
+			Sheet->SetUsingAbsoluteScale(true);
 			Sheet->SetupAttachment(Box);
 			Sheet->RegisterComponent();
 			if (UMaterialInstanceDynamic* Material = ObshagaVisuals::Paint(Sheet, SheetColor, UObshagaDecorConfig::Get()->PaintGlow))

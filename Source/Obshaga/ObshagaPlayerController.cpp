@@ -1,6 +1,8 @@
 #include "ObshagaPlayerController.h"
 
 #include "CarryComponent.h"
+#include "DoorActor.h"
+#include "GameFramework/HUD.h"
 #include "InteractionComponent.h"
 #include "KomendantAIController.h"
 #include "KomendantCharacter.h"
@@ -211,9 +213,112 @@ void AObshagaPlayerController::SetupInputComponent()
 	}
 }
 
+void AObshagaPlayerController::StartTour()
+{
+#if !UE_BUILD_SHIPPING
+	UWorld* World = GetWorld();
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(Tour), false);
+	// Двери: с каждой стороны проёма в 2,5 м (или ближе, если там стена), на высоте глаз, лицом к проёму.
+	int32 DoorNumber = 0;
+	for (TActorIterator<ADoorActor> It(World); It; ++It, ++DoorNumber)
+	{
+		const FVector Target = FVector(It->GetDoorCenter().X, It->GetDoorCenter().Y, It->GetActorLocation().Z + 120.f);
+		for (const float Side : { 1.f, -1.f })
+		{
+			const FVector Wanted = Target + It->GetActorRightVector() * Side * 250.f + FVector(0.f, 0.f, 40.f);
+			FHitResult Hit;
+			Params.ClearIgnoredSourceObjects();
+			Params.AddIgnoredActor(*It);
+			const bool bBlocked = World->SweepSingleByChannel(Hit, Target + It->GetActorRightVector() * Side * 30.f, Wanted, FQuat::Identity, ECC_Camera, FCollisionShape::MakeSphere(12.f), Params);
+			const FVector Location = bBlocked ? Hit.Location : Wanted;
+			const ARoomVolume* Room = ARoomVolume::FindRoomAt(this, Location);
+			TourViews.Add(FTransform((Target - Location).Rotation(), Location));
+			TourNames.Add(FString::Printf(TEXT("door%02d_%s_%s"), DoorNumber, Room ? *Room->RoomId.ToString() : TEXT("outside"), Side > 0.f ? TEXT("a") : TEXT("b")));
+			TourDoors.Add(*It);
+		}
+	}
+	// Зоны: из двух противоположных углов, лицом к середине.
+	for (TActorIterator<ARoomVolume> It(World); It; ++It)
+	{
+		const FBox Bounds = It->GetRootComponent()->Bounds.GetBox();
+		const FVector Center = Bounds.GetCenter();
+		const FVector Target(Center.X, Center.Y, Bounds.Min.Z + 110.f);
+		for (const float Corner : { 1.f, -1.f })
+		{
+			const FVector Location(Center.X + Corner * (Bounds.GetExtent().X - 70.f), Center.Y + Corner * (Bounds.GetExtent().Y - 70.f), Bounds.Min.Z + 190.f);
+			TourViews.Add(FTransform((Target - Location).Rotation(), Location));
+			TourNames.Add(FString::Printf(TEXT("room_%s_%s"), *It->RoomId.ToString(), Corner > 0.f ? TEXT("a") : TEXT("b")));
+			TourDoors.Add(nullptr);
+		}
+	}
+	TourCamera = World->SpawnActor<ACameraActor>();
+	if (TourCamera.IsValid())
+	{
+		TourCamera->GetCameraComponent()->bConstrainAspectRatio = false;
+		TourCamera->GetCameraComponent()->SetFieldOfView(100.f);
+	}
+	if (MyHUD)
+	{
+		MyHUD->bShowHUD = false;
+	}
+	TourIndex = 0;
+	bTourShot = false;
+	UE_LOG(LogObshaga, Log, TEXT("Tour started: %d views"), TourViews.Num());
+	GetWorldTimerManager().SetTimer(TourTimer, this, &AObshagaPlayerController::TourStep, 0.7f, true);
+#endif
+}
+
+void AObshagaPlayerController::TourStep()
+{
+#if !UE_BUILD_SHIPPING
+	// Такт 1 — открыть дверь и поставить камеру; такт 2 — снять и перейти к следующему виду.
+	if (!TourViews.IsValidIndex(TourIndex) || !TourCamera.IsValid())
+	{
+		GetWorldTimerManager().ClearTimer(TourTimer);
+		SetViewTarget(GetPawn());
+		if (MyHUD)
+		{
+			MyHUD->bShowHUD = true;
+		}
+		UE_LOG(LogObshaga, Log, TEXT("Tour done: %d views"), TourViews.Num());
+		return;
+	}
+	ADoorActor* Door = TourDoors[TourIndex].Get();
+	if (!bTourShot)
+	{
+		if (Door)
+		{
+			Door->OpenFor(TourViews[TourIndex].GetLocation());
+		}
+		TourCamera->SetActorLocationAndRotation(TourViews[TourIndex].GetLocation(), TourViews[TourIndex].GetRotation());
+		SetViewTarget(TourCamera.Get());
+		bTourShot = true;
+		return;
+	}
+	const FString File = FPaths::ConvertRelativePathToFull(FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("Tour"), TourNames[TourIndex] + TEXT(".png")));
+	FScreenshotRequest::RequestScreenshot(File, false, false);
+	bTourShot = false;
+	// Дверь закрываем после второго снимка (со второй стороны).
+	if (Door && (!TourDoors.IsValidIndex(TourIndex + 1) || TourDoors[TourIndex + 1].Get() != Door))
+	{
+		FTimerHandle Unused;
+		GetWorldTimerManager().SetTimer(Unused, FTimerDelegate::CreateWeakLambda(Door, [Door]() { Door->ResetDoor(); }), 0.3f, false);
+	}
+	++TourIndex;
+#endif
+}
+
 void AObshagaPlayerController::BeginPlay()
 {
 	Super::BeginPlay();
+
+#if !UE_BUILD_SHIPPING
+	if (IsLocalController() && HasAuthority() && FParse::Param(FCommandLine::Get(), TEXT("ObshagaTour")))
+	{
+		FTimerHandle Unused;
+		GetWorldTimerManager().SetTimer(Unused, this, &AObshagaPlayerController::StartTour, 5.f, false);
+	}
+#endif
 
 	// После меню с мышью возвращаем управление игре: курсор скрыт, клавиши и мышь идут персонажу.
 	if (IsLocalController())
