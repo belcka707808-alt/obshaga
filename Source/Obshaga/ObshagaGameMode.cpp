@@ -554,7 +554,7 @@ void AObshagaGameMode::StartRound()
 
 	State->StartRound(Config->AlibiRadius, Config->AccuseDistance);
 	State->SetNightLighting(Config->NightSunScale, Config->NightSkyScale, Config->NightFadeSeconds);
-	State->SetFlashlight(Config->FlashlightIntensity, Config->FlashlightRadius);
+	State->SetFlashlight(Config->FlashlightIntensity, Config->FlashlightRadius, Config->FlashlightConeDegrees);
 	BeginPhase(ERoundPhase::Evening);
 
 	GetWorldTimerManager().SetTimer(LiveStatusTimer, this, &AObshagaGameMode::UpdateLiveTaskStatus, 1.f, true);

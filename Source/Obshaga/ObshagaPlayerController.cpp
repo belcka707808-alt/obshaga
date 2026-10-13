@@ -10,7 +10,7 @@
 #include "RHI.h"
 #include "Obshaga.h"
 #include "Components/AudioComponent.h"
-#include "Components/PointLightComponent.h"
+#include "Components/SpotLightComponent.h"
 #include "EngineUtils.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/GameUserSettings.h"
@@ -977,22 +977,27 @@ void AObshagaPlayerController::PlayerTick(float DeltaTime)
 			for (TActorIterator<AObshagaCharacter> It(GetWorld()); It; ++It)
 			{
 				static const FName FlashlightName(TEXT("Flashlight"));
-				UPointLightComponent* Flashlight = FindObject<UPointLightComponent>(*It, *FlashlightName.ToString());
+				// Фонарик — луч вперёд от головы, а не лампочка: вне луча комната остаётся тёмной.
+				USpotLightComponent* Flashlight = FindObject<USpotLightComponent>(*It, *FlashlightName.ToString());
 				if (!Flashlight && bFlashlights)
 				{
-					Flashlight = NewObject<UPointLightComponent>(*It, FlashlightName);
+					Flashlight = NewObject<USpotLightComponent>(*It, FlashlightName);
 					Flashlight->bUseInverseSquaredFalloff = false;
 					Flashlight->SetupAttachment(It->GetRootComponent());
 					Flashlight->RegisterComponent();
-					Flashlight->SetRelativeLocation(FVector(40.f, 0.f, 30.f));
+					Flashlight->SetRelativeLocation(FVector(35.f, 0.f, 45.f));
+					Flashlight->SetRelativeRotation(FRotator(-6.f, 0.f, 0.f));
 					Flashlight->SetLightFalloffExponent(2.f);
 					Flashlight->SetCastShadows(false);
-					Flashlight->SetLightColor(FLinearColor(1.f, 0.9f, 0.7f));
+					Flashlight->SetLightColor(FLinearColor(1.f, 0.92f, 0.75f));
 				}
 				if (Flashlight)
 				{
 					Flashlight->SetIntensity(LightState ? LightState->GetFlashlightIntensity() : 0.f);
 					Flashlight->SetAttenuationRadius(LightState ? LightState->GetFlashlightRadius() : 100.f);
+					const float Cone = LightState ? LightState->GetFlashlightCone() : 28.f;
+					Flashlight->SetOuterConeAngle(Cone);
+					Flashlight->SetInnerConeAngle(Cone * 0.5f);
 					Flashlight->SetVisibility(bFlashlights && !It->IsGhost() && !It->IsHiding());
 				}
 			}

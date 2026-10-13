@@ -114,7 +114,8 @@ public:
 	/** Только сервер: событие кончилось прямо сейчас (какое оно было — остаётся известно для итогов). */
 	void EndNightEvent();
 	/** Фонарик на время «пробок»: яркость и дальность (приходят с сервера из DA_RoundConfig). */
-	void SetFlashlight(float Intensity, float Radius);
+	void SetFlashlight(float Intensity, float Radius, float ConeDegrees);
+	float GetFlashlightCone() const { return FlashlightCone; }
 	float GetFlashlightIntensity() const { return FlashlightIntensity; }
 	float GetFlashlightRadius() const { return FlashlightRadius; }
 	/** Идут ли прямо сейчас «пробки» — тогда у жильцов горят фонарики. */
@@ -172,10 +173,13 @@ protected:
 	float NightEventSkyScale = 1.f;
 
 	UPROPERTY(Replicated)
-	float FlashlightIntensity = 1.4f;
+	float FlashlightIntensity = 6.f;
 
 	UPROPERTY(Replicated)
-	float FlashlightRadius = 450.f;
+	float FlashlightRadius = 700.f;
+
+	UPROPERTY(Replicated)
+	float FlashlightCone = 28.f;
 
 	/** Применён ли сейчас свет события на этой машине. */
 	bool bEventLightApplied = false;

@@ -235,10 +235,14 @@ public:
 
 	/** «Выбило пробки»: фонарик у каждого жильца — яркость и дальность. Яркость 0 — без фонариков. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "NightEvent", meta = (ClampMin = "0"))
-	float FlashlightIntensity = 1.4f;
+	float FlashlightIntensity = 6.f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "NightEvent", meta = (ClampMin = "0", Units = "cm"))
-	float FlashlightRadius = 450.f;
+	float FlashlightRadius = 700.f;
+
+	/** «Выбило пробки»: половина угла луча фонарика. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "NightEvent", meta = (ClampMin = "5", ClampMax = "80", Units = "deg"))
+	float FlashlightConeDegrees = 28.f;
 
 	/** «Выбило пробки»: во сколько раз сужается угол зрения коменданта. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "NightEvent", meta = (ClampMin = "0"))

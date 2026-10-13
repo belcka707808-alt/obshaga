@@ -117,6 +117,7 @@ void AObshagaGameState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& Ou
 	DOREPLIFETIME(AObshagaGameState, NightEventSkyScale);
 	DOREPLIFETIME(AObshagaGameState, FlashlightIntensity);
 	DOREPLIFETIME(AObshagaGameState, FlashlightRadius);
+	DOREPLIFETIME(AObshagaGameState, FlashlightCone);
 	DOREPLIFETIME(AObshagaGameState, Headline);
 	DOREPLIFETIME(AObshagaGameState, Subhead);
 	DOREPLIFETIME(AObshagaGameState, PaperNotes);
@@ -195,12 +196,13 @@ void AObshagaGameState::StartNightEvent(ENightEvent Event, float DurationSeconds
 	}
 }
 
-void AObshagaGameState::SetFlashlight(float Intensity, float Radius)
+void AObshagaGameState::SetFlashlight(float Intensity, float Radius, float ConeDegrees)
 {
 	if (HasAuthority())
 	{
 		FlashlightIntensity = Intensity;
 		FlashlightRadius = Radius;
+		FlashlightCone = ConeDegrees;
 	}
 }
 
