@@ -38,6 +38,12 @@ public:
 	 * AlongClearance — запас вдоль стены с каждой стороны, HalfDepth — на сколько коробка выходит по обе стороны стены.
 	 */
 	FBox GetDoorwayBox(float AlongClearance, float HalfDepth) const;
+	/**
+	 * Путь по точкам маршрута, который проходит через дверной проём наискосок, получает точку в середине проёма:
+	 * так идущий проходит дверь ровно посередине и не цепляет косяк плечом. Только сервер (для ботов и Палыча).
+	 */
+	static void ThreadDoorways(const UWorld* World, TArray<FVector>& Path, const FVector& Start);
+
 	/** Всё место, через которое проходит створка, открываясь в любую сторону. */
 	FBox GetSwingBox() const;
 

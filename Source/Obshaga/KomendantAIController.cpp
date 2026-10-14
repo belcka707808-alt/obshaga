@@ -1193,6 +1193,8 @@ bool AKomendantAIController::PlanPathTo(const FVector& Goal, bool bGoalNeedsSigh
 	{
 		Path.Insert(Step->GetActorLocation(), 0);
 	}
+	// Через дверные проёмы — ровно посередине, чтобы не цеплять косяк.
+	ADoorActor::ThreadDoorways(GetWorld(), Path, Komendant->GetActorLocation());
 	return true;
 }
 

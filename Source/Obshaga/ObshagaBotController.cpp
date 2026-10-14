@@ -5,6 +5,7 @@
 #include "DoorActor.h"
 #include "HidingSpot.h"
 #include "ItemActor.h"
+#include "KomendantAIController.h"
 #include "KomendantCharacter.h"
 #include "KomendantWaypoint.h"
 #include "NightExitDoor.h"
@@ -94,6 +95,17 @@ void AObshagaBotController::OnPossess(APawn* InPawn)
 		Movement->bUseRVOAvoidance = true;
 		Movement->AvoidanceConsiderationRadius = 250.f;
 		Movement->AvoidanceWeight = 0.5f;
+		// Боты проходят друг сквозь друга: иначе двое встречных в дверном проёме упирались лбами.
+		// С людьми и Палычем столкновения остаются.
+		for (TActorIterator<AObshagaCharacter> It(GetWorld()); It; ++It)
+		{
+			const APlayerState* Other = It->GetPlayerState();
+			if (*It != Me && Other && Other->IsABot())
+			{
+				Me->GetCapsuleComponent()->IgnoreActorWhenMoving(*It, true);
+				It->GetCapsuleComponent()->IgnoreActorWhenMoving(Me, true);
+			}
+		}
 	}
 	Waypoints.Reset();
 	for (TActorIterator<AKomendantWaypoint> It(GetWorld()); It; ++It)
@@ -123,6 +135,7 @@ void AObshagaBotController::ResetForRound()
 	AlibiDecidedFor.Reset();
 	ReactedToCaught.Reset();
 	bFireAlarmGrumbled = false;
+	bCalledKomendant = false;
 	RoundStartTime = GetWorld()->GetTimeSeconds();
 	IdleUntil = GetWorld()->GetTimeSeconds() + FMath::FRandRange(1.f, 4.f);
 }
@@ -248,6 +261,7 @@ void AObshagaBotController::Think()
 	{
 		return;
 	}
+	GuardWatch();
 
 	// Бот-Крыса стучит на жертву, когда ночью подходит его время.
 	if (MyState->GetTrueRole() == EPlayerRole::Rat && !bTipped && GameState->GetPhase() == ERoundPhase::Night)
@@ -413,6 +427,34 @@ void AObshagaBotController::HandleInterrogation()
 			Say(static_cast<uint8>(ObshagaStory::EBotLine::Alibi));
 			UE_LOG(LogObshaga, Verbose, TEXT("Bot %s confirms alibi of %s"), *MyState->GetPlayerName(), *Info.Suspect->GetPlayerName());
 		}
+	}
+}
+
+void AObshagaBotController::GuardWatch()
+{
+	const FTaskRow* Row = GetMyState()->GetTaskComponent()->FindRowByCondition(ETaskCondition::ItemNotMovedFromZone);
+	if (!Row || bCalledKomendant || Me->IsHiding())
+	{
+		return;
+	}
+	for (TActorIterator<AItemActor> It(GetWorld()); It; ++It)
+	{
+		const APawn* Thief = Cast<APawn>(It->GetHolder());
+		if (It->GetItemData()->ItemId != Row->ItemId || It->GetItemState() != EItemState::Carried || !Thief || Thief == Me
+			|| FVector::Dist(Thief->GetActorLocation(), Me->GetActorLocation()) > 1500.f || !HasClearLine(Me->GetActorLocation(), Thief->GetActorLocation()))
+		{
+			continue;
+		}
+		// Видит вора с телевизором: кричит и зовёт Палыча туда, где вор сейчас (как стук Крысы, но вслух).
+		bCalledKomendant = true;
+		LastLineTime = -100.f;
+		Say(static_cast<uint8>(ObshagaStory::EBotLine::CallKomendant));
+		for (TActorIterator<AKomendantAIController> Brain(GetWorld()); Brain; ++Brain)
+		{
+			Brain->InvestigateTip(Thief->GetActorLocation());
+		}
+		UE_LOG(LogObshaga, Verbose, TEXT("Bot %s calls the komendant: %s carries %s"), *GetMyState()->GetPlayerName(), *GetNameSafe(Thief->GetPlayerState()), *It->GetName());
+		return;
 	}
 }
 
@@ -1044,6 +1086,7 @@ bool AObshagaBotController::PlanPathTo(const FVector& Target)
 	{
 		Path.RemoveAt(0);
 	}
+	ADoorActor::ThreadDoorways(GetWorld(), Path, Me->GetActorLocation());
 	return true;
 }
 

@@ -66,6 +66,7 @@ namespace ObshagaStory
 		BragTV,
 		FireAlarm,
 		Alibi,
+		CallKomendant,
 		Count
 	};
 	constexpr int32 BotLinesPerSituation = 4;

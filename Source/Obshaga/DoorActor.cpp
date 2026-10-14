@@ -10,6 +10,7 @@
 #include "ObshagaVisuals.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/StaticMesh.h"
+#include "EngineUtils.h"
 #include "Net/UnrealNetwork.h"
 #include "UObject/ConstructorHelpers.h"
 
@@ -137,6 +138,49 @@ FBox ADoorActor::GetDoorwayBox(float AlongClearance, float HalfDepth) const
 	}
 	Result.Max.Z = GetActorLocation().Z + Scale.Z * 100.f;
 	return Result;
+}
+
+void ADoorActor::ThreadDoorways(const UWorld* World, TArray<FVector>& Path, const FVector& Start)
+{
+	TArray<FVector> Result;
+	FVector From = Start;
+	for (const FVector& To : Path)
+	{
+		// Ищем дверь, через проём которой проходит отрезок From → To (на той же высоте).
+		for (TActorIterator<ADoorActor> It(World); It; ++It)
+		{
+			const FVector Hinge = It->GetActorLocation();
+			if (FMath::Abs(Hinge.Z - FMath::Min(From.Z, To.Z)) > 200.f)
+			{
+				continue;
+			}
+			const float Width = It->DoorMesh->GetRelativeScale3D().X * It->GetActorScale3D().X * 100.f;
+			const FVector Center = Hinge + It->GetActorForwardVector() * Width * 0.5f;
+			const FVector Normal = It->GetActorRightVector();
+			// Отрезок пересекает плоскость двери, и точка пересечения — в пределах проёма.
+			const float DistFrom = FVector::DotProduct(From - Center, Normal);
+			const float DistTo = FVector::DotProduct(To - Center, Normal);
+			if (DistFrom * DistTo >= 0.f)
+			{
+				continue;
+			}
+			const FVector Cross = From + (To - From) * (DistFrom / (DistFrom - DistTo));
+			if (FVector::Dist2D(Cross, Center) > Width * 0.5f + 40.f)
+			{
+				continue;
+			}
+			// Две точки по обе стороны проёма — входим и выходим ровно перпендикулярно двери.
+			const float Z = From.Z + (To.Z - From.Z) * (DistFrom / (DistFrom - DistTo));
+			const FVector Before = Center + Normal * FMath::Sign(DistFrom) * 60.f;
+			const FVector After = Center - Normal * FMath::Sign(DistFrom) * 60.f;
+			Result.Add(FVector(Before.X, Before.Y, Z));
+			Result.Add(FVector(After.X, After.Y, Z));
+			break;
+		}
+		Result.Add(To);
+		From = To;
+	}
+	Path = MoveTemp(Result);
 }
 
 FBox ADoorActor::GetSwingBox() const

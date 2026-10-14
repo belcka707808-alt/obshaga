@@ -155,6 +155,10 @@ private:
 	/** На какой допрос соседа уже отреагировали фразой; кричали ли про тревогу. */
 	TWeakObjectPtr<APlayerState> ReactedToCaught;
 	bool bFireAlarmGrumbled = false;
+	/** Сторож телевизора уже позвал Палыча к вору (раз за раунд). */
+	bool bCalledKomendant = false;
+	/** Сторож видит, что его предмет уносят, — зовёт Палыча к вору. */
+	void GuardWatch();
 	TWeakObjectPtr<APlayerState> AlibiDecidedFor;
 	/** Цель, до которой не дошёл: какое-то время её не берём. */
 	TWeakObjectPtr<AActor> GaveUpOn;

@@ -231,7 +231,7 @@ void UObshagaStoryConfig::FillFromDefaults()
 		WeekNights.Add(ObshagaStory::DefaultWeekNight(Night));
 	}
 
-	static const TCHAR* BotSituations[] = { TEXT("Увидел Палыча"), TEXT("Поймали соседа"), TEXT("Хвастается телевизором"), TEXT("Разбудила пожарная тревога"), TEXT("Подтверждает алиби") };
+	static const TCHAR* BotSituations[] = { TEXT("Увидел Палыча"), TEXT("Поймали соседа"), TEXT("Хвастается телевизором"), TEXT("Разбудила пожарная тревога"), TEXT("Подтверждает алиби"), TEXT("Зовёт Палыча: уносят телевизор") };
 	BotLines.Reset();
 	for (int32 Situation = 0; Situation < static_cast<int32>(ObshagaStory::EBotLine::Count); ++Situation)
 	{
@@ -353,6 +353,7 @@ FText ObshagaStory::DefaultBotLine(EBotLine Situation, int32 Variant)
 		{ LOCTEXT("BotTv0", "Смотрите, что у меня есть!"), LOCTEXT("BotTv1", "Сегодня у нас кино"), LOCTEXT("BotTv2", "Тяжёлый, зараза…"), LOCTEXT("BotTv3", "Это не то, что вы думаете") },
 		{ LOCTEXT("BotFire0", "Три часа ночи, какая тревога?!"), LOCTEXT("BotFire1", "Дайте поспать…"), LOCTEXT("BotFire2", "Опять учения?"), LOCTEXT("BotFire3", "Я в тапках вообще-то") },
 		{ LOCTEXT("BotAlibi0", "Он был со мной всю ночь!"), LOCTEXT("BotAlibi1", "Это не он, Палыч"), LOCTEXT("BotAlibi2", "Мы чай пили, честно"), LOCTEXT("BotAlibi3", "Я свидетель!") },
+		{ LOCTEXT("BotCall0", "Палыч! Телевизор уносят!"), LOCTEXT("BotCall1", "Держи вора!"), LOCTEXT("BotCall2", "Э, положи где взял!"), LOCTEXT("BotCall3", "Палыч, сюда! Тут кража!") },
 	};
 	return Lines[FMath::Clamp(static_cast<int32>(Situation), 0, static_cast<int32>(EBotLine::Count) - 1)][FMath::Clamp(Variant, 0, BotLinesPerSituation - 1)];
 }
