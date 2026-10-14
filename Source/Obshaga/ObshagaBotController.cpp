@@ -587,6 +587,13 @@ bool AObshagaBotController::TryFleeOrHide(const AKomendantCharacter* Komendant)
 bool AObshagaBotController::PlanTask()
 {
 	const UTaskComponent* Tasks = GetMyState()->GetTaskComponent();
+	// «Не попадись на глаза»: после отбоя любой выход в коридор уже подозрителен — осторожный бот бросает остальные
+	// дела и сидит у себя до утра (прогулку домой сделает PlanWander).
+	const AObshagaGameState* GameState = GetWorld()->GetGameState<AObshagaGameState>();
+	if (GameState && GameState->GetPhase() != ERoundPhase::Evening && Tasks->FindRowByCondition(ETaskCondition::NeverSpottedWholeRound))
+	{
+		return false;
+	}
 	const TArray<FTaskRow>& Rows = Tasks->GetRows();
 	const TArray<FTaskState>& States = Tasks->GetTasks();
 	for (int32 Index = 0; Index < Rows.Num(); ++Index)
@@ -780,7 +787,9 @@ void AObshagaBotController::PlanWander()
 {
 	const UObshagaRoundConfig* Config = GetRoundConfig();
 	// «Не попадись на глаза»: такой бот по общаге не гуляет, а сидит у себя в комнате.
-	if (GetMyState()->GetTaskComponent()->FindRowByCondition(ETaskCondition::NeverSpottedWholeRound) && FMath::FRand() < 0.8f)
+	const AObshagaGameState* WanderState = GetWorld()->GetGameState<AObshagaGameState>();
+	const bool bCurfew = WanderState && WanderState->GetPhase() != ERoundPhase::Evening;
+	if (GetMyState()->GetTaskComponent()->FindRowByCondition(ETaskCondition::NeverSpottedWholeRound) && (bCurfew || FMath::FRand() < 0.8f))
 	{
 		const ARoomVolume* Home = ARoomVolume::FindRoomById(this, GetMyState()->GetHomeRoomId());
 		const ARoomVolume* Here = ARoomVolume::FindRoomAt(this, Me->GetActorLocation());
