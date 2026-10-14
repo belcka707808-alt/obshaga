@@ -712,7 +712,7 @@ bool AObshagaBotController::PlanTaskRow(const FTaskRow& Row)
 			return WalkTo(Device->GetActorLocation(), EBotGoal::RepairDevice, 160.f);
 		}
 		ADeviceActor* Any = Device ? Device : FindDevice(false);
-		if (Any && FMath::FRand() < 0.15f)
+		if (Any && FMath::FRand() < GetRoundConfig()->BotFixCheckChance)
 		{
 			return WalkTo(Any->GetActorLocation() + FVector(FMath::FRandRange(-200.f, 200.f), FMath::FRandRange(-200.f, 200.f), 0.f), EBotGoal::Wander, 200.f);
 		}

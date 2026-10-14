@@ -1142,7 +1142,39 @@ bool AKomendantAIController::PlanPathTo(const FVector& Goal, bool bGoalNeedsSigh
 	BestDistanceToPoint = TNumericLimits<float>::Max();
 	NoProgressTime = 0.f;
 
-	AKomendantWaypoint* Start = FindNearestWaypoint(Komendant->GetActorLocation());
+	// Стартовая точка — ближайшая, до которой можно пройти напрямую телом Палыча (мебель мешает, люди и двери — нет).
+	// Иначе после обыска шкафа он выбирал точку за этим же шкафом и упирался в него.
+	AKomendantWaypoint* Start = nullptr;
+	{
+		FCollisionQueryParams Params(SCENE_QUERY_STAT(KomendantStart), false, Komendant);
+		for (ADoorActor* Door : Doors)
+		{
+			Params.AddIgnoredActor(Door);
+		}
+		for (TActorIterator<APawn> It(GetWorld()); It; ++It)
+		{
+			Params.AddIgnoredActor(*It);
+		}
+		const FVector From = Komendant->GetActorLocation();
+		const float Radius = Komendant->GetCapsuleComponent()->GetScaledCapsuleRadius();
+		float BestScore = TNumericLimits<float>::Max();
+		for (AKomendantWaypoint* Waypoint : Waypoints)
+		{
+			const FVector Delta = Waypoint->GetActorLocation() - From;
+			const float Score = Delta.Size() + FMath::Abs(Delta.Z) * 3.f;
+			FHitResult Hit;
+			if (Score < BestScore && FMath::Abs(Delta.Z) < ArriveHeight
+				&& !GetWorld()->SweepSingleByChannel(Hit, From, Waypoint->GetActorLocation(), FQuat::Identity, ECC_Pawn, FCollisionShape::MakeSphere(Radius), Params))
+			{
+				BestScore = Score;
+				Start = Waypoint;
+			}
+		}
+		if (!Start)
+		{
+			Start = FindNearestWaypoint(From);
+		}
+	}
 	AKomendantWaypoint* End = FindNearestWaypoint(Goal, bGoalNeedsSight);
 	if (!Start || !End)
 	{
