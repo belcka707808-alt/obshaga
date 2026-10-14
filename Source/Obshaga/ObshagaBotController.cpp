@@ -704,8 +704,9 @@ bool AObshagaBotController::PlanTaskRow(const FTaskRow& Row)
 	{
 		// Чинить идёт только тот, кто знает о поломке: видел сломанный прибор сам. Иначе изредка заглядывает на кухню.
 		ADeviceActor* Device = FindDevice(true);
-		if (Device && !GaveUp(Device) && (bKnowsBroken || (FVector::Dist(Device->GetActorLocation(), Me->GetActorLocation()) < 900.f
-			&& HasClearLine(Me->GetActorLocation(), Device->GetActorLocation() + FVector(0.f, 0.f, 60.f)))))
+		// «Видит» — штатной проверкой контроллера: луч, упёршийся в сам прибор, считается видимостью
+		// (своя проверка линии принимала прибор за стену, и поломку не замечал никто).
+		if (Device && !GaveUp(Device) && (bKnowsBroken || (FVector::Dist(Device->GetActorLocation(), Me->GetActorLocation()) < 900.f && LineOfSightTo(Device))))
 		{
 			bKnowsBroken = true;
 			TargetDevice = Device;
