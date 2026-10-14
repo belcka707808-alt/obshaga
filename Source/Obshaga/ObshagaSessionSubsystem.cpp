@@ -331,6 +331,11 @@ void UObshagaSessionSubsystem::HandleDestroyComplete(FName SessionName, bool bSu
 	}
 }
 
+FText UObshagaSessionSubsystem::DescribeBots() const
+{
+	return BotResidents == 0 ? LOCTEXT("BotsNone", "[4] Боты: нет") : FText::Format(LOCTEXT("BotsUpTo", "[4] Боты: до {0} жильцов"), FText::AsNumber(BotResidents));
+}
+
 void UObshagaSessionSubsystem::CreateRoom()
 {
 	if (IsBusy())
@@ -397,7 +402,8 @@ void UObshagaSessionSubsystem::HandleCreateComplete(FName SessionName, bool bSuc
 	WantedCode.Reset();
 	UE_LOG(LogObshaga, Log, TEXT("Room created, code %s (%s)"), *RoomCode, IsSteam() ? TEXT("Steam") : TEXT("LAN"));
 	// Хост сам загружает карту и начинает слушать подключения.
-	UGameplayStatics::OpenLevel(GetGameInstance()->GetWorld(), FName(GameMap), true, FString::Printf(TEXT("listen?MaxPlayers=%d"), MaxPlayers));
+	// Выбор «сколько жильцов добирать ботами» уходит в адрес карты: его читает правило игры на хосте.
+	UGameplayStatics::OpenLevel(GetGameInstance()->GetWorld(), FName(GameMap), true, FString::Printf(TEXT("listen?MaxPlayers=%d?Bots=%d"), MaxPlayers, BotResidents));
 }
 
 void UObshagaSessionSubsystem::JoinByCode(const FString& Code)

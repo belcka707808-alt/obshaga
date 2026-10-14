@@ -223,6 +223,64 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Round", meta = (ClampMin = "0", Units = "s"))
 	float IntroSeconds = 9.f;
 
+	// --- Боты-жильцы ---
+
+	/** Какие задания умеет бот (id строк DT_Tasks). Остальные боту не выдаются. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bots")
+	TArray<FName> BotTaskIds = { TEXT("steal_tv"), TEXT("protect_tv"), TEXT("hide_contraband"), TEXT("sabotage_kitchen"), TEXT("fix_kitchen"),
+		TEXT("start_rumor"), TEXT("build_trust"), TEXT("curfew_breach") };
+
+	/** С какого расстояния бот замечает Палыча (если видит его) и уходит от него. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bots", meta = (ClampMin = "0", Units = "cm"))
+	float BotFleeDistance = 900.f;
+
+	/** Тайник ближе этого — бот прячется в него, дальше — просто убегает. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bots", meta = (ClampMin = "0", Units = "cm"))
+	float BotHideSearchRadius = 450.f;
+
+	/** Сколько бот сидит в укрытии (случайно в этих пределах). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bots", meta = (ClampMin = "0", Units = "s"))
+	float BotHideMinSeconds = 6.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bots", meta = (ClampMin = "0", Units = "s"))
+	float BotHideMaxSeconds = 14.f;
+
+	/** Пауза между прогулками, когда делать нечего. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bots", meta = (ClampMin = "0", Units = "s"))
+	float BotIdleMinSeconds = 2.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bots", meta = (ClampMin = "0", Units = "s"))
+	float BotIdleMaxSeconds = 7.f;
+
+	/** Веса ответов бота на допросе: сознаться, соврать, молчать. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bots", meta = (ClampMin = "0"))
+	float BotConfessWeight = 1.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bots", meta = (ClampMin = "0"))
+	float BotLieWeight = 2.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bots", meta = (ClampMin = "0"))
+	float BotSilentWeight = 1.f;
+
+	/** Шанс, что бот рядом подтвердит алиби пойманному. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bots", meta = (ClampMin = "0", ClampMax = "1"))
+	float BotAlibiChance = 0.35f;
+
+	/** Сколько бот-«нарушитель отбоя» гуляет на улице. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bots", meta = (ClampMin = "0", Units = "s"))
+	float BotOutsideSeconds = 15.f;
+
+	/** Бот-Крыса стучит на жертву через столько секунд после начала ночи (случайно в этих пределах). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bots", meta = (ClampMin = "0", Units = "s"))
+	float BotTipMinSeconds = 20.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bots", meta = (ClampMin = "0", Units = "s"))
+	float BotTipMaxSeconds = 90.f;
+
+	/** Сколько всего жильцов (людей и ботов) можно набрать ботами. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bots", meta = (ClampMin = "0", ClampMax = "8"))
+	int32 MaxResidentsWithBots = 6;
+
 	/** Заставка перед каждым реваншем — следующей ночью недели (с карточкой ночи). 0 — без заставки. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Round", meta = (ClampMin = "0", Units = "s"))
 	float RematchIntroSeconds = 5.f;

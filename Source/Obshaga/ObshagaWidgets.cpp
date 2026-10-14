@@ -189,6 +189,7 @@ void UObshagaMenuWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTi
 			Items.Emplace(LOCTEXT("ItemCreate", "[1] Создать комнату"), EKeys::One);
 			Items.Emplace(LOCTEXT("ItemJoin", "[2] Войти по коду"), EKeys::Two);
 			Items.Emplace(LOCTEXT("ItemSettings", "[3] Настройки"), EKeys::Three);
+			Items.Emplace(Rooms->DescribeBots(), EKeys::Four);
 			Items.Emplace(LOCTEXT("ItemQuit", "[Esc] Выход"), EKeys::Escape);
 		}
 		break;

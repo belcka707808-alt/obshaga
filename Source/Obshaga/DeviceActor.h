@@ -32,6 +32,10 @@ public:
 	virtual void SecondaryInteract(AObshagaCharacter* By) override;
 
 	bool IsBroken() const { return bBroken; }
+	/** Кто-то прямо сейчас ломает или чинит прибор; сколько это длится. */
+	bool IsBusy() const { return bBusy; }
+	float GetBreakDuration() const { return BreakDuration; }
+	float GetRepairDuration() const { return RepairDuration; }
 	const FText& GetDisplayName() const { return DisplayName; }
 	/** Точка над прибором для подписи «сломано». */
 	FVector GetLabelLocation() const;

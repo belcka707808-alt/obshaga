@@ -925,7 +925,7 @@ void AObshagaHUD::DrawRoundResults(const AObshagaGameState* GameState)
 	{
 		const FText Text = GameState->GetWeekNight() >= 0
 			? FText::Format(LOCTEXT("PlayerLineWeek", "{0} — {1}, «{2}». Очки: {3}, страйки: {4}. Неделя: {5} очков, {6} страйков"),
-				FText::FromString(Player.PlayerName), RoleName(Player.Role), Player.Title, FText::AsNumber(Player.Score), FText::AsNumber(Player.Strikes),
+				FText::FromString(Player.bBot ? Player.PlayerName + LOCTEXT("BotMark", " (бот)").ToString() : Player.PlayerName), RoleName(Player.Role), Player.Title, FText::AsNumber(Player.Score), FText::AsNumber(Player.Strikes),
 				FText::AsNumber(Player.WeekScore), FText::AsNumber(Player.WeekStrikes))
 			: FText::Format(LOCTEXT("PlayerLine", "{0} — {1}, «{2}». Очки: {3}, страйки: {4}"),
 				FText::FromString(Player.PlayerName), RoleName(Player.Role), Player.Title, FText::AsNumber(Player.Score), FText::AsNumber(Player.Strikes));
@@ -974,7 +974,7 @@ void AObshagaHUD::DrawRoundResults(const AObshagaGameState* GameState)
 			const bool bWeekOver = GameState->GetWeekNight() == ObshagaStory::NumWeekNights - 1;
 			const FText RematchText = bHost
 				? (bWeekOver ? LOCTEXT("RematchNewWeek", "[Enter] Новая неделя — снова понедельник") : FText::Format(LOCTEXT("RematchNextNight", "[Enter] Следующая ночь — {0}"), ObshagaStory::WeekdayName(GameState->GetWeekNight() + 1)))
-				: LOCTEXT("RematchClient", "Ждём, пока хост начнёт реванш");
+				: (bWeekOver ? LOCTEXT("RematchClientWeek", "Ждём, пока хост начнёт новую неделю") : LOCTEXT("RematchClient", "Ждём, пока хост начнёт реванш"));
 			DrawText((GameState->GetWeekNight() >= 0 ? RematchText : (bHost ? LOCTEXT("RematchHost", "[Enter] Реванш — новые роли и задания") : LOCTEXT("RematchClient", "Ждём, пока хост начнёт реванш"))).ToString(),
 				FLinearColor::Yellow, X, RematchY, Font, Scale);
 			// Справа внизу — как сохранить этот экран; после F12 несколько секунд показываем, куда он лёг.

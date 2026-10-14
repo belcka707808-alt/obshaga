@@ -42,4 +42,7 @@ private:
 public:
 	/** Для разработки: основные задания по порядку игрокам (из DA_RoundConfig). */
 	TArray<FName> DebugMainTasks;
+
+	/** Задания, которые умеет бот; ботам выдаются только они. */
+	TArray<FName> BotTaskIds;
 };

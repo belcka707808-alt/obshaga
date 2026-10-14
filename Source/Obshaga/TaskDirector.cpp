@@ -114,7 +114,9 @@ void UTaskDirector::AssignTasksTo(AObshagaPlayerState* PlayerState, int32 NumPla
 	for (const FName& RowName : TasksTable->GetRowNames())
 	{
 		const FTaskRow* Row = FindRow(RowName);
-		if (Row && Row->bEnabled && Row->MinPlayers <= NumPlayers && UTaskComponent::IsConditionImplemented(Row->SuccessCondition)
+		// Боту — только задания, которые он умеет выполнять.
+		const bool bBotCan = !PlayerState->IsABot() || BotTaskIds.Contains(RowName);
+		if (Row && bBotCan && Row->bEnabled && Row->MinPlayers <= NumPlayers && UTaskComponent::IsConditionImplemented(Row->SuccessCondition)
 			&& IsFeasible(PlayerState, *Row, CurrentPhase))
 		{
 			Candidates.Add(RowName);

@@ -62,7 +62,16 @@ protected:
 	void EndRound();
 	void ResetWorldForRematch();
 
-	void AssignHomeRoom(APlayerController* Controller);
+	void AssignHomeRoom(AController* Controller);
+
+	/** Боты: перед раундом добрать (или убрать лишних) до нужного числа жильцов. Только сервер. */
+	void SyncBots();
+	/** Сколько ботов нужно сейчас: по выбору хоста в меню (?Bots= — сколько всего жильцов) или по ключу -Bots=N. */
+	int32 GetWantedBots(int32 NumHumans) const;
+	/** Внешность, которая ни у кого не занята (или встречается реже всех). */
+	int32 PickFreeLookSlot(const AObshagaPlayerState* Except) const;
+	UPROPERTY()
+	TArray<TObjectPtr<class AObshagaBotController>> Bots;
 	void AssignRoles(const TArray<AObshagaPlayerState*>& Players);
 	void UpdateLiveTaskStatus();
 	void SendSms();

@@ -8,6 +8,7 @@
 #include "InteractionComponent.h"
 #include "ItemActor.h"
 #include "KomendantAIController.h"
+#include "ObshagaBotController.h"
 #include "KomendantCharacter.h"
 #include "ObshagaStory.h"
 #include "NightExitDoor.h"
@@ -69,6 +70,7 @@ void AObshagaGameMode::BeginPlay()
 	TaskDirector = NewObject<UTaskDirector>(this);
 	TaskDirector->Initialize(GetRoundConfig()->TasksTable);
 	TaskDirector->DebugMainTasks = GetRoundConfig()->DebugMainTasks;
+	TaskDirector->BotTaskIds = GetRoundConfig()->BotTaskIds;
 #if !UE_BUILD_SHIPPING
 	// Для проверок: -DebugMainTasks=start_rumor,expose_liar — основные задания по порядку игроков.
 	FString DebugTasks;
@@ -264,25 +266,7 @@ void AObshagaGameMode::HandleStartingNewPlayer_Implementation(APlayerController*
 	// Номер игрока для этого не годится: после перезахода он новый, и модели начали бы совпадать.
 	if (AObshagaPlayerState* NewState = NewPlayer ? NewPlayer->GetPlayerState<AObshagaPlayerState>() : nullptr)
 	{
-		const int32 NumLooks = FMath::Max(UObshagaLookConfig::Get()->ResidentMeshes.Num(), 1);
-		TArray<int32> Used;
-		Used.SetNumZeroed(NumLooks);
-		for (const AObshagaPlayerState* Other : GetObshagaPlayers())
-		{
-			if (Other != NewState)
-			{
-				++Used[Other->GetLookSlot() % NumLooks];
-			}
-		}
-		int32 Best = 0;
-		for (int32 Slot = 1; Slot < NumLooks; ++Slot)
-		{
-			if (Used[Slot] < Used[Best])
-			{
-				Best = Slot;
-			}
-		}
-		NewState->SetLookSlot(Best);
+		NewState->SetLookSlot(PickFreeLookSlot(NewState));
 	}
 
 	Super::HandleStartingNewPlayer_Implementation(NewPlayer);
@@ -316,6 +300,101 @@ void AObshagaGameMode::HandleStartingNewPlayer_Implementation(APlayerController*
 		GrantTaskAbilities(PlayerState);
 		ScheduleSelfBreakIfNeeded();
 		NotifyPlayer(PlayerState, LOCTEXT("NewTask", "Новые секретные задания — открой телефон [Tab]"));
+	}
+}
+
+int32 AObshagaGameMode::PickFreeLookSlot(const AObshagaPlayerState* Except) const
+{
+	const int32 NumLooks = FMath::Max(UObshagaLookConfig::Get()->ResidentMeshes.Num(), 1);
+	TArray<int32> Used;
+	Used.SetNumZeroed(NumLooks);
+	for (const AObshagaPlayerState* Other : GetObshagaPlayers())
+	{
+		if (Other != Except)
+		{
+			++Used[Other->GetLookSlot() % NumLooks];
+		}
+	}
+	int32 Best = 0;
+	for (int32 Slot = 1; Slot < NumLooks; ++Slot)
+	{
+		if (Used[Slot] < Used[Best])
+		{
+			Best = Slot;
+		}
+	}
+	return Best;
+}
+
+int32 AObshagaGameMode::GetWantedBots(int32 NumHumans) const
+{
+#if !UE_BUILD_SHIPPING
+	// Для проверок: -Bots=N — ровно N ботов, сколько бы ни было людей.
+	int32 Forced = 0;
+	if (FParse::Value(FCommandLine::Get(), TEXT("Bots="), Forced))
+	{
+		return FMath::Clamp(Forced, 0, 8 - NumHumans);
+	}
+#endif
+	// Хост выбрал в меню, сколько всего жильцов должно быть; боты добирают недостающих.
+	const int32 Residents = FMath::Min(UGameplayStatics::GetIntOption(OptionsString, TEXT("Bots"), 0), GetRoundConfig()->MaxResidentsWithBots);
+	return FMath::Clamp(Residents - NumHumans, 0, 8 - NumHumans);
+}
+
+void AObshagaGameMode::SyncBots()
+{
+	Bots.RemoveAll([](const TObjectPtr<AObshagaBotController>& Bot) { return !IsValid(Bot); });
+	int32 NumHumans = 0;
+	for (FConstPlayerControllerIterator It = GetWorld()->GetPlayerControllerIterator(); It; ++It)
+	{
+		NumHumans += It->Get() && It->Get()->GetPlayerState<AObshagaPlayerState>() ? 1 : 0;
+	}
+	const int32 Wanted = GetWantedBots(NumHumans);
+
+	// Людей стало больше — лишние боты уходят (с последнего).
+	while (Bots.Num() > Wanted)
+	{
+		AObshagaBotController* Bot = Bots.Pop();
+		if (APawn* Pawn = Bot->GetPawn())
+		{
+			Bot->UnPossess();
+			Pawn->Destroy();
+		}
+		UE_LOG(LogObshaga, Log, TEXT("Bot %s removed"), *GetNameSafe(Bot->GetPlayerState<APlayerState>()));
+		Bot->Destroy();
+	}
+
+	// Не хватает — добираем. Карточку игрока движок создаёт боту сам (bWantsPlayerState), персонаж появится
+	// вместе со всеми в ResetWorldForRematch.
+	while (Bots.Num() < Wanted)
+	{
+		FActorSpawnParameters Params;
+		Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+		AObshagaBotController* Bot = GetWorld()->SpawnActor<AObshagaBotController>(Params);
+		AObshagaPlayerState* BotState = Bot ? Bot->GetPlayerState<AObshagaPlayerState>() : nullptr;
+		if (!BotState)
+		{
+			UE_LOG(LogObshaga, Warning, TEXT("Bot could not be created"));
+			if (Bot)
+			{
+				Bot->Destroy();
+			}
+			break;
+		}
+		BotState->SetLookSlot(PickFreeLookSlot(BotState));
+		FString Name = ObshagaStory::ResidentName(BotState->GetLookSlot());
+		for (const AObshagaPlayerState* Other : GetObshagaPlayers())
+		{
+			if (Other != BotState && Other->GetPlayerName() == Name)
+			{
+				Name += FString::Printf(TEXT(" %d"), NextPlayerNumber);
+				break;
+			}
+		}
+		++NextPlayerNumber;
+		BotState->SetPlayerName(Name);
+		Bots.Add(Bot);
+		UE_LOG(LogObshaga, Log, TEXT("Bot %s joined (look %d)"), *Name, BotState->GetLookSlot());
 	}
 }
 
@@ -358,9 +437,10 @@ AActor* AObshagaGameMode::ChoosePlayerStart_Implementation(AController* Player)
 	// у соседей по комнате не получится ни подставить друг друга, ни настучать.
 	TSet<const AActor*> Taken;
 	TMap<FName, int32> Residents;
-	for (FConstPlayerControllerIterator It = GetWorld()->GetPlayerControllerIterator(); It; ++It)
+	// Все жильцы, и люди, и боты (у Палыча своей точки появления нет).
+	for (FConstControllerIterator It = GetWorld()->GetControllerIterator(); It; ++It)
 	{
-		const APlayerController* Other = It->Get();
+		const AController* Other = It->Get();
 		const AActor* Spot = (Other && Other != Player) ? Other->StartSpot.Get() : nullptr;
 		if (!Spot)
 		{
@@ -423,7 +503,7 @@ void AObshagaGameMode::BreakDeviceByItself()
 	}
 }
 
-void AObshagaGameMode::AssignHomeRoom(APlayerController* Controller)
+void AObshagaGameMode::AssignHomeRoom(AController* Controller)
 {
 	// Комната, в которой игрок появился, становится его домашней.
 	AObshagaPlayerState* PlayerState = Controller ? Controller->GetPlayerState<AObshagaPlayerState>() : nullptr;
@@ -581,6 +661,7 @@ void AObshagaGameMode::StartRound()
 
 	ForgetDisconnected();
 	PrepareNight();
+	SyncBots();
 
 	// Каждый раунд, и первый тоже, начинается с чистого мира: то, что натворили в лобби, не считается.
 	ResetWorldForRematch();
@@ -667,6 +748,13 @@ void AObshagaGameMode::StartRound()
 	for (TActorIterator<AKomendantAIController> It(GetWorld()); It; ++It)
 	{
 		It->ResetForRound();
+	}
+	for (AObshagaBotController* Bot : Bots)
+	{
+		if (IsValid(Bot))
+		{
+			Bot->ResetForRound();
+		}
 	}
 
 	State->StartRound(Config->AlibiRadius, Config->AccuseDistance);
@@ -1493,6 +1581,7 @@ void AObshagaGameMode::EndRound()
 		Revealed.Strikes = PlayerState->GetSuspicionComponent()->GetStrikes();
 		Revealed.bEvicted = PlayerState->IsEvicted();
 		Revealed.WeekScore = PlayerState->GetWeekScore();
+		Revealed.bBot = PlayerState->IsABot();
 		Revealed.WeekStrikes = PlayerState->GetWeekStrikes();
 	}
 	AssignTitles(RevealedPlayers, Players);
@@ -2144,6 +2233,7 @@ void AObshagaGameMode::WriteTelemetry(const TArray<AObshagaPlayerState*>& Player
 		PlayerJson->SetNumberField(TEXT("score"), FMath::RoundToInt32(PlayerState->GetScore()));
 		PlayerJson->SetNumberField(TEXT("strikes"), PlayerState->GetSuspicionComponent()->GetStrikes());
 		PlayerJson->SetBoolField(TEXT("evicted"), PlayerState->IsEvicted());
+		PlayerJson->SetBoolField(TEXT("bot"), PlayerState->IsABot());
 
 		TArray<TSharedPtr<FJsonValue>> TasksJson;
 		for (const FTaskState& Task : PlayerState->GetTaskComponent()->GetTasks())
@@ -2234,20 +2324,18 @@ void AObshagaGameMode::ResetWorldForRematch()
 
 	// Все игроки появляются заново и заново расселяются по комнатам: сначала все точки появления
 	// освобождаются, потом каждому выбирается новая (ChoosePlayerStart смотрит, какие уже заняты).
-	for (FConstPlayerControllerIterator It = World->GetPlayerControllerIterator(); It; ++It)
+	// Жильцы — люди и боты (у них есть карточка игрока); Палыча это не касается.
+	TArray<AController*> Residents;
+	for (FConstControllerIterator It = World->GetControllerIterator(); It; ++It)
 	{
-		if (APlayerController* Controller = It->Get())
+		if (AController* Controller = It->Get(); Controller && Controller->GetPlayerState<AObshagaPlayerState>())
 		{
 			Controller->StartSpot = nullptr;
+			Residents.Add(Controller);
 		}
 	}
-	for (FConstPlayerControllerIterator It = World->GetPlayerControllerIterator(); It; ++It)
+	for (AController* Controller : Residents)
 	{
-		APlayerController* Controller = It->Get();
-		if (!Controller)
-		{
-			continue;
-		}
 		if (APawn* Pawn = Controller->GetPawn())
 		{
 			Controller->UnPossess();

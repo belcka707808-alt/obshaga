@@ -428,6 +428,29 @@ void AObshagaPlayerController::ServerDebug_Implementation(uint8 What)
 	{
 		return;
 	}
+	if (What == 3)
+	{
+		// Палыч гонится за ближайшим ботом.
+		AObshagaCharacter* Nearest = nullptr;
+		for (TActorIterator<AObshagaCharacter> It(GetWorld()); It; ++It)
+		{
+			const APlayerState* Other = It->GetPlayerState();
+			if (Other && Other->IsABot() && !It->IsGhost() && (!Nearest || FVector::Dist(It->GetActorLocation(), Me->GetActorLocation()) < FVector::Dist(Nearest->GetActorLocation(), Me->GetActorLocation())))
+			{
+				Nearest = *It;
+			}
+		}
+		for (TActorIterator<AKomendantCharacter> It(GetWorld()); It && Nearest; ++It)
+		{
+			It->SetActorLocation(Nearest->GetActorLocation() + Nearest->GetActorForwardVector() * 120.f, false, nullptr, ETeleportType::TeleportPhysics);
+			if (AKomendantAIController* Brain = Cast<AKomendantAIController>(It->GetController()))
+			{
+				Brain->DebugChase(Nearest);
+			}
+			break;
+		}
+		return;
+	}
 	if (What == 0)
 	{
 		// Комендант встаёт перед игроком и начинает обычный допрос.
@@ -646,9 +669,26 @@ bool AObshagaPlayerController::InputKey(const FInputKeyEventArgs& Params)
 
 #if !UE_BUILD_SHIPPING
 	// Проверочные клавиши: K — комендант сразу ловит меня, L — тяжёлый предмет мне в руки.
-	if (Params.Event == IE_Pressed && (Params.Key == EKeys::K || Params.Key == EKeys::L || Params.Key == EKeys::N) && FParse::Param(FCommandLine::Get(), TEXT("ObshagaDebugKeys")))
+	if (Params.Event == IE_Pressed && (Params.Key == EKeys::K || Params.Key == EKeys::L || Params.Key == EKeys::N || Params.Key == EKeys::U) && FParse::Param(FCommandLine::Get(), TEXT("ObshagaDebugKeys")))
 	{
-		ServerDebug(Params.Key == EKeys::K ? 0 : (Params.Key == EKeys::L ? 1 : 2));
+		ServerDebug(Params.Key == EKeys::K ? 0 : (Params.Key == EKeys::L ? 1 : (Params.Key == EKeys::N ? 2 : 3)));
+		return true;
+	}
+	// J — смотреть по очереди на других жильцов (ботов), ещё раз после последнего — снова на себя.
+	if (Params.Event == IE_Pressed && Params.Key == EKeys::J && FParse::Param(FCommandLine::Get(), TEXT("ObshagaDebugKeys")))
+	{
+		TArray<AActor*> Others;
+		for (TActorIterator<AObshagaCharacter> It(GetWorld()); It; ++It)
+		{
+			if (*It != GetPawn())
+			{
+				Others.Add(*It);
+			}
+		}
+		const int32 Current = Others.IndexOfByKey(GetViewTarget());
+		AActor* Next = Others.IsValidIndex(Current + 1) ? Others[Current + 1] : GetPawn();
+		SetViewTarget(Next);
+		UE_LOG(LogObshaga, Log, TEXT("Debug view: %s"), Next && Cast<APawn>(Next) && Cast<APawn>(Next)->GetPlayerState() ? *Cast<APawn>(Next)->GetPlayerState()->GetPlayerName() : TEXT("self"));
 		return true;
 	}
 #endif

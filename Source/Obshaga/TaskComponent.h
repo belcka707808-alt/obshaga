@@ -23,6 +23,8 @@ public:
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
 	const TArray<FTaskState>& GetTasks() const { return Tasks; }
+	/** Сервер: условия заданий (по индексам совпадают с GetTasks). Нужны мозгу бота. */
+	const TArray<FTaskRow>& GetRows() const { return Rows; }
 
 	/** Умеет ли сервер уже проверять такое условие. Нереализованные задания не раздаются. */
 	static bool IsConditionImplemented(ETaskCondition Condition);

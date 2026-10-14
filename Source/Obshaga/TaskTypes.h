@@ -172,6 +172,10 @@ struct FRevealedPlayer
 
 	UPROPERTY(BlueprintReadOnly)
 	int32 WeekStrikes = 0;
+
+	/** Жилец-бот (в итогах у имени пометка). */
+	UPROPERTY(BlueprintReadOnly)
+	bool bBot = false;
 };
 
 /** Строка экрана итогов: чьё задание и чем кончилось. Раскрывается всем после раунда. */

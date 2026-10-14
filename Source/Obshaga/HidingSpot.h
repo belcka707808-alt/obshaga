@@ -36,6 +36,9 @@ public:
 	AItemActor* GetHiddenItem() const { return HiddenItem; }
 	/** Сервер: игрок, который сидит внутри. */
 	AObshagaCharacter* GetHiddenPlayer() const { return HiddenPlayer; }
+	/** Можно ли спрятаться внутри самому (шкаф, кабинка) и занят ли тайник чьим-то действием прямо сейчас. */
+	bool CanHidePlayer() const { return bCanHidePlayer; }
+	bool IsBusy() const { return bBusy; }
 
 	/**
 	 * Сервер: тайник обыскивает комендант. Спрятавшегося игрока выгоняет наружу (OutFoundPlayer),

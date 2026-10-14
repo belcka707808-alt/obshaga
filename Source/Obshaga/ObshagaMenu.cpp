@@ -167,6 +167,12 @@ bool AObshagaMenuController::HandleMenuKey(const FKey& Key)
 			bSettings = true;
 			return true;
 		}
+		if (Key == EKeys::Four || Key == EKeys::NumPadFour)
+		{
+			// Сколько жильцов добирать ботами — для игры одному или вдвоём.
+			Rooms->CycleBots();
+			return true;
+		}
 		if (Key == EKeys::One || Key == EKeys::NumPadOne)
 		{
 			Rooms->CreateRoom();
@@ -314,7 +320,8 @@ void AObshagaMenuHUD::DrawHUD()
 			DrawLine(LOCTEXT("ItemCreate", "[1] Создать комнату").ToString(), FLinearColor::White, 0.38f, 1.3f);
 			DrawLine(LOCTEXT("ItemJoin", "[2] Войти по коду").ToString(), FLinearColor::White, 0.46f, 1.3f);
 			DrawLine(LOCTEXT("ItemSettings", "[3] Настройки").ToString(), FLinearColor::White, 0.54f, 1.3f);
-			DrawLine(LOCTEXT("ItemQuit", "[Esc] Выход").ToString(), FLinearColor::White, 0.62f, 1.3f);
+			DrawLine(Rooms->DescribeBots().ToString(), FLinearColor::White, 0.62f, 1.3f);
+			DrawLine(LOCTEXT("ItemQuit", "[Esc] Выход").ToString(), FLinearColor::White, 0.70f, 1.3f);
 		}
 		break;
 	}

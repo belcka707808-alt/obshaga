@@ -51,6 +51,13 @@ public:
 	const FText& GetMessage() const { return Message; }
 	void SetMessage(const FText& Text) { Message = Text; }
 
+	/** Сколько всего жильцов добирать ботами в новой комнате: 0 (без ботов), 4 или 6. */
+	int32 GetBotResidents() const { return BotResidents; }
+	/** Следующий вариант: 0 → 4 → 6 → 0. */
+	void CycleBots() { BotResidents = BotResidents == 0 ? 4 : (BotResidents == 4 ? 6 : 0); }
+	/** «Боты: до 4» — строка для меню. */
+	FText DescribeBots() const;
+
 	/** true — работает Steam (имена берём из него); false — запасной путь по локальной сети. */
 	bool IsSteam() const;
 	/** Имя игрока для показа другим: из командной строки (-PlayerName=), иначе из Steam, иначе пусто. */
@@ -62,6 +69,7 @@ public:
 	static bool IsCodeChar(TCHAR Char);
 	static constexpr int32 CodeLength = 5;
 	static constexpr int32 MaxPlayers = 8;
+	int32 BotResidents = 4;
 
 private:
 	IOnlineSessionPtr GetSessions() const;
