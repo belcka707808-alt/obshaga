@@ -48,6 +48,8 @@ namespace
 	constexpr float DoorwayHalfDepth = 60.f;
 	// Перемычку над дверью красим, только если она выше этого.
 	constexpr float MinLintelHeight = 15.f;
+	// Зона выше этого занимает два этажа (лестница): стены красятся и на верхнем этаже.
+	constexpr float TwoStoreyHeight = 450.f;
 	constexpr float FloorProbeUp = 120.f;
 	constexpr float FloorProbeDown = 60.f;
 
@@ -63,6 +65,8 @@ namespace
 		float DoorTop = 0.f;
 		/** Кусок попал в проём двери. */
 		bool bDoor = false;
+		/** Стена есть только под частью куска (узкий простенок, край проёма без двери): покрашена эта часть, украшения сюда не вешаются. */
+		bool bPartial = false;
 		/** На сколько кусок краски удлинён к соседней стене (угол, колонна), чтобы у неё не оставалось голой щели: [низ/верх][назад/вперёд вдоль стены]. */
 		float Extend[2][2] = { { 0.f, 0.f }, { 0.f, 0.f } };
 	};
@@ -437,7 +441,58 @@ void ARoomVolume::Decorate(const FRoomStyle& Style, int32 Ordinal)
 			}
 		}
 	}
-	UE_LOG(LogObshaga, Log, TEXT("Decor %s: %d doors, %d paint pieces cut from doorways, %d lintel pieces, %d pieces stretched to a corner"), *RoomId.ToString(), Doorways.Num(), NumDoorCuts, NumLintels, NumExtended);
+	// Узкие простенки и края проёмов без дверей: под целым куском стены нет, но под его частью есть.
+	// Щупаем стену в пяти точках поперёк куска и красим самый длинный сплошной участок.
+	int32 NumPartial = 0;
+	for (FWallSide& Side : Sides)
+	{
+		const float Offset = (Side.Length - Side.Slots.Num() * Step) * 0.5f;
+		for (int32 Index = 0; Index < Side.Slots.Num(); ++Index)
+		{
+			FWallSlot& Slot = Side.Slots[Index];
+			if (Slot.bDoor)
+			{
+				continue;
+			}
+			const FVector OnBorder = Side.Origin + Side.Tangent * (Offset + (Index + 0.5f) * Step);
+			for (int32 Band = 0; Band < 2; ++Band)
+			{
+				if (Band == 0 ? Slot.bLow : Slot.bHigh)
+				{
+					continue;
+				}
+				const FVector Up(0.f, 0.f, Band == 0 ? LowZ : HighZ);
+				int32 BestFirst = INDEX_NONE;
+				int32 BestCount = 0;
+				int32 RunFirst = INDEX_NONE;
+				FVector Points[5];
+				for (int32 Sample = 0; Sample < 5; ++Sample)
+				{
+					const FVector Shift = Side.Tangent * ((Sample - 2) * 0.2f * Step);
+					const bool bHit = TraceWall(World, OnBorder + Side.Normal * WallTraceInset + Up + Shift, OnBorder - Side.Normal * WallTraceReach + Up + Shift, Side.Normal, Points[Sample]);
+					RunFirst = bHit ? (RunFirst == INDEX_NONE ? Sample : RunFirst) : INDEX_NONE;
+					if (bHit && Sample - RunFirst + 1 > BestCount)
+					{
+						BestFirst = RunFirst;
+						BestCount = Sample - RunFirst + 1;
+					}
+				}
+				if (BestCount < 2)
+				{
+					continue;
+				}
+				// Точка стены — как у целого куска, по его середине; лишнее с краёв срезается отрицательным «удлинением».
+				const FVector OnWall = Points[BestFirst] - Side.Tangent * ((BestFirst - 2) * 0.2f * Step);
+				(Band == 0 ? Slot.LowPoint : Slot.HighPoint) = OnWall;
+				(Band == 0 ? Slot.bLow : Slot.bHigh) = true;
+				Slot.bPartial = true;
+				Slot.Extend[Band][0] = -BestFirst * 0.2f * Step;
+				Slot.Extend[Band][1] = -(5 - BestFirst - BestCount) * 0.2f * Step;
+				++NumPartial;
+			}
+		}
+	}
+	UE_LOG(LogObshaga, Log, TEXT("Decor %s: %d doors, %d paint pieces cut from doorways, %d lintel pieces, %d pieces stretched to a corner, %d narrow pieces"), *RoomId.ToString(), Doorways.Num(), NumDoorCuts, NumLintels, NumExtended, NumPartial);
 
 	// 2. Краска: низ цветной, верх «побелка». Все куски одного цвета — один компонент, рисуется за один проход.
 	UStaticMesh* CubeMesh = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cube.Cube"));
@@ -489,6 +544,41 @@ void ARoomVolume::Decorate(const FRoomStyle& Style, int32 Ordinal)
 					HighSheet->AddInstance(FTransform(Rotation, Location, FVector(PaintThickness / 100.f, Step / 100.f, LintelHeight / 100.f)), true);
 				}
 			}
+		}
+
+		// Лестничная зона занимает два этажа: те же две полосы краски и на верхнем (украшений там нет).
+		if (Size.Z > TwoStoreyHeight)
+		{
+			const float UpperFloor = Bounds.Max.Z - MaxWallHeight;
+			int32 NumUpper = 0;
+			for (const FWallSide& Side : Sides)
+			{
+				const FRotator Rotation = Side.Normal.Rotation();
+				const float Offset = (Side.Length - Side.Slots.Num() * Step) * 0.5f;
+				for (int32 Index = 0; Index < Side.Slots.Num(); ++Index)
+				{
+					const FVector OnBorder = FVector(Side.Origin.X, Side.Origin.Y, UpperFloor) + Side.Tangent * (Offset + (Index + 0.5f) * Step);
+					const FVector Half = Side.Tangent * (Step * 0.5f);
+					for (int32 Band = 0; Band < 2; ++Band)
+					{
+						const FVector Up(0.f, 0.f, Band == 0 ? LowZ : HighZ);
+						const FVector Start = OnBorder + Side.Normal * WallTraceInset + Up;
+						const FVector End = OnBorder - Side.Normal * WallTraceReach + Up;
+						FVector Point;
+						FVector Edge;
+						if (!TraceWall(World, Start, End, Side.Normal, Point) || !TraceWall(World, Start - Half, End - Half, Side.Normal, Edge) || !TraceWall(World, Start + Half, End + Half, Side.Normal, Edge))
+						{
+							continue;
+						}
+						const float BandBottom = Band == 0 ? 0.f : Config->PaintHeight;
+						const float BandHeight = Band == 0 ? Config->PaintHeight : HighHeight;
+						const FVector Location(Point.X + Side.Normal.X * PaintThickness, Point.Y + Side.Normal.Y * PaintThickness, UpperFloor + BandBottom + BandHeight * 0.5f);
+						(Band == 0 ? LowSheet : HighSheet)->AddInstance(FTransform(Rotation, Location, FVector(PaintThickness / 100.f, Step / 100.f, BandHeight / 100.f)), true);
+						++NumUpper;
+					}
+				}
+			}
+			UE_LOG(LogObshaga, Log, TEXT("Decor %s: %d paint pieces on the upper storey"), *RoomId.ToString(), NumUpper);
 		}
 	}
 
@@ -628,7 +718,7 @@ void ARoomVolume::Decorate(const FRoomStyle& Style, int32 Ordinal)
 				bool bWallBehind = true;
 				for (int32 SlotIndex = Candidate.Value - Span; SlotIndex <= Candidate.Value + Span && bWallBehind; ++SlotIndex)
 				{
-					bWallBehind = bHigh ? Side.Slots[SlotIndex].bHigh : Side.Slots[SlotIndex].bLow;
+					bWallBehind = (bHigh ? Side.Slots[SlotIndex].bHigh : Side.Slots[SlotIndex].bLow) && !Side.Slots[SlotIndex].bPartial;
 				}
 				if (!bWallBehind)
 				{
@@ -728,7 +818,7 @@ void ARoomVolume::Decorate(const FRoomStyle& Style, int32 Ordinal)
 	{
 		for (int32 Index = SlotIndex - HalfSpan; Index <= SlotIndex + HalfSpan; ++Index)
 		{
-			if (!Side.Slots.IsValidIndex(Index) || !Side.Slots[Index].bHigh || !Side.Slots[Index].bLow)
+			if (!Side.Slots.IsValidIndex(Index) || !Side.Slots[Index].bHigh || !Side.Slots[Index].bLow || Side.Slots[Index].bPartial)
 			{
 				return false;
 			}
