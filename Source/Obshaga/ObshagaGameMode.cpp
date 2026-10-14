@@ -2100,17 +2100,18 @@ TArray<FText> AObshagaGameMode::BuildWeekTitles(const TArray<AObshagaPlayerState
 			Shadows += (Shadows.IsEmpty() ? TEXT("") : TEXT(", ")) + PlayerState->GetPlayerName();
 		}
 	}
-	if (Legend)
+	// Легенда — только с плюсом за неделю: «легенда с минус двадцатью» звучит как издёвка.
+	if (Legend && Legend->GetWeekScore() > 0)
 	{
-		Titles.Add(FText::Format(LOCTEXT("WeekLegend", "Легенда общаги №7 — {0}: {1} очков за неделю"), FText::FromString(Legend->GetPlayerName()), FText::AsNumber(Legend->GetWeekScore())));
+		Titles.Add(FText::Format(ObshagaStory::WeekTitleFormat(0), FText::FromString(Legend->GetPlayerName()), FText::AsNumber(Legend->GetWeekScore())));
 	}
 	if (Regular)
 	{
-		Titles.Add(FText::Format(LOCTEXT("WeekRegular", "Постоянный клиент Палыча — {0}: пойман {1} раз(а) за неделю"), FText::FromString(Regular->GetPlayerName()), FText::AsNumber(Regular->GetWeekStrikes())));
+		Titles.Add(FText::Format(ObshagaStory::WeekTitleFormat(1), FText::FromString(Regular->GetPlayerName()), FText::AsNumber(Regular->GetWeekStrikes())));
 	}
 	if (!Shadows.IsEmpty())
 	{
-		Titles.Add(FText::Format(LOCTEXT("WeekShadow", "Тень — {0}: ни разу не попался за всю неделю"), FText::FromString(Shadows)));
+		Titles.Add(FText::Format(ObshagaStory::WeekTitleFormat(2), FText::FromString(Shadows)));
 	}
 	return Titles;
 }

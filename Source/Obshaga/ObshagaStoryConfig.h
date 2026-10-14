@@ -97,4 +97,11 @@ public:
 	/** Пять ночей недели, с понедельника по пятницу. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Story")
 	TArray<FWeekNightInfo> WeekNights;
+
+	/**
+	 * Титулы недели в пятничной газете: «легенда» (больше всех очков), «постоянный клиент» (больше всех страйков),
+	 * «тень» (ни разу не пойман). {0} — имя (у «тени» — список имён), {1} — число очков или страйков.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Story")
+	TArray<FText> WeekTitles;
 };

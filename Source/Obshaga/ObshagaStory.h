@@ -66,6 +66,10 @@ namespace ObshagaStory
 	/** Ночь недели из DA_Story (или из кода, если в ассете её нет). */
 	OBSHAGA_API FWeekNightInfo WeekNight(int32 Night);
 	OBSHAGA_API FWeekNightInfo DefaultWeekNight(int32 Night);
+	/** Шаблон титула недели: 0 — легенда, 1 — постоянный клиент, 2 — тень. */
+	constexpr int32 NumWeekTitles = 3;
+	OBSHAGA_API FText WeekTitleFormat(int32 Index);
+	OBSHAGA_API FText DefaultWeekTitleFormat(int32 Index);
 
 	/** Заголовок стенгазеты по итогам раунда. */
 	OBSHAGA_API FText Headline(const FString& EvictedName, const FString& CaughtName, int32 TotalStrikes);

@@ -230,6 +230,12 @@ void UObshagaStoryConfig::FillFromDefaults()
 	{
 		WeekNights.Add(ObshagaStory::DefaultWeekNight(Night));
 	}
+
+	WeekTitles.Reset();
+	for (int32 Index = 0; Index < ObshagaStory::NumWeekTitles; ++Index)
+	{
+		WeekTitles.Add(ObshagaStory::DefaultWeekTitleFormat(Index));
+	}
 	MarkPackageDirty();
 }
 
@@ -325,6 +331,21 @@ FWeekNightInfo ObshagaStory::DefaultWeekNight(int32 Night)
 		break;
 	}
 	return Info;
+}
+
+FText ObshagaStory::DefaultWeekTitleFormat(int32 Index)
+{
+	static const FText Formats[NumWeekTitles] = {
+		LOCTEXT("WeekLegend", "Легенда общаги №7 — {0}: {1} очков за неделю"),
+		LOCTEXT("WeekRegular", "Постоянный клиент Палыча — {0}: попадался {1} раз(а) за неделю"),
+		LOCTEXT("WeekShadow", "Тень — {0}: ни разу не попался за всю неделю") };
+	return Formats[FMath::Clamp(Index, 0, NumWeekTitles - 1)];
+}
+
+FText ObshagaStory::WeekTitleFormat(int32 Index)
+{
+	const UObshagaStoryConfig* Config = UObshagaStoryConfig::Get();
+	return Config && Config->WeekTitles.IsValidIndex(Index) && !Config->WeekTitles[Index].IsEmpty() ? Config->WeekTitles[Index] : DefaultWeekTitleFormat(Index);
 }
 
 FWeekNightInfo ObshagaStory::WeekNight(int32 Night)
