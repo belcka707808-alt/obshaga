@@ -37,6 +37,8 @@ private:
 	static bool IsFeasible(const AObshagaPlayerState* PlayerState, const FTaskRow& Row, ERoundPhase CurrentPhase);
 
 	TArray<FName> DealtMainIds;
+	/** Все задания, выданные в этом раунде (и основные, и побочные). */
+	TArray<FName> DealtAllIds;
 	int32 NumDealt = 0;
 
 public:

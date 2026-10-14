@@ -1449,16 +1449,13 @@ void AObshagaGameMode::ResolveInterrogation()
 	}
 	GetWorldTimerManager().ClearTimer(InterrogationTimer);
 
-	// Краденое, с которым поймали, Палыч уносит туда, откуда его взяли (если его никто уже не подобрал).
-	if (AItemActor* Item = ItemToReturn.Get(); Item && Item->GetItemState() == EItemState::World)
+	// Краденое, с которым поймали, Палыч через пару секунд уносит туда, откуда его взяли
+	// (не сразу: иначе сообщение о возврате перебивало пойманному итог допроса).
+	if (ItemToReturn.IsValid())
 	{
-		Item->ResetToInitial();
-		const ARoomVolume* Home = ARoomVolume::FindRoomById(this, Item->GetHomeRoomId());
-		UGameEventSubsystem::PublishFrom(InterrogatedCharacter.Get(), EGameEventType::ItemReturned, Item);
-		NotifyAll(FText::Format(LOCTEXT("ItemReturned", "Палыч отнёс на место: {0} ({1})"), Item->GetDisplayName(), Home ? Home->DisplayName : FText::GetEmpty()));
-		UE_LOG(LogObshaga, Verbose, TEXT("Komendant returned %s to %s"), *Item->GetName(), *Item->GetHomeRoomId().ToString());
+		ReturnThief = InterrogatedCharacter;
+		GetWorldTimerManager().SetTimer(ReturnTimer, this, &AObshagaGameMode::ReturnStolenItem, 3.f, false);
 	}
-	ItemToReturn.Reset();
 
 	const UObshagaRoundConfig* Config = GetRoundConfig();
 	AObshagaPlayerState* PlayerState = Cast<AObshagaPlayerState>(Info.Suspect);
@@ -1574,6 +1571,7 @@ void AObshagaGameMode::EndRound()
 	GetWorldTimerManager().ClearTimer(PhaseTimer);
 	GetWorldTimerManager().ClearTimer(LiveStatusTimer);
 	GetWorldTimerManager().ClearTimer(FpsTimer);
+	GetWorldTimerManager().ClearTimer(ReturnTimer);
 	GetWorldTimerManager().ClearTimer(SmsTimer);
 	GetWorldTimerManager().ClearTimer(SelfBreakTimer);
 	GetWorldTimerManager().ClearTimer(NightEventTimer);
@@ -2151,7 +2149,7 @@ TArray<FText> AObshagaGameMode::BuildChronicle() const
 					LOCTEXT("ChrBrokeItself2", "{0}: техника не выдержала и ушла на покой") }), RoomName);
 			break;
 		case EGameEventType::ItemReturned:
-			Line.Priority = 4;
+			Line.Priority = 5;
 			Line.Text = FText::Format(Pick({
 				LOCTEXT("ChrReturned1", "Палыч лично отнёс на место: {1}. Унёс было {0}"),
 				LOCTEXT("ChrReturned2", "{1} вернулся домой на руках у Палыча. {0} проводил его взглядом") }), Who, ItemName);
@@ -2210,6 +2208,23 @@ void AObshagaGameMode::SampleFps()
 		FpsSum += Fps;
 		++FpsSamples;
 	}
+}
+
+void AObshagaGameMode::ReturnStolenItem()
+{
+	AItemActor* Item = ItemToReturn.Get();
+	ItemToReturn.Reset();
+	const AObshagaGameState* State = GetGameState<AObshagaGameState>();
+	// Если вещь уже подобрали или раунд кончился — возвращать нечего.
+	if (!Item || Item->GetItemState() != EItemState::World || !State || State->GetRoundState() != ERoundState::InProgress)
+	{
+		return;
+	}
+	Item->ResetToInitial();
+	const ARoomVolume* Home = ARoomVolume::FindRoomById(this, Item->GetHomeRoomId());
+	UGameEventSubsystem::PublishFrom(ReturnThief.Get(), EGameEventType::ItemReturned, Item);
+	NotifyAll(FText::Format(LOCTEXT("ItemReturned", "Палыч отнёс на место: {0} ({1})"), Item->GetDisplayName(), Home ? Home->DisplayName : FText::GetEmpty()));
+	UE_LOG(LogObshaga, Verbose, TEXT("Komendant returned %s to %s"), *Item->GetName(), *Item->GetHomeRoomId().ToString());
 }
 
 TArray<FText> AObshagaGameMode::BuildWeekTitles(const TArray<AObshagaPlayerState*>& Players) const

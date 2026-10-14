@@ -158,6 +158,10 @@ private:
 	TWeakObjectPtr<AObshagaCharacter> InterrogatedCharacter;
 	/** Краденое, с которым поймали: после допроса Палыч возвращает его на место. */
 	TWeakObjectPtr<class AItemActor> ItemToReturn;
+	TWeakObjectPtr<AObshagaCharacter> ReturnThief;
+	FTimerHandle ReturnTimer;
+	/** Палыч «донёс» краденое: предмет снова на своём месте, все узнают об этом. */
+	void ReturnStolenItem();
 	TArray<TWeakObjectPtr<AObshagaCharacter>> AlibiBy;
 	bool bSuspectHadContraband = false;
 

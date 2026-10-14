@@ -21,6 +21,7 @@ void UTaskDirector::Initialize(UDataTable* InTasksTable)
 void UTaskDirector::Reset()
 {
 	DealtMainIds.Reset();
+	DealtAllIds.Reset();
 	NumDealt = 0;
 }
 
@@ -134,8 +135,10 @@ void UTaskDirector::AssignTasksTo(AObshagaPlayerState* PlayerState, int32 NumPla
 	{
 		return DealtMainIds.ContainsByPredicate([this, Id](const FName& Other) { return AreInConflict(Id, Other); });
 	};
-	const TArray<FName> FreshConflicting = Mains.FilterByPredicate([&](const FName& Id) { return !DealtMainIds.Contains(Id) && ConflictsWithDealt(Id); });
-	TArray<FName> Fresh = Mains.FilterByPredicate([this](const FName& Id) { return !DealtMainIds.Contains(Id); });
+	// Одно задание — один жилец за раунд, пока хватает разных: двое воров одного телевизора или двое чинящих
+	// одну плиту мешали друг другу больше, чем противнику, и задание-противник проигрывало всегда.
+	const TArray<FName> FreshConflicting = Mains.FilterByPredicate([&](const FName& Id) { return !DealtAllIds.Contains(Id) && ConflictsWithDealt(Id); });
+	TArray<FName> Fresh = Mains.FilterByPredicate([this](const FName& Id) { return !DealtAllIds.Contains(Id); });
 	if (DealtMainIds.IsEmpty())
 	{
 		// Первому игроку — задание, у которого вообще есть противник, чтобы второму досталась конфликтующая пара.
@@ -161,17 +164,21 @@ void UTaskDirector::AssignTasksTo(AObshagaPlayerState* PlayerState, int32 NumPla
 
 	PlayerState->GetTaskComponent()->AssignTask(MainId, *FindRow(MainId), true);
 	DealtMainIds.Add(MainId);
+	DealtAllIds.Add(MainId);
 
 	// Побочное: любое другое, которое не противоречит собственному основному.
 	// Обвинить можно один раз за раунд, поэтому двух заданий «покажи коменданту на…» у одного игрока не бывает.
 	const bool bMainAccuses = FindRow(MainId)->SuccessCondition == ETaskCondition::CorrectAccusation;
-	const TArray<FName> Sides = Candidates.FilterByPredicate([&](const FName& Id)
+	const TArray<FName> AllSides = Candidates.FilterByPredicate([&](const FName& Id)
 	{
 		return Id != MainId && !AreInConflict(Id, MainId) && !(bMainAccuses && FindRow(Id)->SuccessCondition == ETaskCondition::CorrectAccusation);
 	});
+	const TArray<FName> FreshSides = AllSides.FilterByPredicate([this](const FName& Id) { return !DealtAllIds.Contains(Id); });
+	const TArray<FName>& Sides = FreshSides.IsEmpty() ? AllSides : FreshSides;
 	if (!Sides.IsEmpty())
 	{
 		const FName SideId = Sides[FMath::RandRange(0, Sides.Num() - 1)];
 		PlayerState->GetTaskComponent()->AssignTask(SideId, *FindRow(SideId), false);
+		DealtAllIds.Add(SideId);
 	}
 }
