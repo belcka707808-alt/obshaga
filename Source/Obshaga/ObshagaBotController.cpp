@@ -23,25 +23,25 @@
 
 namespace
 {
-	constexpr float ThinkSeconds = 0.4f;
+	constexpr float BotThinkSeconds = 0.4f;
 	// Точка пути считается пройденной, если до неё ближе этого (по горизонтали) и примерно на той же высоте.
-	constexpr float PointArriveDistance = 70.f;
-	constexpr float SameFloorHeight = 150.f;
+	constexpr float BotPointArriveDistance = 70.f;
+	constexpr float BotSameFloorHeight = 150.f;
 	// Упёрся и не приближается к точке пути столько секунд — переносим на неё (как Палыча).
-	constexpr float StuckSeconds = 2.5f;
+	constexpr float BotStuckSeconds = 2.5f;
 	// Дольше этого идти к одной цели бессмысленно: значит, до неё не добраться, бот бросает её.
-	constexpr float GiveUpWalkSeconds = 25.f;
-	constexpr float GiveUpForgetSeconds = 20.f;
-	constexpr float DoorOpenDistance = 170.f;
+	constexpr float BotGiveUpWalkSeconds = 25.f;
+	constexpr float BotGiveUpForgetSeconds = 20.f;
+	constexpr float BotDoorOpenDistance = 170.f;
 	// Палыч ближе этого — из укрытия не вылезаем.
-	constexpr float StayHiddenDistance = 700.f;
+	constexpr float BotStayHiddenDistance = 700.f;
 	// Чем «осторожнее» задание (ни разу не попасться), тем раньше бот уходит от Палыча.
-	constexpr float CarefulFleeScale = 1.4f;
+	constexpr float BotCarefulFleeScale = 1.4f;
 	// Ответ на допросе — не мгновенно, а через столько секунд (случайно в пределах).
-	constexpr float AnswerMinSeconds = 1.5f;
-	constexpr float AnswerMaxSeconds = 4.f;
+	constexpr float BotAnswerMinSeconds = 1.5f;
+	constexpr float BotAnswerMaxSeconds = 4.f;
 	// Как часто бот при безделье машет рукой или говорит фразу.
-	constexpr float EmoteChance = 0.08f;
+	constexpr float BotEmoteChance = 0.08f;
 }
 
 AObshagaBotController::AObshagaBotController()
@@ -122,7 +122,7 @@ void AObshagaBotController::Tick(float DeltaSeconds)
 	ThinkTimer -= DeltaSeconds;
 	if (ThinkTimer <= 0.f)
 	{
-		ThinkTimer = ThinkSeconds;
+		ThinkTimer = BotThinkSeconds;
 		Think();
 	}
 	if (!Me || !IsValid(Me))
@@ -139,7 +139,7 @@ void AObshagaBotController::Tick(float DeltaSeconds)
 		{
 			// Путь по точкам пройден — последний отрезок до цели по прямой.
 			const FVector ToGoal = GoalLocation - Me->GetActorLocation();
-			if (ToGoal.Size2D() <= GoalRadius && FMath::Abs(ToGoal.Z) < SameFloorHeight)
+			if (ToGoal.Size2D() <= GoalRadius && FMath::Abs(ToGoal.Z) < BotSameFloorHeight)
 			{
 				Arrive();
 			}
@@ -147,7 +147,7 @@ void AObshagaBotController::Tick(float DeltaSeconds)
 			{
 				Me->AddMovementInput(FVector(ToGoal.X, ToGoal.Y, 0.f).GetSafeNormal());
 				NoProgressTime += DeltaSeconds;
-				if (NoProgressTime > StuckSeconds)
+				if (NoProgressTime > BotStuckSeconds)
 				{
 					// До самой цели не подойти (она за мебелью) — считаем, что дошёл, если рядом; иначе бросаем.
 					if (ToGoal.Size2D() < GoalRadius * 1.8f)
@@ -157,17 +157,17 @@ void AObshagaBotController::Tick(float DeltaSeconds)
 					else
 					{
 						GaveUpOn = TargetItem.IsValid() ? static_cast<AActor*>(TargetItem.Get()) : (TargetSpot.IsValid() ? static_cast<AActor*>(TargetSpot.Get()) : static_cast<AActor*>(TargetDevice.Get()));
-						GaveUpUntil = GetWorld()->GetTimeSeconds() + GiveUpForgetSeconds;
+						GaveUpUntil = GetWorld()->GetTimeSeconds() + BotGiveUpForgetSeconds;
 						SetState(EBotState::Idle);
 					}
 				}
 			}
 		}
-		if (WalkTime > GiveUpWalkSeconds && State == EBotState::Walk)
+		if (WalkTime > BotGiveUpWalkSeconds && State == EBotState::Walk)
 		{
 			UE_LOG(LogObshaga, Verbose, TEXT("Bot %s gave up walking to %s"), *GetNameSafe(GetMyState()), *GoalLocation.ToCompactString());
 			GaveUpOn = TargetItem.IsValid() ? static_cast<AActor*>(TargetItem.Get()) : static_cast<AActor*>(TargetSpot.Get());
-			GaveUpUntil = GetWorld()->GetTimeSeconds() + GiveUpForgetSeconds;
+			GaveUpUntil = GetWorld()->GetTimeSeconds() + BotGiveUpForgetSeconds;
 			SetState(EBotState::Idle);
 		}
 	}
@@ -243,7 +243,7 @@ void AObshagaBotController::Think()
 	case EBotState::Hidden:
 	{
 		// Сидит, пока не выйдет время и пока Палыч рядом.
-		const bool bDanger = Komendant && FVector::Dist(Komendant->GetActorLocation(), Me->GetActorLocation()) < StayHiddenDistance;
+		const bool bDanger = Komendant && FVector::Dist(Komendant->GetActorLocation(), Me->GetActorLocation()) < BotStayHiddenDistance;
 		if (!Me->IsHiding())
 		{
 			SetState(EBotState::Idle);
@@ -307,7 +307,7 @@ void AObshagaBotController::Think()
 		for (TActorIterator<AItemActor> It(GetWorld()); It; ++It)
 		{
 			if (It->GetItemData()->bReadable && It->GetItemState() == EItemState::World && !ReadNotes.Contains(*It)
-				&& FVector::Dist(It->GetActorLocation(), Me->GetActorLocation()) < 900.f && FMath::Abs(It->GetActorLocation().Z - Me->GetActorLocation().Z) < SameFloorHeight * 2.f)
+				&& FVector::Dist(It->GetActorLocation(), Me->GetActorLocation()) < 900.f && FMath::Abs(It->GetActorLocation().Z - Me->GetActorLocation().Z) < BotSameFloorHeight * 2.f)
 			{
 				ReadNotes.Add(*It);
 				TargetItem = *It;
@@ -347,7 +347,7 @@ void AObshagaBotController::HandleInterrogation()
 		}
 		if (AnswerAt < 0.f)
 		{
-			AnswerAt = Now + FMath::FRandRange(AnswerMinSeconds, AnswerMaxSeconds);
+			AnswerAt = Now + FMath::FRandRange(BotAnswerMinSeconds, BotAnswerMaxSeconds);
 			Path.Reset();
 			SetState(EBotState::Idle);
 		}
@@ -383,11 +383,11 @@ bool AObshagaBotController::TryFleeOrHide(const AKomendantCharacter* Komendant)
 	const UObshagaRoundConfig* Config = GetRoundConfig();
 	const AObshagaPlayerState* MyState = GetMyState();
 	const bool bCareful = MyState->GetTaskComponent()->FindRowByCondition(ETaskCondition::NeverSpottedWholeRound) != nullptr;
-	const float FleeDistance = Config->BotFleeDistance * (bCareful ? CarefulFleeScale : 1.f);
+	const float FleeDistance = Config->BotFleeDistance * (bCareful ? BotCarefulFleeScale : 1.f);
 	const FVector Here = Me->GetActorLocation();
 	const FVector KomendantAt = Komendant->GetActorLocation();
 	const float Distance = FVector::Dist(Here, KomendantAt);
-	if (Distance > FleeDistance || FMath::Abs(Here.Z - KomendantAt.Z) > SameFloorHeight * 2.f || !HasClearLine(Here, KomendantAt))
+	if (Distance > FleeDistance || FMath::Abs(Here.Z - KomendantAt.Z) > BotSameFloorHeight * 2.f || !HasClearLine(Here, KomendantAt))
 	{
 		return false;
 	}
@@ -418,7 +418,7 @@ bool AObshagaBotController::TryFleeOrHide(const AKomendantCharacter* Komendant)
 			const float SpotDistance = FVector::Dist(It->GetActorLocation(), Here);
 			// Тайник по ту сторону от Палыча не годится: бежать к нему — бежать навстречу.
 			if (SpotDistance < BestDistance && FVector::Dist(It->GetActorLocation(), KomendantAt) > Distance * 0.7f
-				&& FMath::Abs(It->GetActorLocation().Z - Here.Z) < SameFloorHeight)
+				&& FMath::Abs(It->GetActorLocation().Z - Here.Z) < BotSameFloorHeight)
 			{
 				BestDistance = SpotDistance;
 				Best = It.operator*();
@@ -441,7 +441,7 @@ bool AObshagaBotController::TryFleeOrHide(const AKomendantCharacter* Komendant)
 	{
 		const FVector At = Waypoint->GetActorLocation();
 		const float FromMe = FVector::Dist(At, Here);
-		if (FromMe > 1800.f || FMath::Abs(At.Z - Here.Z) > SameFloorHeight * 2.f)
+		if (FromMe > 1800.f || FMath::Abs(At.Z - Here.Z) > BotSameFloorHeight * 2.f)
 		{
 			continue;
 		}
@@ -641,7 +641,7 @@ void AObshagaBotController::PlanWander()
 			Candidates.Add(Waypoint);
 		}
 	}
-	if (FMath::FRand() < EmoteChance)
+	if (FMath::FRand() < BotEmoteChance)
 	{
 		Me->TryEmote(FMath::RandRange(0, 7));
 	}
@@ -898,7 +898,7 @@ AKomendantWaypoint* AObshagaBotController::FindNearestWaypoint(const FVector& Lo
 	{
 		const FVector Delta = Waypoint->GetActorLocation() - Location;
 		// Точка на другом этаже «далеко», даже прямо над головой; точка за стеной хуже видимой.
-		float Score = Delta.Size() + (FMath::Abs(Delta.Z) > SameFloorHeight ? 100000.f : 0.f);
+		float Score = Delta.Size() + (FMath::Abs(Delta.Z) > BotSameFloorHeight ? 100000.f : 0.f);
 		if (Score < BestScore && !HasClearLine(Waypoint->GetActorLocation(), Location))
 		{
 			Score += 10000.f;
@@ -989,7 +989,7 @@ bool AObshagaBotController::FollowPath(float DeltaSeconds)
 	}
 	const FVector Point = Path[PathIndex];
 	const FVector ToPoint = Point - Me->GetActorLocation();
-	if (ToPoint.Size2D() < PointArriveDistance && FMath::Abs(ToPoint.Z) < SameFloorHeight)
+	if (ToPoint.Size2D() < BotPointArriveDistance && FMath::Abs(ToPoint.Z) < BotSameFloorHeight)
 	{
 		++PathIndex;
 		PathBestDistance = TNumericLimits<float>::Max();
@@ -1008,7 +1008,7 @@ bool AObshagaBotController::FollowPath(float DeltaSeconds)
 	else
 	{
 		NoProgressTime += DeltaSeconds;
-		if (NoProgressTime > StuckSeconds)
+		if (NoProgressTime > BotStuckSeconds)
 		{
 			NoProgressTime = 0.f;
 			UE_LOG(LogObshaga, Verbose, TEXT("Bot %s stuck near %s, snapping to waypoint"), *GetNameSafe(GetMyState()), *Me->GetActorLocation().ToCompactString());
@@ -1023,7 +1023,7 @@ void AObshagaBotController::OpenDoorsNearby()
 	const FVector Location = Me->GetActorLocation();
 	for (TActorIterator<ADoorActor> It(GetWorld()); It; ++It)
 	{
-		if (!It->IsOpen() && FVector::Dist(It->GetDoorCenter(), Location) < DoorOpenDistance)
+		if (!It->IsOpen() && FVector::Dist(It->GetDoorCenter(), Location) < BotDoorOpenDistance)
 		{
 			It->OpenFor(Location);
 		}
