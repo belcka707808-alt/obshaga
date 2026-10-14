@@ -122,11 +122,16 @@ def main():
         print("  из них: " + ", ".join("%s — %d" % pair for pair in sorted(kinds.items(), key=lambda pair: -pair[1])))
 
     print()
-    print("Задания (выдано / выполнено / доля / награда):")
+    # Если в раундах есть боты, задания считаем по ним: человек в проверочном прогоне обычно стоит на месте,
+    # и его задания проваливаются не из-за баланса.
+    bots_only = any(p.get("bot") for p in players)
+    print("Задания (выдано / выполнено / доля / награда)%s:" % (" — только у ботов" if bots_only else ""))
     given = defaultdict(int)
     done = defaultdict(int)
     reward = {}
     for p in players:
+        if bots_only and not p.get("bot"):
+            continue
         for task in p.get("tasks", []):
             given[task["id"]] += 1
             done[task["id"]] += 1 if task.get("completed") else 0

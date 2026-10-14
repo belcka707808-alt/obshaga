@@ -159,6 +159,8 @@ private:
 	bool bCalledKomendant = false;
 	/** Чинящий бот видел сломанный прибор. */
 	bool bKnowsBroken = false;
+	/** Сколько страйков было у бота на прошлой проверке: так он узнаёт, что его поймали. */
+	int32 SeenStrikes = 0;
 	/** Сторож видит, что его предмет уносят, — зовёт Палыча к вору. */
 	void GuardWatch();
 	TWeakObjectPtr<APlayerState> AlibiDecidedFor;

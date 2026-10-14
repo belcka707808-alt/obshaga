@@ -19,6 +19,7 @@
 #include "ObshagaStory.h"
 #include "Components/CapsuleComponent.h"
 #include "RoomVolume.h"
+#include "SuspicionComponent.h"
 #include "TaskComponent.h"
 #include "TaskTypes.h"
 #include "EngineUtils.h"
@@ -39,7 +40,7 @@ namespace
 	// Палыч ближе этого — из укрытия не вылезаем.
 	constexpr float BotStayHiddenDistance = 700.f;
 	// Чем «осторожнее» задание (ни разу не попасться), тем раньше бот уходит от Палыча.
-	constexpr float BotCarefulFleeScale = 1.4f;
+	constexpr float BotCarefulFleeScale = 1.8f;
 	// Ответ на допросе — не мгновенно, а через столько секунд (случайно в пределах).
 	constexpr float BotAnswerMinSeconds = 1.5f;
 	constexpr float BotAnswerMaxSeconds = 4.f;
@@ -137,6 +138,7 @@ void AObshagaBotController::ResetForRound()
 	bFireAlarmGrumbled = false;
 	bCalledKomendant = false;
 	bKnowsBroken = false;
+	SeenStrikes = 0;
 	RoundStartTime = GetWorld()->GetTimeSeconds();
 	IdleUntil = GetWorld()->GetTimeSeconds() + FMath::FRandRange(1.f, 4.f);
 }
@@ -253,6 +255,18 @@ void AObshagaBotController::Think()
 	}
 
 	HandleInterrogation();
+	// Поймали — за то же дело сразу не берётся: пусть дело остынет (иначе вор нёс телевизор снова, едва отпустили).
+	const int32 Strikes = MyState->GetSuspicionComponent()->GetStrikes();
+	if (Strikes > SeenStrikes)
+	{
+		SeenStrikes = Strikes;
+		AActor* Last = TargetItem.IsValid() ? static_cast<AActor*>(TargetItem.Get()) : static_cast<AActor*>(TargetDevice.Get());
+		if (Last && Config->BotRetryAfterCaughtSeconds > 0.f)
+		{
+			GaveUpOn = Last;
+			GaveUpUntil = Now + Config->BotRetryAfterCaughtSeconds;
+		}
+	}
 	if (!bFireAlarmGrumbled && GameState->IsNightEventActive() && GameState->GetNightEvent() == ENightEvent::FireAlarm && FMath::FRand() < 0.15f)
 	{
 		bFireAlarmGrumbled = true;
@@ -286,7 +300,8 @@ void AObshagaBotController::Think()
 	case EBotState::Hidden:
 	{
 		// Сидит, пока не выйдет время и пока Палыч рядом.
-		const bool bDanger = Komendant && FVector::Dist(Komendant->GetActorLocation(), Me->GetActorLocation()) < BotStayHiddenDistance;
+		const bool bDanger = (Komendant && FVector::Dist(Komendant->GetActorLocation(), Me->GetActorLocation()) < BotStayHiddenDistance)
+			|| (GameState->GetPhase() == ERoundPhase::Morning && MyState->GetTaskComponent()->FindRowByCondition(ETaskCondition::NeverSpottedWholeRound));
 		if (!Me->IsHiding())
 		{
 			SetState(EBotState::Idle);
@@ -343,6 +358,17 @@ void AObshagaBotController::Think()
 	if (Now < IdleUntil)
 	{
 		return;
+	}
+	// «Не попадись на глаза»: утром Палыч обходит все комнаты — осторожный бот заранее прячется у себя в шкаф.
+	if (GameState->GetPhase() == ERoundPhase::Morning && MyState->GetTaskComponent()->FindRowByCondition(ETaskCondition::NeverSpottedWholeRound)
+		&& !Me->GetCarryComponent()->IsCarrying())
+	{
+		AHidingSpot* Spot = FindSpotInRoom(MyState->GetHomeRoomId(), true);
+		if (Spot && WalkTo(Spot->GetActorLocation(), EBotGoal::HideSelf, 160.f))
+		{
+			TargetSpot = Spot;
+			return;
+		}
 	}
 	// Записка рядом — любопытно, что там (без читателей задание «пустить слух» не выполнить никому).
 	if (!Me->GetCarryComponent()->IsCarrying())

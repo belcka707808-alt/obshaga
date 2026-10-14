@@ -281,6 +281,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bots", meta = (ClampMin = "0", Units = "s"))
 	float BotSabotageDelaySeconds = 0.f;
 
+	/** Пойманный бот столько секунд не берётся снова за то же дело (предмет, прибор), с которым его поймали. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bots", meta = (ClampMin = "0", Units = "s"))
+	float BotRetryAfterCaughtSeconds = 0.f;
+
 	/** Бот говорит реплику не чаще раза в столько секунд. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bots", meta = (ClampMin = "0", Units = "s"))
 	float BotLineCooldown = 20.f;
