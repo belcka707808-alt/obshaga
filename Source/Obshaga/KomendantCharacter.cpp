@@ -1,5 +1,7 @@
 #include "KomendantCharacter.h"
 
+#include "ObshagaStory.h"
+
 #include "KomendantAIController.h"
 #include "KomendantPersonality.h"
 
@@ -41,7 +43,7 @@ void AKomendantCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& 
 	DOREPLIFETIME(AKomendantCharacter, Alert);
 }
 
-const UKomendantPersonality* AKomendantCharacter::PickPersonality() const
+const UKomendantPersonality* AKomendantCharacter::PickPersonality(int32 Style) const
 {
 	TArray<const UKomendantPersonality*> Valid;
 	for (const UKomendantPersonality* Personality : Personalities)
@@ -50,6 +52,14 @@ const UKomendantPersonality* AKomendantCharacter::PickPersonality() const
 		{
 			Valid.Add(Personality);
 		}
+	}
+	const TArray<const UKomendantPersonality*> OfStyle = Valid.FilterByPredicate([Style](const UKomendantPersonality* Personality)
+	{
+		return ObshagaStory::StyleFromPersonalityName(Personality->GetName()) == Style;
+	});
+	if (Style >= 0 && !OfStyle.IsEmpty())
+	{
+		Valid = OfStyle;
 	}
 	return Valid.IsEmpty() ? GetDefault<UKomendantPersonality>() : Valid[FMath::RandRange(0, Valid.Num() - 1)];
 }

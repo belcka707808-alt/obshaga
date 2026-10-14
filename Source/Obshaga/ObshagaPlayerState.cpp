@@ -19,6 +19,8 @@ void AObshagaPlayerState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& 
 
 	DOREPLIFETIME(AObshagaPlayerState, HomeRoomId);
 	DOREPLIFETIME(AObshagaPlayerState, bEvicted);
+	DOREPLIFETIME(AObshagaPlayerState, WeekScore);
+	DOREPLIFETIME(AObshagaPlayerState, WeekStrikes);
 
 	// Секреты — только владельцу.
 	DOREPLIFETIME_CONDITION(AObshagaPlayerState, VisibleRole, COND_OwnerOnly);
@@ -38,6 +40,27 @@ void AObshagaPlayerState::SetTaskAbilities(bool bNewCanAccuse, bool bNewCanTipRo
 	{
 		bCanAccuse = bNewCanAccuse;
 		bCanTipRoom = bNewCanTipRoom;
+		ForceNetUpdate();
+	}
+}
+
+void AObshagaPlayerState::StartWeek()
+{
+	if (HasAuthority())
+	{
+		WeekStartScore = GetScore();
+		WeekScore = 0;
+		WeekStrikes = 0;
+		ForceNetUpdate();
+	}
+}
+
+void AObshagaPlayerState::AddNightToWeek(int32 NightStrikes)
+{
+	if (HasAuthority())
+	{
+		WeekScore = FMath::RoundToInt32(GetScore() - WeekStartScore);
+		WeekStrikes += NightStrikes;
 		ForceNetUpdate();
 	}
 }

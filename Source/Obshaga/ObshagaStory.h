@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "ObshagaStoryConfig.h"
 
 /** Когда комендант что-то говорит. */
 enum class EKomendantLine : uint8
@@ -56,6 +57,15 @@ namespace ObshagaStory
 	OBSHAGA_API FText DefaultKomendantLine(EKomendantLine Situation, int32 Style, int32 Variant);
 	OBSHAGA_API FText DefaultStoryTitle(int32 Index);
 	OBSHAGA_API FText DefaultStoryText(int32 Index);
+
+	/** «Неделя в общаге №7»: пять ночей, с понедельника (0) по пятницу (4). */
+	constexpr int32 NumWeekNights = 5;
+	/** «Понедельник»… и короткое «Пн»… */
+	OBSHAGA_API FText WeekdayName(int32 Night);
+	OBSHAGA_API FText WeekdayShort(int32 Night);
+	/** Ночь недели из DA_Story (или из кода, если в ассете её нет). */
+	OBSHAGA_API FWeekNightInfo WeekNight(int32 Night);
+	OBSHAGA_API FWeekNightInfo DefaultWeekNight(int32 Night);
 
 	/** Заголовок стенгазеты по итогам раунда. */
 	OBSHAGA_API FText Headline(const FString& EvictedName, const FString& CaughtName, int32 TotalStrikes);

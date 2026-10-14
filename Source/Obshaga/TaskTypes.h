@@ -165,6 +165,13 @@ struct FRevealedPlayer
 
 	UPROPERTY(BlueprintReadOnly)
 	bool bEvicted = false;
+
+	/** Очки и страйки за неделю (вместе с этой ночью). */
+	UPROPERTY(BlueprintReadOnly)
+	int32 WeekScore = 0;
+
+	UPROPERTY(BlueprintReadOnly)
+	int32 WeekStrikes = 0;
 };
 
 /** Строка экрана итогов: чьё задание и чем кончилось. Раскрывается всем после раунда. */

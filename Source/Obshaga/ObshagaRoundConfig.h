@@ -223,6 +223,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Round", meta = (ClampMin = "0", Units = "s"))
 	float IntroSeconds = 9.f;
 
+	/** Заставка перед каждым реваншем — следующей ночью недели (с карточкой ночи). 0 — без заставки. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Round", meta = (ClampMin = "0", Units = "s"))
+	float RematchIntroSeconds = 5.f;
+
 	// --- События ночи: одно на раунд, сервер выбирает случайно ---
 
 	/** Через сколько секунд после начала ночи случается событие. */

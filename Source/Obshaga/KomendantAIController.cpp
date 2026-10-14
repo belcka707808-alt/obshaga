@@ -129,7 +129,9 @@ void AKomendantAIController::ResetForRound()
 	}
 
 	Komendant->SetActorLocationAndRotation(SpawnTransform.GetLocation(), SpawnTransform.GetRotation(), false, nullptr, ETeleportType::TeleportPhysics);
-	Personality = Komendant->PickPersonality();
+	// Ночь недели может задать манеру Палыча (рассеянный в понедельник, мстительный в пятницу).
+	const AObshagaGameMode* WeekMode = GetWorld()->GetAuthGameMode<AObshagaGameMode>();
+	Personality = Komendant->PickPersonality(WeekMode ? WeekMode->GetWeekKomendantStyle() : -1);
 	LastPhase = 255;
 	ApplyPersonality();
 

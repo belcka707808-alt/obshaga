@@ -27,7 +27,8 @@ public:
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
 	/** Случайная личность из списка; если список пуст — значения по умолчанию. */
-	const UKomendantPersonality* PickPersonality() const;
+	/** Случайная личность; Style >= 0 — только из личностей этой манеры (0 — строгий, 1 — рассеянный, 2 — мстительный), если такая есть. */
+	const UKomendantPersonality* PickPersonality(int32 Style = -1) const;
 
 	/** Насторожен ли комендант. Видно всем: по этому игроки понимают, что пора бежать. */
 	EKomendantAlert GetAlert() const { return Alert; }

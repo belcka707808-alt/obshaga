@@ -461,6 +461,7 @@ void AObshagaGameMode::RequestStart(APlayerController* By)
 		{
 			// Первый раунд комнаты начинается с заставки; раунд стартует, когда она кончится.
 			bIntroShown = true;
+			PrepareNight();
 			MutableState->SetIntro(GetRoundConfig()->IntroSeconds);
 			UE_LOG(LogObshaga, Log, TEXT("Intro started: %.0f s"), GetRoundConfig()->IntroSeconds);
 			GetWorldTimerManager().SetTimer(IntroTimer, this, &AObshagaGameMode::StartRound, GetRoundConfig()->IntroSeconds, false);
@@ -472,8 +473,72 @@ void AObshagaGameMode::RequestStart(APlayerController* By)
 	}
 	else if (State->GetRoundState() == ERoundState::Finished)
 	{
-		StartRound();
+		AObshagaGameState* MutableState = GetGameState<AObshagaGameState>();
+		if (MutableState->IsIntroActive())
+		{
+			// Хост пропускает заставку реванша для всех.
+			GetWorldTimerManager().ClearTimer(IntroTimer);
+			MutableState->SetIntro(0.f);
+			StartRound();
+		}
+		else if (GetRoundConfig()->RematchIntroSeconds > 0.f)
+		{
+			// Реванш — следующая ночь недели: короткая заставка с её карточкой.
+			PrepareNight();
+			MutableState->SetIntro(GetRoundConfig()->RematchIntroSeconds);
+			GetWorldTimerManager().SetTimer(IntroTimer, this, &AObshagaGameMode::StartRound, GetRoundConfig()->RematchIntroSeconds, false);
+		}
+		else
+		{
+			StartRound();
+		}
 	}
+}
+
+void AObshagaGameMode::PrepareNight()
+{
+	AObshagaGameState* State = GetGameState<AObshagaGameState>();
+	if (bNightPrepared || !State)
+	{
+		return;
+	}
+	bNightPrepared = true;
+
+	bool bNewWeek = false;
+	if (WeekNight < 0)
+	{
+		WeekNight = 0;
+		bNewWeek = true;
+#if !UE_BUILD_SHIPPING
+		// Для проверок: -WeekNight=N — первая ночь комнаты N-я (0 — понедельник … 4 — пятница).
+		int32 Forced = 0;
+		if (FParse::Value(FCommandLine::Get(), TEXT("WeekNight="), Forced))
+		{
+			WeekNight = FMath::Clamp(Forced, 0, ObshagaStory::NumWeekNights - 1);
+		}
+#endif
+	}
+	else if (++WeekNight >= ObshagaStory::NumWeekNights)
+	{
+		WeekNight = 0;
+		bNewWeek = true;
+	}
+	if (bNewWeek)
+	{
+		++WeekId;
+		for (AObshagaPlayerState* PlayerState : GetObshagaPlayers())
+		{
+			PlayerState->StartWeek();
+		}
+	}
+	// «Вчера в газете» — со вторника: заголовок прошлой ночи ещё лежит в GameState.
+	State->SetWeek(WeekNight, WeekId, WeekNight > 0 ? State->GetHeadline() : FText::GetEmpty());
+	UE_LOG(LogObshaga, Log, TEXT("Week %d, night %d (%s)"), WeekId, WeekNight, *ObshagaStory::WeekNight(WeekNight).Title.ToString());
+}
+
+int32 AObshagaGameMode::GetWeekKomendantStyle() const
+{
+	return WeekNight >= 0 ? ObshagaStory::WeekNight(WeekNight).KomendantStyle : -1;
 }
 
 void AObshagaGameMode::AssignRoles(const TArray<AObshagaPlayerState*>& Players)
@@ -515,6 +580,7 @@ void AObshagaGameMode::StartRound()
 	}
 
 	ForgetDisconnected();
+	PrepareNight();
 
 	// Каждый раунд, и первый тоже, начинается с чистого мира: то, что натворили в лобби, не считается.
 	ResetWorldForRematch();
@@ -524,6 +590,23 @@ void AObshagaGameMode::StartRound()
 
 	CaughtLastRound = CaughtThisRound;
 	CaughtThisRound.Reset();
+	// В пятницу Палыч помнит всю неделю: с самого начала он присматривает за тем, кто попадался чаще всех.
+	if (WeekNight == ObshagaStory::NumWeekNights - 1)
+	{
+		const AObshagaPlayerState* MostCaught = nullptr;
+		for (const AObshagaPlayerState* PlayerState : Players)
+		{
+			if (PlayerState->GetWeekStrikes() > 0 && (!MostCaught || PlayerState->GetWeekStrikes() > MostCaught->GetWeekStrikes()))
+			{
+				MostCaught = PlayerState;
+			}
+		}
+		if (MostCaught)
+		{
+			CaughtLastRound = { const_cast<AObshagaPlayerState*>(MostCaught) };
+			UE_LOG(LogObshaga, Log, TEXT("Friday grudge: %s (%d strikes this week)"), *MostCaught->GetPlayerName(), MostCaught->GetWeekStrikes());
+		}
+	}
 	TipRat.Reset();
 	TipTarget.Reset();
 	SmsSent = 0;
@@ -604,6 +687,8 @@ void AObshagaGameMode::StartRound()
 	// Новичкам сразу говорим, откуда ждать опасность.
 	NotifyAll(LOCTEXT("KomendantWhere", "Комендант на вахте, 1 этаж. Скоро пойдёт в обход — не попадайся"));
 	UE_LOG(LogObshaga, Log, TEXT("Round started: %.0f s, %d players"), Config->GetTotalSeconds(), Players.Num());
+	// Следующий раунд выберет следующую ночь.
+	bNightPrepared = false;
 }
 
 void AObshagaGameMode::StartNightEvent()
@@ -621,6 +706,17 @@ void AObshagaGameMode::StartNightEvent()
 	if (FParse::Value(FCommandLine::Get(), TEXT("TestNightEvent="), Forced) && Forced > 0)
 	{
 		Event = static_cast<ENightEvent>(FMath::Clamp(Forced, 1, static_cast<int32>(ENightEvent::PipeBurst)));
+	}
+	// Ночь недели может задать своё событие или обойтись без него (понедельник).
+	const int32 Planned = WeekNight >= 0 ? ObshagaStory::WeekNight(WeekNight).NightEvent : -1;
+	if (Forced <= 0 && Planned == 0)
+	{
+		UE_LOG(LogObshaga, Log, TEXT("Night event: none tonight (week night %d)"), WeekNight);
+		return;
+	}
+	if (Forced <= 0 && Planned > 0)
+	{
+		Event = static_cast<ENightEvent>(FMath::Clamp(Planned, 1, static_cast<int32>(ENightEvent::PipeBurst)));
 	}
 
 	const ARoomVolume* BirthdayRoom = ARoomVolume::FindRoomById(this, Config->BirthdayRoomId);
@@ -1378,6 +1474,7 @@ void AObshagaGameMode::EndRound()
 	{
 		const int32 Earned = PlayerState->GetTaskComponent()->FinalizeTasks() + PlayerState->TakePendingRatBonus();
 		PlayerState->SetScore(PlayerState->GetScore() + Earned);
+		PlayerState->AddNightToWeek(PlayerState->GetSuspicionComponent()->GetStrikes());
 		PlayerState->ForceNetUpdate();
 
 		for (const FTaskState& Task : PlayerState->GetTaskComponent()->GetTasks())
@@ -1395,11 +1492,17 @@ void AObshagaGameMode::EndRound()
 		Revealed.Score = FMath::RoundToInt32(PlayerState->GetScore());
 		Revealed.Strikes = PlayerState->GetSuspicionComponent()->GetStrikes();
 		Revealed.bEvicted = PlayerState->IsEvicted();
+		Revealed.WeekScore = PlayerState->GetWeekScore();
+		Revealed.WeekStrikes = PlayerState->GetWeekStrikes();
 	}
 	AssignTitles(RevealedPlayers, Players);
 	WriteTelemetry(Players);
 
 	BuildNewspaper(Players);
+	if (WeekNight == ObshagaStory::NumWeekNights - 1)
+	{
+		State->SetWeekTitles(BuildWeekTitles(Players));
+	}
 
 	State->FinishRound(RevealedTasks, RevealedPlayers, BuildChronicle());
 	if (UGameEventSubsystem* Bus = UGameEventSubsystem::Get(this))
@@ -1976,6 +2079,42 @@ TArray<FText> AObshagaGameMode::BuildChronicle() const
 	return Result;
 }
 
+TArray<FText> AObshagaGameMode::BuildWeekTitles(const TArray<AObshagaPlayerState*>& Players) const
+{
+	TArray<FText> Titles;
+	const AObshagaPlayerState* Legend = nullptr;
+	const AObshagaPlayerState* Regular = nullptr;
+	FString Shadows;
+	for (const AObshagaPlayerState* PlayerState : Players)
+	{
+		if (!Legend || PlayerState->GetWeekScore() > Legend->GetWeekScore())
+		{
+			Legend = PlayerState;
+		}
+		if (PlayerState->GetWeekStrikes() > 0 && (!Regular || PlayerState->GetWeekStrikes() > Regular->GetWeekStrikes()))
+		{
+			Regular = PlayerState;
+		}
+		if (PlayerState->GetWeekStrikes() == 0)
+		{
+			Shadows += (Shadows.IsEmpty() ? TEXT("") : TEXT(", ")) + PlayerState->GetPlayerName();
+		}
+	}
+	if (Legend)
+	{
+		Titles.Add(FText::Format(LOCTEXT("WeekLegend", "Легенда общаги №7 — {0}: {1} очков за неделю"), FText::FromString(Legend->GetPlayerName()), FText::AsNumber(Legend->GetWeekScore())));
+	}
+	if (Regular)
+	{
+		Titles.Add(FText::Format(LOCTEXT("WeekRegular", "Постоянный клиент Палыча — {0}: пойман {1} раз(а) за неделю"), FText::FromString(Regular->GetPlayerName()), FText::AsNumber(Regular->GetWeekStrikes())));
+	}
+	if (!Shadows.IsEmpty())
+	{
+		Titles.Add(FText::Format(LOCTEXT("WeekShadow", "Тень — {0}: ни разу не попался за всю неделю"), FText::FromString(Shadows)));
+	}
+	return Titles;
+}
+
 void AObshagaGameMode::WriteTelemetry(const TArray<AObshagaPlayerState*>& Players) const
 {
 	const UGameEventSubsystem* Bus = UGameEventSubsystem::Get(this);
@@ -1991,6 +2130,8 @@ void AObshagaGameMode::WriteTelemetry(const TArray<AObshagaPlayerState*>& Player
 	Root->SetStringField(TEXT("time"), FDateTime::Now().ToIso8601());
 	Root->SetNumberField(TEXT("durationSeconds"), GetWorld()->GetTimeSeconds() - RoundStartWorldTime);
 	Root->SetNumberField(TEXT("numPlayers"), Players.Num());
+	Root->SetNumberField(TEXT("weekNight"), WeekNight);
+	Root->SetNumberField(TEXT("weekId"), WeekId);
 
 	TArray<TSharedPtr<FJsonValue>> PlayersJson;
 	for (const AObshagaPlayerState* PlayerState : Players)

@@ -224,6 +224,12 @@ void UObshagaStoryConfig::FillFromDefaults()
 	{
 		Stories.Add({ ObshagaStory::DefaultStoryTitle(Index), ObshagaStory::DefaultStoryText(Index) });
 	}
+
+	WeekNights.Reset();
+	for (int32 Night = 0; Night < ObshagaStory::NumWeekNights; ++Night)
+	{
+		WeekNights.Add(ObshagaStory::DefaultWeekNight(Night));
+	}
 	MarkPackageDirty();
 }
 
@@ -271,6 +277,61 @@ FText ObshagaStory::StoryText(int32 Index)
 {
 	const UObshagaStoryConfig* Config = UObshagaStoryConfig::Get();
 	return Config && Config->Stories.IsValidIndex(Index) ? Config->Stories[Index].Text : DefaultStoryText(Index);
+}
+
+FText ObshagaStory::WeekdayName(int32 Night)
+{
+	static const FText Names[NumWeekNights] = { LOCTEXT("Mon", "Понедельник"), LOCTEXT("Tue", "Вторник"), LOCTEXT("Wed", "Среда"), LOCTEXT("Thu", "Четверг"), LOCTEXT("Fri", "Пятница") };
+	return Names[FMath::Clamp(Night, 0, NumWeekNights - 1)];
+}
+
+FText ObshagaStory::WeekdayShort(int32 Night)
+{
+	static const FText Names[NumWeekNights] = { LOCTEXT("MonShort", "Пн"), LOCTEXT("TueShort", "Вт"), LOCTEXT("WedShort", "Ср"), LOCTEXT("ThuShort", "Чт"), LOCTEXT("FriShort", "Пт") };
+	return Names[FMath::Clamp(Night, 0, NumWeekNights - 1)];
+}
+
+FWeekNightInfo ObshagaStory::DefaultWeekNight(int32 Night)
+{
+	FWeekNightInfo Info;
+	switch (FMath::Clamp(Night, 0, NumWeekNights - 1))
+	{
+	case 0:
+		Info.Title = LOCTEXT("WeekTitle0", "Заселение");
+		Info.Text = LOCTEXT("WeekText0", "Новая неделя, новые соседи. Палыч сегодня добрый и рассеянный.\nСамое время осмотреться и завести полезные знакомства.");
+		Info.NightEvent = 0;
+		Info.KomendantStyle = 1;
+		break;
+	case 1:
+		Info.Title = LOCTEXT("WeekTitle1", "Пробки");
+		Info.Text = LOCTEXT("WeekText1", "Электрик обещал прийти ещё в понедельник. Не пришёл.\nНочью выбьет пробки — в темноте Палыч видит только перед собой.");
+		Info.NightEvent = 1;
+		break;
+	case 2:
+		Info.Title = LOCTEXT("WeekTitle2", "День рождения в 203");
+		Info.Text = LOCTEXT("WeekText2", "В 203-й празднуют, и об этом знает вся общага.\nНа шум оттуда Палыч не идёт, но обязательно заглянет поздравить.");
+		Info.NightEvent = 4;
+		break;
+	case 3:
+		Info.Title = LOCTEXT("WeekTitle3", "Учения");
+		Info.Text = LOCTEXT("WeekText3", "Пожарная часть устраивает учения. Когда завоет сирена — все в коридор.\nКто останется в комнате, тот под подозрением.");
+		Info.NightEvent = 2;
+		break;
+	default:
+		Info.Title = LOCTEXT("WeekTitle4", "Деканат");
+		Info.Text = LOCTEXT("WeekText4", "Утром приедет проверка из деканата. Палыч помнит всё, что было за неделю,\nи начнёт с того, кто попадался чаще всех.");
+		Info.NightEvent = 3;
+		Info.KomendantStyle = 2;
+		break;
+	}
+	return Info;
+}
+
+FWeekNightInfo ObshagaStory::WeekNight(int32 Night)
+{
+	const UObshagaStoryConfig* Config = UObshagaStoryConfig::Get();
+	const int32 Index = FMath::Clamp(Night, 0, NumWeekNights - 1);
+	return Config && Config->WeekNights.IsValidIndex(Index) ? Config->WeekNights[Index] : DefaultWeekNight(Index);
 }
 
 #undef LOCTEXT_NAMESPACE

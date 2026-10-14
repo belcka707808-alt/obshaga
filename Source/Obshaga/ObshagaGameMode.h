@@ -49,6 +49,9 @@ public:
 	/** Игрок стучит на жилую комнату, в которой стоит: комендант придёт её обыскивать. */
 	void TipOffRoom(AObshagaPlayerState* By);
 
+	/** Манера Палыча, заданная ночью недели: 0 — строгий, 1 — рассеянный, 2 — мстительный; -1 — любая. */
+	int32 GetWeekKomendantStyle() const;
+
 	/** Кого комендант ловил в прошлом раунде (для мстительной личности). */
 	const TArray<TWeakObjectPtr<APlayerState>>& GetCaughtLastRound() const { return CaughtLastRound; }
 
@@ -99,6 +102,17 @@ private:
 	FTimerHandle SelfBreakTimer;
 	FTimerHandle IntroTimer;
 	bool bIntroShown = false;
+
+	/**
+	 * «Неделя в общаге №7»: первый раунд комнаты — понедельник, каждый реванш — следующая ночь, после пятницы — новая неделя.
+	 * PrepareNight выбирает ночь один раз перед раундом (ещё до заставки, чтобы она показала карточку ночи).
+	 */
+	void PrepareNight();
+	int32 WeekNight = -1;
+	int32 WeekId = 0;
+	bool bNightPrepared = false;
+	/** Титулы недели по итогам пятницы. */
+	TArray<FText> BuildWeekTitles(const TArray<AObshagaPlayerState*>& Players) const;
 	FTimerHandle NightEventTimer;
 	FTimerHandle NightEventEndTimer;
 	FTimerHandle FireAlarmTimer;

@@ -68,6 +68,14 @@ public:
 	/** Новый раунд: роль, СМС, задания, подозрение и страйки сбрасываются; очки остаются. */
 	void ResetForRound();
 
+	/** Очки и страйки за текущую неделю (видят все, как обычные очки). */
+	int32 GetWeekScore() const { return WeekScore; }
+	int32 GetWeekStrikes() const { return WeekStrikes; }
+	/** Сервер: началась новая неделя — счёт недели с нуля. */
+	void StartWeek();
+	/** Сервер: ночь кончилась — добавить её итоги к неделе. */
+	void AddNightToWeek(int32 NightStrikes);
+
 protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Tasks")
 	TObjectPtr<UTaskComponent> TaskComponent;
@@ -98,6 +106,15 @@ protected:
 
 	UPROPERTY(Replicated)
 	bool bCanTipRoom = false;
+
+	UPROPERTY(Replicated)
+	int32 WeekScore = 0;
+
+	UPROPERTY(Replicated)
+	int32 WeekStrikes = 0;
+
+	/** Очки на начало недели (только сервер): очки недели = очки сейчас минус эти. */
+	float WeekStartScore = 0.f;
 
 	UPROPERTY(Replicated)
 	bool bAccuseRumor = false;

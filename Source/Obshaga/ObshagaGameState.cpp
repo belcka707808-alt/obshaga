@@ -124,6 +124,10 @@ void AObshagaGameState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& Ou
 	DOREPLIFETIME(AObshagaGameState, Subhead);
 	DOREPLIFETIME(AObshagaGameState, PaperNotes);
 	DOREPLIFETIME(AObshagaGameState, PaperHero);
+	DOREPLIFETIME(AObshagaGameState, WeekNight);
+	DOREPLIFETIME(AObshagaGameState, WeekId);
+	DOREPLIFETIME(AObshagaGameState, YesterdayHeadline);
+	DOREPLIFETIME(AObshagaGameState, WeekTitles);
 	DOREPLIFETIME(AObshagaGameState, PaperHeroNote);
 	DOREPLIFETIME(AObshagaGameState, Interrogation);
 	DOREPLIFETIME(AObshagaGameState, AlibiRadius);
@@ -215,6 +219,26 @@ void AObshagaGameState::EndNightEvent()
 	if (HasAuthority())
 	{
 		NightEventEndServerTime = FMath::Min(NightEventEndServerTime, GetServerWorldTimeSeconds());
+	}
+}
+
+void AObshagaGameState::SetWeek(int32 Night, int32 Id, const FText& Yesterday)
+{
+	if (HasAuthority())
+	{
+		WeekNight = static_cast<int8>(Night);
+		WeekId = Id;
+		YesterdayHeadline = Yesterday;
+		WeekTitles.Reset();
+		ForceNetUpdate();
+	}
+}
+
+void AObshagaGameState::SetWeekTitles(const TArray<FText>& Titles)
+{
+	if (HasAuthority())
+	{
+		WeekTitles = Titles;
 	}
 }
 

@@ -44,6 +44,28 @@ struct FStoryInfo
 	FText Text;
 };
 
+/** Одна ночь «Недели в общаге №7»: название, завязка, событие ночи и манера Палыча. */
+USTRUCT(BlueprintType)
+struct FWeekNightInfo
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Story")
+	FText Title;
+
+	/** Завязка в две строки (строки разделяются переводом строки). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Story", meta = (MultiLine = true))
+	FText Text;
+
+	/** Событие ночи: -1 — случайное, 0 — без события, 1 — пробки, 2 — пожарная тревога, 3 — деканат, 4 — день рождения, 5 — труба. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Story", meta = (ClampMin = "-1", ClampMax = "5"))
+	int32 NightEvent = -1;
+
+	/** Манера Палыча: -1 — случайная, 0 — строгий, 1 — рассеянный, 2 — мстительный. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Story", meta = (ClampMin = "-1", ClampMax = "2"))
+	int32 KomendantStyle = -1;
+};
+
 /**
  * Тексты «сюжета» в ассете DA_Story: жильцы, реплики коменданта, завязки вечера. Править можно в редакторе.
  * Если ассета нет или какой-то список в нём пуст, игра берёт тексты, зашитые в код (ObshagaStory.cpp).
@@ -71,4 +93,8 @@ public:
 	/** По две завязки на манеру коменданта: строгий, рассеянный, мстительный. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Story")
 	TArray<FStoryInfo> Stories;
+
+	/** Пять ночей недели, с понедельника по пятницу. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Story")
+	TArray<FWeekNightInfo> WeekNights;
 };

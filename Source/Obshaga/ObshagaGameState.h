@@ -97,6 +97,15 @@ public:
 	const TArray<FRevealedPlayer>& GetRevealedPlayers() const { return RevealedPlayers; }
 	const TArray<FText>& GetChronicle() const { return Chronicle; }
 
+	/** «Неделя в общаге №7»: номер ночи (0 — понедельник … 4 — пятница; -1 — неделя не идёт), номер недели и вчерашний заголовок газеты. */
+	int32 GetWeekNight() const { return WeekNight; }
+	int32 GetWeekId() const { return WeekId; }
+	const FText& GetYesterdayHeadline() const { return YesterdayHeadline; }
+	void SetWeek(int32 Night, int32 Id, const FText& Yesterday);
+	/** Титулы недели — заполняются в пятницу, к итогам. */
+	const TArray<FText>& GetWeekTitles() const { return WeekTitles; }
+	void SetWeekTitles(const TArray<FText>& Titles);
+
 	/** Завязка этого вечера (номер в ObshagaStory) и стенгазета по итогам. */
 	int32 GetStoryIndex() const { return StoryIndex; }
 	const FText& GetHeadline() const { return Headline; }
@@ -171,6 +180,18 @@ protected:
 
 	UPROPERTY(Replicated)
 	uint8 StoryIndex = 0;
+
+	UPROPERTY(Replicated)
+	int8 WeekNight = -1;
+
+	UPROPERTY(Replicated)
+	int32 WeekId = 0;
+
+	UPROPERTY(Replicated)
+	FText YesterdayHeadline;
+
+	UPROPERTY(Replicated)
+	TArray<FText> WeekTitles;
 
 	UPROPERTY(Replicated)
 	float IntroEndServerTime = 0.f;

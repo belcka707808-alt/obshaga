@@ -50,6 +50,10 @@ namespace
 	constexpr float MinLintelHeight = 15.f;
 	// Зона выше этого занимает два этажа (лестница): стены красятся и на верхнем этаже.
 	constexpr float TwoStoreyHeight = 450.f;
+	// Торец стены у проёма: на какой глубине за лицевой гранью его ищем, шаг промера и самая толстая стена.
+	constexpr float JambProbeDepth = 4.f;
+	constexpr float JambProbeStep = 8.f;
+	constexpr float MaxJambThickness = 60.f;
 	constexpr float FloorProbeUp = 120.f;
 	constexpr float FloorProbeDown = 60.f;
 
@@ -407,6 +411,16 @@ void ARoomVolume::Decorate(const FRoomStyle& Style, int32 Ordinal)
 		UE_LOG(LogObshaga, Verbose, TEXT("Decor %s side n=(%.0f,%.0f) origin=%s wall at %s: %s"), *RoomId.ToString(), Side.Normal.X, Side.Normal.Y, *Side.Origin.ToString(), Any ? *Any->LowPoint.ToString() : TEXT("-"), *Row);
 	}
 
+	// Торец стены у проёма без двери (выход из коридора к лестнице): красим и его, иначе в проёме стоит серая «колонна».
+	struct FJamb
+	{
+		FVector Center;
+		FRotator Rotation;
+		float Width;
+		int32 Band;
+	};
+	TArray<FJamb> Jambs;
+
 	// Щели в углах: куски краски идут с шагом и до угла не дотягиваются. Крайний кусок (у которого сосед не покрашен
 	// и это не дверь) дотягиваем до ближайшей поперечной стены или колонны, если она рядом.
 	int32 NumExtended = 0;
@@ -436,6 +450,40 @@ void ARoomVolume::Decorate(const FRoomStyle& Style, int32 Ordinal)
 					{
 						Slot.Extend[Band][Way] = FMath::Max(FVector::Dist2D(From, Hit) - Step * 0.5f, 0.f);
 						NumExtended += Slot.Extend[Band][Way] > 0.5f ? 1 : 0;
+					}
+					else
+					{
+						// Впереди вдоль стены пусто — стена кончается проёмом. Ищем её торец чуть за лицевой гранью
+						// (луч идёт из проёма назад к краске) и меряем толщину стены, щупая торец всё глубже.
+						const FVector WallPoint = Band == 0 ? Slot.LowPoint : Slot.HighPoint;
+						const FVector PaintEnd = WallPoint + Direction * Step * 0.5f;
+						FVector Face;
+						if (!TraceWall(World, PaintEnd + Direction * Step * 1.5f - Side.Normal * JambProbeDepth, PaintEnd - Direction * 5.f - Side.Normal * JambProbeDepth, Direction, Face))
+						{
+							continue;
+						}
+						const float Along = FVector::DotProduct(Face - PaintEnd, Direction);
+						float Thickness = 0.f;
+						for (float Depth = JambProbeDepth; Depth <= MaxJambThickness; Depth += JambProbeStep)
+						{
+							FVector Deeper;
+							const FVector Probe = PaintEnd + Direction * (Along + JambProbeStep) - Side.Normal * Depth;
+							if (!TraceWall(World, Probe, Probe - Direction * (JambProbeStep * 2.f), Direction, Deeper))
+							{
+								break;
+							}
+							Thickness = Depth + JambProbeStep * 0.5f;
+						}
+						if (Thickness <= 0.f || Along > Step)
+						{
+							continue;
+						}
+						// Краска на грани стены доходит до самого торца, а на торце — от лицевой грани вглубь на толщину стены.
+						Slot.Extend[Band][Way] = FMath::Max(Along, 0.f);
+						// Торец часто продолжает стену соседней зоны (лестницы), и та красит его своим цветом. Наш лист лежит
+						// чуть глубже её листа: где соседняя краска есть, видна она, и два цвета не мерцают друг сквозь друга.
+						const FVector JambFace = PaintEnd + Direction * (Along + PaintThickness * 0.35f) + Side.Normal * PaintThickness * 2.f;
+						Jambs.Add({ JambFace - Side.Normal * Thickness * 0.5f, Direction.Rotation(), Thickness + PaintThickness * 2.f, Band });
 					}
 				}
 			}
@@ -492,7 +540,7 @@ void ARoomVolume::Decorate(const FRoomStyle& Style, int32 Ordinal)
 			}
 		}
 	}
-	UE_LOG(LogObshaga, Log, TEXT("Decor %s: %d doors, %d paint pieces cut from doorways, %d lintel pieces, %d pieces stretched to a corner, %d narrow pieces"), *RoomId.ToString(), Doorways.Num(), NumDoorCuts, NumLintels, NumExtended, NumPartial);
+	UE_LOG(LogObshaga, Log, TEXT("Decor %s: %d doors, %d paint pieces cut from doorways, %d lintel pieces, %d pieces stretched to a corner, %d narrow pieces, %d wall ends"), *RoomId.ToString(), Doorways.Num(), NumDoorCuts, NumLintels, NumExtended, NumPartial, Jambs.Num());
 
 	// 2. Краска: низ цветной, верх «побелка». Все куски одного цвета — один компонент, рисуется за один проход.
 	UStaticMesh* CubeMesh = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cube.Cube"));
@@ -544,6 +592,13 @@ void ARoomVolume::Decorate(const FRoomStyle& Style, int32 Ordinal)
 					HighSheet->AddInstance(FTransform(Rotation, Location, FVector(PaintThickness / 100.f, Step / 100.f, LintelHeight / 100.f)), true);
 				}
 			}
+		}
+		for (const FJamb& Jamb : Jambs)
+		{
+			const float Bottom = Jamb.Band == 0 ? 0.f : Config->PaintHeight;
+			const float Height = Jamb.Band == 0 ? Config->PaintHeight : HighHeight;
+			const FVector Location(Jamb.Center.X, Jamb.Center.Y, Floor + Bottom + Height * 0.5f);
+			(Jamb.Band == 0 ? LowSheet : HighSheet)->AddInstance(FTransform(Jamb.Rotation, Location, FVector(PaintThickness / 100.f, Jamb.Width / 100.f, Height / 100.f)), true);
 		}
 
 		// Лестничная зона занимает два этажа: те же две полосы краски и на верхнем (украшений там нет).

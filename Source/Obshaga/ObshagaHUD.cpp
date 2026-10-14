@@ -108,21 +108,44 @@ void AObshagaHUD::DrawHUD()
 		const float Bar = Canvas->ClipY * 0.12f;
 		DrawRect(FLinearColor::Black, 0.f, 0.f, Canvas->ClipX, Bar);
 		DrawRect(FLinearColor::Black, 0.f, Canvas->ClipY - Bar, Canvas->ClipX, Bar);
-		static const FText Lines[] = {
-			LOCTEXT("Intro1", "Общага №7."),
-			LOCTEXT("Intro2", "Завтра проверка из деканата."),
-			LOCTEXT("Intro3", "Комендант Палыч не спит."),
-			LOCTEXT("Intro4", "Каждому есть что скрывать.") };
-		// Строки появляются по одной, каждая — на свою четверть заставки.
-		const float Progress = GameState->GetIntroProgress() * UE_ARRAY_COUNT(Lines);
-		const int32 LineIndex = FMath::Min(FMath::FloorToInt32(Progress), static_cast<int32>(UE_ARRAY_COUNT(Lines)) - 1);
+		// Строки заставки — карточка ночи недели: «Ночь 3. Среда», её название и две строки завязки.
+		TArray<FString> Lines;
+		if (GameState->GetWeekNight() >= 0)
+		{
+			const FWeekNightInfo Night = ObshagaStory::WeekNight(GameState->GetWeekNight());
+			Lines.Add(FText::Format(LOCTEXT("IntroNight", "Ночь {0}. {1}"), FText::AsNumber(GameState->GetWeekNight() + 1), ObshagaStory::WeekdayName(GameState->GetWeekNight())).ToString());
+			Lines.Add(Night.Title.ToString());
+			TArray<FString> TextLines;
+			Night.Text.ToString().ParseIntoArrayLines(TextLines);
+			Lines.Append(TextLines);
+		}
+		else
+		{
+			Lines = { LOCTEXT("Intro1", "Общага №7.").ToString(), LOCTEXT("Intro2", "Завтра проверка из деканата.").ToString(),
+				LOCTEXT("Intro3", "Комендант Палыч не спит.").ToString(), LOCTEXT("Intro4", "Каждому есть что скрывать.").ToString() };
+		}
+		// Строки появляются по одной, каждая — на свою долю заставки.
+		const float Progress = GameState->GetIntroProgress() * Lines.Num();
+		const int32 LineIndex = FMath::Clamp(FMath::FloorToInt32(Progress), 0, Lines.Num() - 1);
 		// Строка проявляется и гаснет за десятую часть своего времени, остальное время горит в полную силу.
 		const float Fade = FMath::Clamp(FMath::Min(Progress - LineIndex, LineIndex + 1.f - Progress) * 10.f, 0.f, 1.f);
-		const FString Line = Lines[LineIndex].ToString();
+		const FString& Line = Lines[LineIndex];
 		float Width = 0.f;
 		float Height = 0.f;
-		GetTextSize(Line, Width, Height, Font, Scale * 2.2f);
-		DrawText(Line, FLinearColor(1.f, 0.92f, 0.45f, Fade), (Canvas->ClipX - Width) * 0.5f, Canvas->ClipY - Bar * 0.5f - Height * 0.5f, Font, Scale * 2.2f);
+		// Длинная строка завязки уменьшается, чтобы влезть в ширину экрана.
+		GetTextSize(Line, Width, Height, Font, Scale);
+		const float LineScale = FMath::Min(Scale * 2.2f, (Canvas->ClipX - 40.f * Scale) / FMath::Max(Width / Scale, 1.f));
+		GetTextSize(Line, Width, Height, Font, LineScale);
+		DrawText(Line, FLinearColor(1.f, 0.92f, 0.45f, Fade), (Canvas->ClipX - Width) * 0.5f, Canvas->ClipY - Bar * 0.5f - Height * 0.5f, Font, LineScale);
+		if (!GameState->GetYesterdayHeadline().IsEmpty())
+		{
+			// Со вторника вверху — чем кончилась прошлая ночь.
+			const FString Yesterday = FText::Format(LOCTEXT("IntroYesterday", "Вчера в газете: «{0}»"), GameState->GetYesterdayHeadline()).ToString();
+			GetTextSize(Yesterday, Width, Height, Font, Scale);
+			const float YesterdayScale = FMath::Min(Scale * 1.1f, (Canvas->ClipX - 260.f * Scale) / FMath::Max(Width / Scale, 1.f));
+			GetTextSize(Yesterday, Width, Height, Font, YesterdayScale);
+			DrawText(Yesterday, FLinearColor(0.85f, 0.85f, 0.9f), 16.f * Scale, (Bar - Height) * 0.5f, Font, YesterdayScale);
+		}
 		const FString Skip = LOCTEXT("IntroSkip", "[Пробел] пропустить").ToString();
 		GetTextSize(Skip, Width, Height, Font, Scale);
 		DrawText(Skip, FLinearColor(1.f, 1.f, 1.f, 0.5f), Canvas->ClipX - Width - 16.f * Scale, (Bar - Height) * 0.5f, Font, Scale);
@@ -227,14 +250,20 @@ void AObshagaHUD::DrawHUD()
 		const float TextX = PanelX + 14.f * Scale;
 		const float TextWidth = PanelWidth - 28.f * Scale;
 		const FString Who = FText::Format(LOCTEXT("StoryWho", "Ты — {0}. {1}"), FText::FromString(MyState->GetPlayerName()), ObshagaStory::ResidentTrait(Character ? Character->GetLookSlot() : MyState->GetLookSlot())).ToString();
-		const FString Text = ObshagaStory::StoryText(GameState->GetStoryIndex()).ToString();
+		const bool bWeek = GameState->GetWeekNight() >= 0;
+		const FWeekNightInfo Night = ObshagaStory::WeekNight(FMath::Max(GameState->GetWeekNight(), 0));
+		const FString Text = bWeek ? Night.Text.ToString().Replace(TEXT("\n"), TEXT(" ")) : ObshagaStory::StoryText(GameState->GetStoryIndex()).ToString();
 		// Сначала меряем высоту текста, потом рисуем подложку под неё.
 		float Bottom = DrawWrapped(Text, FLinearColor::White, TextX, 0.f, TextWidth, 20.f, false);
 		Bottom = DrawWrapped(Who, FLinearColor::White, TextX, Bottom, TextWidth, 20.f, false);
 		float Y = Canvas->ClipY * 0.16f;
 		DrawRect(FLinearColor(0.02f, 0.02f, 0.05f, 0.88f), PanelX, Y - 10.f * Scale, PanelWidth, Bottom + 78.f * Scale);
-		Y = DrawWrapped(LOCTEXT("StoryToday", "СЕГОДНЯ В ОБЩАГЕ №7").ToString(), FLinearColor(0.6f, 0.6f, 0.68f), TextX, Y, TextWidth);
-		Y = DrawWrapped(ObshagaStory::StoryTitle(GameState->GetStoryIndex()).ToString().ToUpper(), FLinearColor::Yellow, TextX, Y, TextWidth);
+		const FString Today = bWeek
+			? FText::Format(LOCTEXT("StoryNight", "НОЧЬ {0} · {1} · ОБЩАГА №7"), FText::AsNumber(GameState->GetWeekNight() + 1), ObshagaStory::WeekdayName(GameState->GetWeekNight())).ToUpper().ToString()
+			: LOCTEXT("StoryToday", "СЕГОДНЯ В ОБЩАГЕ №7").ToString();
+		Y = DrawWrapped(Today, FLinearColor(0.6f, 0.6f, 0.68f), TextX, Y, TextWidth);
+		// FText::ToUpper, а не FString: та переводит в заглавные и кириллицу.
+		Y = DrawWrapped((bWeek ? Night.Title : ObshagaStory::StoryTitle(GameState->GetStoryIndex())).ToUpper().ToString(), FLinearColor::Yellow, TextX, Y, TextWidth);
 		Y = DrawWrapped(Text, FLinearColor::White, TextX, Y, TextWidth);
 		DrawWrapped(Who, FLinearColor(0.75f, 0.95f, 0.75f), TextX, Y + 8.f * Scale, TextWidth);
 	}
@@ -894,8 +923,12 @@ void AObshagaHUD::DrawRoundResults(const AObshagaGameState* GameState)
 	// Блок одного игрока: строка с ролью и титулом, подпись и его задания одной строкой.
 	auto DrawPlayer = [&](const FRevealedPlayer& Player, float X, float Y, float TextWidth, float Line, bool bCaptions, bool bDraw) -> float
 	{
-		const FText Text = FText::Format(LOCTEXT("PlayerLine", "{0} — {1}, «{2}». Очки: {3}, страйки: {4}"),
-			FText::FromString(Player.PlayerName), RoleName(Player.Role), Player.Title, FText::AsNumber(Player.Score), FText::AsNumber(Player.Strikes));
+		const FText Text = GameState->GetWeekNight() >= 0
+			? FText::Format(LOCTEXT("PlayerLineWeek", "{0} — {1}, «{2}». Очки: {3}, страйки: {4}. Неделя: {5} очков, {6} страйков"),
+				FText::FromString(Player.PlayerName), RoleName(Player.Role), Player.Title, FText::AsNumber(Player.Score), FText::AsNumber(Player.Strikes),
+				FText::AsNumber(Player.WeekScore), FText::AsNumber(Player.WeekStrikes))
+			: FText::Format(LOCTEXT("PlayerLine", "{0} — {1}, «{2}». Очки: {3}, страйки: {4}"),
+				FText::FromString(Player.PlayerName), RoleName(Player.Role), Player.Title, FText::AsNumber(Player.Score), FText::AsNumber(Player.Strikes));
 		const FLinearColor Color = Player.Role == EPlayerRole::Resident ? Dim : FLinearColor(1.f, 0.7f, 0.7f);
 		Y = DrawWrapped(Text.ToString(), Color, X, Y, TextWidth, Line, bDraw);
 		if (bCaptions && !Player.Caption.IsEmpty())
@@ -938,7 +971,11 @@ void AObshagaHUD::DrawRoundResults(const AObshagaGameState* GameState)
 		{
 			DrawRect(FLinearColor(0.02f, 0.02f, 0.05f, 0.92f), PanelX, PanelY, PanelWidth, Canvas->ClipY - PanelY - 8.f * Scale);
 			const bool bHost = GetNetMode() != NM_Client;
-			DrawText((bHost ? LOCTEXT("RematchHost", "[Enter] Реванш — новые роли и задания") : LOCTEXT("RematchClient", "Ждём, пока хост начнёт реванш")).ToString(),
+			const bool bWeekOver = GameState->GetWeekNight() == ObshagaStory::NumWeekNights - 1;
+			const FText RematchText = bHost
+				? (bWeekOver ? LOCTEXT("RematchNewWeek", "[Enter] Новая неделя — снова понедельник") : FText::Format(LOCTEXT("RematchNextNight", "[Enter] Следующая ночь — {0}"), ObshagaStory::WeekdayName(GameState->GetWeekNight() + 1)))
+				: LOCTEXT("RematchClient", "Ждём, пока хост начнёт реванш");
+			DrawText((GameState->GetWeekNight() >= 0 ? RematchText : (bHost ? LOCTEXT("RematchHost", "[Enter] Реванш — новые роли и задания") : LOCTEXT("RematchClient", "Ждём, пока хост начнёт реванш"))).ToString(),
 				FLinearColor::Yellow, X, RematchY, Font, Scale);
 			// Справа внизу — как сохранить этот экран; после F12 несколько секунд показываем, куда он лёг.
 			// На сам снимок эта строка с путём не попадает: снимок делается раньше, чем она появится.
@@ -952,6 +989,17 @@ void AObshagaHUD::DrawRoundResults(const AObshagaGameState* GameState)
 			DrawText(ShotLine, bSaved ? FLinearColor(0.6f, 1.f, 0.6f) : Dim, FMath::Max(PanelX + PanelWidth - Pad - ShotWidth, PanelX + Pad), bSaved ? RematchY - 18.f * Scale : RematchY, Font, Scale * 0.85f);
 		}
 
+		if (GameState->GetWeekNight() >= 0)
+		{
+			// Полоска недели: пройденные ночи, текущая — в скобках.
+			FString Strip = LOCTEXT("WeekStrip", "НЕДЕЛЯ В ОБЩАГЕ №7: ").ToString();
+			for (int32 Night = 0; Night < ObshagaStory::NumWeekNights; ++Night)
+			{
+				const FString Day = ObshagaStory::WeekdayShort(Night).ToString();
+				Strip += Night == GameState->GetWeekNight() ? FString::Printf(TEXT(" [%s] "), *ObshagaStory::WeekdayShort(Night).ToUpper().ToString()) : FString::Printf(TEXT(" %s "), *Day);
+			}
+			Y = DrawWrapped(Strip, FLinearColor(0.75f, 0.85f, 1.f), X, Y, TextWidth, Line - 2.f, bDraw);
+		}
 		if (!GameState->GetHeadline().IsEmpty())
 		{
 			// Стенгазета: заголовок по самому громкому событию раунда.
@@ -978,12 +1026,18 @@ void AObshagaHUD::DrawRoundResults(const AObshagaGameState* GameState)
 					DrawText(Why, FLinearColor(0.55f, 0.1f, 0.1f), X + FMath::Max((Side - WhyWidth) * 0.5f, Frame * 0.5f), PaperTop + Side + 10.f * Scale, Font, Scale * 0.65f);
 				}
 			}
-			Y = DrawWrapped(LOCTEXT("PaperName", "СТЕНГАЗЕТА ОБЩАГИ №7").ToString(), FLinearColor(0.6f, 0.6f, 0.68f), X + Indent, Y, TextWidth - Indent, Line - 2.f, bDraw);
+			const bool bWeekIssue = !GameState->GetWeekTitles().IsEmpty();
+			Y = DrawWrapped((bWeekIssue ? LOCTEXT("PaperNameWeek", "СТЕНГАЗЕТА ОБЩАГИ №7 · ИТОГИ НЕДЕЛИ") : LOCTEXT("PaperName", "СТЕНГАЗЕТА ОБЩАГИ №7")).ToString(),
+				bWeekIssue ? FLinearColor(1.f, 0.6f, 0.3f) : FLinearColor(0.6f, 0.6f, 0.68f), X + Indent, Y, TextWidth - Indent, Line - 2.f, bDraw);
 			Y = DrawWrapped(GameState->GetHeadline().ToString(), FLinearColor::Yellow, X + Indent, Y, TextWidth - Indent, Line, bDraw);
 			Y = DrawWrapped(GameState->GetSubhead().ToString(), FLinearColor::White, X + Indent, Y, TextWidth - Indent, Line, bDraw);
 			if (bPhoto)
 			{
 				Y = FMath::Max(Y, PaperTop + Side + (GameState->GetPaperHeroNote().IsEmpty() ? 19.f : 31.f) * Scale);
+			}
+			for (const FText& WeekTitle : GameState->GetWeekTitles())
+			{
+				Y = DrawWrapped(FText::Format(LOCTEXT("PaperWeekTitle", "★ {0}"), WeekTitle).ToString(), FLinearColor(1.f, 0.85f, 0.4f), X, Y, TextWidth, Line - 2.f, bDraw);
 			}
 			for (const FText& Note : GameState->GetPaperNotes())
 			{
@@ -1043,7 +1097,7 @@ void AObshagaHUD::DrawRoundResults(const AObshagaGameState* GameState)
 
 	// Мерить раскладки дорого, поэтому выбор запоминаем, пока не изменится экран или состав итогов.
 	const uint32 Key = HashCombine(HashCombine(GetTypeHash(Canvas->ClipX), GetTypeHash(Canvas->ClipY)),
-		HashCombine(GetTypeHash(GameState->GetChronicle().Num()), HashCombine(GetTypeHash(GameState->GetRevealedPlayers().Num()), HashCombine(GetTypeHash(GameState->GetRevealedTasks().Num()), GetTypeHash(bPhoto)))));
+		HashCombine(GetTypeHash(GameState->GetChronicle().Num()), HashCombine(GetTypeHash(GameState->GetRevealedPlayers().Num()), HashCombine(GetTypeHash(GameState->GetRevealedTasks().Num()), HashCombine(GetTypeHash(bPhoto), GetTypeHash(GameState->GetWeekTitles().Num()))))));
 	if (ResultsVariant == INDEX_NONE || ResultsKey != Key)
 	{
 		// Берём первую раскладку, которая помещается над «Реваншем»; если не помещается ни одна — самую низкую.
