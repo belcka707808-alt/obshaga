@@ -283,7 +283,8 @@ bool UTaskComponent::EvaluateCondition(const FTaskRow& Row) const
 		return FindOwnEvent(EGameEventType::AlibiConfirmed) != nullptr;
 
 	case ETaskCondition::NeverSpottedWholeRound:
-		return FindOwnEvent(EGameEventType::PlayerSpotted) == nullptr;
+		// «Не попадись»: Палыч ни разу не заметил тебя за подозрительным и не ловил. Просто увидеть у себя — не считается.
+		return FindOwnEvent(EGameEventType::PlayerSpottedSuspicious) == nullptr && FindOwnEvent(EGameEventType::PlayerCaught) == nullptr;
 
 	case ETaskCondition::NoiseLuredKomendantAndUnseen:
 	{

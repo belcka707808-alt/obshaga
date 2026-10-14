@@ -252,6 +252,12 @@ void AItemActor::ResetToInitial()
 	ForceNetUpdate();
 }
 
+FName AItemActor::GetHomeRoomId() const
+{
+	const ARoomVolume* Room = ARoomVolume::FindRoomAt(this, InitialTransform.GetLocation() + FVector(0.f, 0.f, 50.f));
+	return Room ? Room->RoomId : NAME_None;
+}
+
 FName AItemActor::GetCurrentRoomId() const
 {
 	const ARoomVolume* Room = nullptr;

@@ -1359,6 +1359,8 @@ bool AObshagaGameMode::StartInterrogation(AObshagaCharacter* Suspect, const FVec
 		else
 		{
 			Carry->Drop();
+			// Унесённое из своей комнаты Палыч после допроса вернёт на место.
+			ItemToReturn = Item->GetHomeRoomId() != Item->GetCurrentRoomId() ? Item : nullptr;
 		}
 	}
 
@@ -1446,6 +1448,17 @@ void AObshagaGameMode::ResolveInterrogation()
 		return;
 	}
 	GetWorldTimerManager().ClearTimer(InterrogationTimer);
+
+	// Краденое, с которым поймали, Палыч уносит туда, откуда его взяли (если его никто уже не подобрал).
+	if (AItemActor* Item = ItemToReturn.Get(); Item && Item->GetItemState() == EItemState::World)
+	{
+		Item->ResetToInitial();
+		const ARoomVolume* Home = ARoomVolume::FindRoomById(this, Item->GetHomeRoomId());
+		UGameEventSubsystem::PublishFrom(InterrogatedCharacter.Get(), EGameEventType::ItemReturned, Item);
+		NotifyAll(FText::Format(LOCTEXT("ItemReturned", "Палыч отнёс на место: {0} ({1})"), Item->GetDisplayName(), Home ? Home->DisplayName : FText::GetEmpty()));
+		UE_LOG(LogObshaga, Verbose, TEXT("Komendant returned %s to %s"), *Item->GetName(), *Item->GetHomeRoomId().ToString());
+	}
+	ItemToReturn.Reset();
 
 	const UObshagaRoundConfig* Config = GetRoundConfig();
 	AObshagaPlayerState* PlayerState = Cast<AObshagaPlayerState>(Info.Suspect);
@@ -1895,7 +1908,7 @@ void AObshagaGameMode::AssignTitles(TArray<FRevealedPlayer>& Players, const TArr
 			Player.Title = LOCTEXT("TitleFramer", "Мастер подстав");
 			Player.Caption = LOCTEXT("CapFramer", "Руки чистые, совесть — как получится.");
 		}
-		else if (Caught == 0 && Count(State, EGameEventType::PlayerSpotted) == 0)
+		else if (Caught == 0 && Count(State, EGameEventType::PlayerSpottedSuspicious) == 0)
 		{
 			Player.Title = LOCTEXT("TitleSaint", "Святой");
 			Player.Caption = LOCTEXT("CapSaint", "Комендант до сих пор не уверен, что этот жилец существует.");
@@ -2136,6 +2149,12 @@ TArray<FText> AObshagaGameMode::BuildChronicle() const
 				: FText::Format(Pick({
 					LOCTEXT("ChrBrokeItself1", "Что-то сломалось само ({0}). Общага, что с неё взять"),
 					LOCTEXT("ChrBrokeItself2", "{0}: техника не выдержала и ушла на покой") }), RoomName);
+			break;
+		case EGameEventType::ItemReturned:
+			Line.Priority = 4;
+			Line.Text = FText::Format(Pick({
+				LOCTEXT("ChrReturned1", "Палыч лично отнёс на место: {1}. Унёс было {0}"),
+				LOCTEXT("ChrReturned2", "{1} вернулся домой на руках у Палыча. {0} проводил его взглядом") }), Who, ItemName);
 			break;
 		case EGameEventType::DeviceRepaired:
 			Line.Priority = 3;

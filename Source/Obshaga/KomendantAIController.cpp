@@ -138,6 +138,7 @@ void AKomendantAIController::ResetForRound()
 
 	RoomHeat.Reset();
 	ImmuneUntil.Reset();
+	LastSuspiciousEventTime.Reset();
 	LastSpottedEventTime.Reset();
 	InspectionQueue.Reset();
 	QueuedSpot.Reset();
@@ -569,6 +570,14 @@ void AKomendantAIController::UpdateVision(float DeltaSeconds)
 		if (Rate > 0.f)
 		{
 			Suspicion->AddSuspicion(Rate * Personality->SuspicionMultiplier * DeltaSeconds);
+			// «Заметил за подозрительным» — отдельная запись: задание «не попадись на глаза» и титул «Святой»
+			// смотрят на неё, а не на то, что Палыч просто увидел жильца у себя в комнате.
+			float& LastSuspicious = LastSuspiciousEventTime.FindOrAdd(Player, -100.f);
+			if (Now - LastSuspicious > 5.f)
+			{
+				LastSuspicious = Now;
+				UGameEventSubsystem::PublishFrom(Player, EGameEventType::PlayerSpottedSuspicious);
+			}
 		}
 
 		if (Suspicion->GetSuspicion() >= 100.f && State != EKomendantState::Chase)

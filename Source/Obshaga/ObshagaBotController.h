@@ -47,6 +47,7 @@ enum class EBotGoal : uint8
 	RepairDevice,
 	GoOutside,
 	ReadNote,
+	SearchSpot,
 	LeaveForever
 };
 
@@ -159,6 +160,9 @@ private:
 	bool bCalledKomendant = false;
 	/** Чинящий бот видел сломанный прибор. */
 	bool bKnowsBroken = false;
+	/** Сторож видел, кто унёс его предмет; тайники в комнате вора, которые он уже обыскал. */
+	TWeakObjectPtr<APlayerState> KnownThief;
+	TSet<TWeakObjectPtr<AHidingSpot>> SearchedSpots;
 	/** Сколько страйков было у бота на прошлой проверке: так он узнаёт, что его поймали. */
 	int32 SeenStrikes = 0;
 	/** Сторож видит, что его предмет уносят, — зовёт Палыча к вору. */

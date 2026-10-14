@@ -61,7 +61,11 @@ enum class EGameEventType : uint8
 	/** Instigator вернулся с улицы, пробыв там достаточно долго. */
 	ReturnedToBuilding,
 	/** Началось событие ночи; какое — в RoomId (Blackout, FireAlarm, Deanery, Birthday, PipeBurst). */
-	NightEvent
+	NightEvent,
+	/** Комендант заметил игрока за подозрительным (с ношей, ночью не у себя): у того растёт подозрение. */
+	PlayerSpottedSuspicious,
+	/** Комендант вернул на место краденое (Item), с которым поймал Instigator. */
+	ItemReturned
 };
 
 /** Одна запись на «доске объявлений»: кто, что сделал, с каким предметом, где и когда. */

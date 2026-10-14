@@ -285,6 +285,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bots", meta = (ClampMin = "0", Units = "s"))
 	float BotRetryAfterCaughtSeconds = 0.f;
 
+	/** С каким шансом бот читает найденную записку (решает один раз на записку). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bots", meta = (ClampMin = "0", ClampMax = "1"))
+	float BotReadNoteChance = 0.35f;
+
 	/** Бот говорит реплику не чаще раза в столько секунд. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bots", meta = (ClampMin = "0", Units = "s"))
 	float BotLineCooldown = 20.f;

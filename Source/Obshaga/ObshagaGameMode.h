@@ -156,6 +156,8 @@ private:
 
 	// Идущий допрос (серверная часть; то, что видят игроки, лежит в GameState).
 	TWeakObjectPtr<AObshagaCharacter> InterrogatedCharacter;
+	/** Краденое, с которым поймали: после допроса Палыч возвращает его на место. */
+	TWeakObjectPtr<class AItemActor> ItemToReturn;
 	TArray<TWeakObjectPtr<AObshagaCharacter>> AlibiBy;
 	bool bSuspectHadContraband = false;
 

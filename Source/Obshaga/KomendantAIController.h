@@ -185,6 +185,7 @@ private:
 	/** До какого времени игрока не трогаем (сразу после допроса). */
 	TMap<TWeakObjectPtr<AObshagaCharacter>, float> ImmuneUntil;
 	TMap<TWeakObjectPtr<AObshagaCharacter>, float> LastSpottedEventTime;
+	TMap<TWeakObjectPtr<AObshagaCharacter>, float> LastSuspiciousEventTime;
 
 	/** Утренняя проверка: тайники жилых комнат, которые осталось обыскать. */
 	TArray<TWeakObjectPtr<AHidingSpot>> InspectionQueue;

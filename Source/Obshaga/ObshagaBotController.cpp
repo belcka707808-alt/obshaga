@@ -139,6 +139,8 @@ void AObshagaBotController::ResetForRound()
 	bCalledKomendant = false;
 	bKnowsBroken = false;
 	SeenStrikes = 0;
+	KnownThief.Reset();
+	SearchedSpots.Reset();
 	RoundStartTime = GetWorld()->GetTimeSeconds();
 	IdleUntil = GetWorld()->GetTimeSeconds() + FMath::FRandRange(1.f, 4.f);
 }
@@ -379,6 +381,10 @@ void AObshagaBotController::Think()
 				&& FVector::Dist(It->GetActorLocation(), Me->GetActorLocation()) < 900.f && FMath::Abs(It->GetActorLocation().Z - Me->GetActorLocation().Z) < BotSameFloorHeight * 2.f)
 			{
 				ReadNotes.Add(*It);
+				if (FMath::FRand() >= GetRoundConfig()->BotReadNoteChance)
+				{
+					continue;
+				}
 				TargetItem = *It;
 				if (WalkTo(It->GetActorLocation(), EBotGoal::ReadNote, 150.f))
 				{
@@ -460,7 +466,7 @@ void AObshagaBotController::HandleInterrogation()
 void AObshagaBotController::GuardWatch()
 {
 	const FTaskRow* Row = GetMyState()->GetTaskComponent()->FindRowByCondition(ETaskCondition::ItemNotMovedFromZone);
-	if (!Row || bCalledKomendant || Me->IsHiding())
+	if (!Row || Me->IsHiding())
 	{
 		return;
 	}
@@ -471,6 +477,12 @@ void AObshagaBotController::GuardWatch()
 			|| FVector::Dist(Thief->GetActorLocation(), Me->GetActorLocation()) > 1500.f || !HasClearLine(Me->GetActorLocation(), Thief->GetActorLocation()))
 		{
 			continue;
+		}
+		// Запоминает вора: если тот спрячет телевизор у себя, сторож пойдёт обыскивать его комнату.
+		KnownThief = Thief->GetPlayerState();
+		if (bCalledKomendant)
+		{
+			return;
 		}
 		// Видит вора с телевизором: кричит и зовёт Палыча туда, где вор сейчас (как стук Крысы, но вслух).
 		bCalledKomendant = true;
@@ -651,7 +663,24 @@ bool AObshagaBotController::PlanTaskRow(const FTaskRow& Row)
 			TargetItem = Item;
 			return WalkTo(Item->GetActorLocation(), EBotGoal::PickUp, 150.f);
 		}
-		if (FMath::FRand() < 0.5f)
+		// Предмет спрятан, а вор известен — обыскиваем тайники в комнате вора по одному.
+		const AObshagaPlayerState* Thief = Cast<AObshagaPlayerState>(KnownThief.Get());
+		if (Item && Item->GetItemState() == EItemState::Hidden && Thief)
+		{
+			for (TActorIterator<AHidingSpot> It(GetWorld()); It; ++It)
+			{
+				const ARoomVolume* SpotRoom = ARoomVolume::FindRoomAt(this, It->GetActorLocation() + FVector(0.f, 0.f, 50.f));
+				if (SpotRoom && SpotRoom->RoomId == Thief->GetHomeRoomId() && !SearchedSpots.Contains(*It) && !It->IsBusy() && !It->IsA<ANightExitDoor>())
+				{
+					SearchedSpots.Add(*It);
+					TargetSpot = *It;
+					return WalkTo(It->GetActorLocation(), EBotGoal::SearchSpot, 150.f);
+				}
+			}
+		}
+		// Утром сторож не уходит из гостиной: пусть Палыч видит, что телевизор под присмотром.
+		const bool bMorning = GameState->GetPhase() == ERoundPhase::Morning;
+		if (bMorning || FMath::FRand() < 0.5f)
 		{
 			const FVector Point = RoomPoint(Row.RoomId);
 			return !Point.IsZero() && WalkTo(Point + FVector(FMath::FRandRange(-150.f, 150.f), FMath::FRandRange(-150.f, 150.f), 0.f), EBotGoal::Wander, 160.f);
@@ -840,6 +869,19 @@ void AObshagaBotController::Arrive()
 			{
 				// Свою записку бот не читает.
 				ReadNotes.Add(TargetItem);
+			}
+		}
+		break;
+	case EBotGoal::SearchSpot:
+		if (AHidingSpot* Spot = TargetSpot.Get())
+		{
+			if (!Carry->IsCarrying() && !Spot->IsBusy())
+			{
+				// С пустыми руками E у тайника — обыскать; найденное само окажется в руках.
+				Spot->Interact(Me);
+				SetState(EBotState::Act);
+				ActUntil = Now + 2.5f;
+				UE_LOG(LogObshaga, Verbose, TEXT("Bot %s searches %s"), *GetMyState()->GetPlayerName(), *Spot->GetName());
 			}
 		}
 		break;
