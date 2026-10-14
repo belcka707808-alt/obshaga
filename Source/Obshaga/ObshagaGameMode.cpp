@@ -32,6 +32,7 @@
 #include "HAL/FileManager.h"
 #include "Engine/NetConnection.h"
 #include "Kismet/GameplayStatics.h"
+#include "Misc/App.h"
 #include "Misc/CommandLine.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Parse.h"
@@ -699,6 +700,12 @@ void AObshagaGameMode::StartRound()
 
 	TaskDirector->Reset();
 	RoundStartWorldTime = GetWorld()->GetTimeSeconds();
+	NumKomendantStuck = 0;
+	NumBotStuck = 0;
+	FpsMin = TNumericLimits<float>::Max();
+	FpsSum = 0.f;
+	FpsSamples = 0;
+	GetWorldTimerManager().SetTimer(FpsTimer, this, &AObshagaGameMode::SampleFps, 1.f, true, 5.f);
 	if (UGameEventSubsystem* Bus = UGameEventSubsystem::Get(this))
 	{
 		Bus->ClearEventLog();
@@ -1548,6 +1555,7 @@ void AObshagaGameMode::EndRound()
 	AObshagaGameState* State = GetGameState<AObshagaGameState>();
 	GetWorldTimerManager().ClearTimer(PhaseTimer);
 	GetWorldTimerManager().ClearTimer(LiveStatusTimer);
+	GetWorldTimerManager().ClearTimer(FpsTimer);
 	GetWorldTimerManager().ClearTimer(SmsTimer);
 	GetWorldTimerManager().ClearTimer(SelfBreakTimer);
 	GetWorldTimerManager().ClearTimer(NightEventTimer);
@@ -2168,6 +2176,18 @@ TArray<FText> AObshagaGameMode::BuildChronicle() const
 	return Result;
 }
 
+void AObshagaGameMode::SampleFps()
+{
+	const float Delta = FApp::GetDeltaTime();
+	if (Delta > 0.f)
+	{
+		const float Fps = 1.f / Delta;
+		FpsMin = FMath::Min(FpsMin, Fps);
+		FpsSum += Fps;
+		++FpsSamples;
+	}
+}
+
 TArray<FText> AObshagaGameMode::BuildWeekTitles(const TArray<AObshagaPlayerState*>& Players) const
 {
 	TArray<FText> Titles;
@@ -2222,6 +2242,13 @@ void AObshagaGameMode::WriteTelemetry(const TArray<AObshagaPlayerState*>& Player
 	Root->SetNumberField(TEXT("numPlayers"), Players.Num());
 	Root->SetNumberField(TEXT("weekNight"), WeekNight);
 	Root->SetNumberField(TEXT("weekId"), WeekId);
+	Root->SetNumberField(TEXT("komendantStuck"), NumKomendantStuck);
+	Root->SetNumberField(TEXT("botStuck"), NumBotStuck);
+	if (FpsSamples > 0)
+	{
+		Root->SetNumberField(TEXT("fpsMin"), FMath::RoundToInt32(FpsMin));
+		Root->SetNumberField(TEXT("fpsAvg"), FMath::RoundToInt32(FpsSum / FpsSamples));
+	}
 
 	TArray<TSharedPtr<FJsonValue>> PlayersJson;
 	for (const AObshagaPlayerState* PlayerState : Players)

@@ -277,6 +277,14 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bots", meta = (ClampMin = "0", Units = "s"))
 	float BotTipMaxSeconds = 90.f;
 
+	/** Бот-вредитель ломает плиту не раньше, чем через столько секунд после начала раунда (иначе чинящие успевают всегда). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bots", meta = (ClampMin = "0", Units = "s"))
+	float BotSabotageDelaySeconds = 0.f;
+
+	/** Бот говорит реплику не чаще раза в столько секунд. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bots", meta = (ClampMin = "0", Units = "s"))
+	float BotLineCooldown = 20.f;
+
 	/** Сколько всего жильцов (людей и ботов) можно набрать ботами. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bots", meta = (ClampMin = "0", ClampMax = "8"))
 	int32 MaxResidentsWithBots = 6;

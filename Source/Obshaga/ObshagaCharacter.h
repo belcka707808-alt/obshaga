@@ -64,6 +64,10 @@ public:
 	void TryEmote(int32 Index);
 	/** Номер фразы, которая сейчас висит над головой; -1, если персонаж молчит. */
 	int32 GetActiveEmote() const;
+	/** Фраза над головой прямо сейчас: из колеса фраз или реплика бота. Пусто — молчит. */
+	FText GetActiveSpeech() const;
+	/** Сервер: бот говорит реплику (Situation, Variant — номера из ObshagaStory::EBotLine). */
+	void SayBotLine(uint8 Situation, uint8 Variant);
 
 	/** Сдвиг камеры для тряски (только у локального игрока). */
 	void SetCameraShakeOffset(const FVector& Offset);
@@ -89,6 +93,9 @@ protected:
 	/** Фраза — мимолётная вещь: кто не получил, тот ничего не потерял. */
 	UFUNCTION(NetMulticast, Unreliable)
 	void MulticastEmote(uint8 Index);
+
+	UFUNCTION(NetMulticast, Unreliable)
+	void MulticastBotLine(uint8 Situation, uint8 Variant);
 
 	UFUNCTION()
 	void OnRep_IsSprinting();
@@ -171,6 +178,7 @@ private:
 	// Фраза над головой: у каждой машины своя копия и свои часы.
 	int32 EmoteIndex = INDEX_NONE;
 	float EmoteStartTime = -100.f;
+	FText BotSpeech;
 	/** Сервер: когда персонаж говорил в последний раз. */
 	float LastEmoteServerTime = -100.f;
 };

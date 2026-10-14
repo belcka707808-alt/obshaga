@@ -7,6 +7,7 @@
 #include "HidingSpot.h"
 #include "InteractionComponent.h"
 #include "ObshagaLookComponent.h"
+#include "ObshagaStory.h"
 #include "ObshagaPlayerState.h"
 #include "GameFramework/PlayerState.h"
 #include "Obshaga.h"
@@ -235,8 +236,34 @@ void AObshagaCharacter::MulticastStumble_Implementation(float Seconds)
 
 void AObshagaCharacter::MulticastEmote_Implementation(uint8 Index)
 {
+	BotSpeech = FText::GetEmpty();
 	EmoteIndex = Index;
 	EmoteStartTime = GetWorld()->GetTimeSeconds();
+}
+
+void AObshagaCharacter::SayBotLine(uint8 Situation, uint8 Variant)
+{
+	if (HasAuthority() && !IsGhost() && !IsHiding())
+	{
+		MulticastBotLine(Situation, Variant);
+	}
+}
+
+void AObshagaCharacter::MulticastBotLine_Implementation(uint8 Situation, uint8 Variant)
+{
+	// По сети идут только номера: текст каждая машина берёт из DA_Story сама.
+	BotSpeech = ObshagaStory::BotLine(static_cast<ObshagaStory::EBotLine>(Situation), Variant);
+	EmoteIndex = INDEX_NONE;
+	EmoteStartTime = GetWorld()->GetTimeSeconds();
+}
+
+FText AObshagaCharacter::GetActiveSpeech() const
+{
+	if (GetWorld()->GetTimeSeconds() - EmoteStartTime >= GetConfig()->EmoteSeconds)
+	{
+		return FText::GetEmpty();
+	}
+	return GetConfig()->Emotes.IsValidIndex(EmoteIndex) ? GetConfig()->Emotes[EmoteIndex] : BotSpeech;
 }
 
 int32 AObshagaCharacter::GetActiveEmote() const

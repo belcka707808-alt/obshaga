@@ -231,6 +231,18 @@ void UObshagaStoryConfig::FillFromDefaults()
 		WeekNights.Add(ObshagaStory::DefaultWeekNight(Night));
 	}
 
+	static const TCHAR* BotSituations[] = { TEXT("Увидел Палыча"), TEXT("Поймали соседа"), TEXT("Хвастается телевизором"), TEXT("Разбудила пожарная тревога"), TEXT("Подтверждает алиби") };
+	BotLines.Reset();
+	for (int32 Situation = 0; Situation < static_cast<int32>(ObshagaStory::EBotLine::Count); ++Situation)
+	{
+		FKomendantLineSet& Set = BotLines.AddDefaulted_GetRef();
+		Set.Label = BotSituations[Situation];
+		for (int32 Variant = 0; Variant < ObshagaStory::BotLinesPerSituation; ++Variant)
+		{
+			Set.Lines.Add(ObshagaStory::DefaultBotLine(static_cast<ObshagaStory::EBotLine>(Situation), Variant));
+		}
+	}
+
 	WeekTitles.Reset();
 	for (int32 Index = 0; Index < ObshagaStory::NumWeekTitles; ++Index)
 	{
@@ -331,6 +343,30 @@ FWeekNightInfo ObshagaStory::DefaultWeekNight(int32 Night)
 		break;
 	}
 	return Info;
+}
+
+FText ObshagaStory::DefaultBotLine(EBotLine Situation, int32 Variant)
+{
+	static const FText Lines[static_cast<int32>(EBotLine::Count)][BotLinesPerSituation] = {
+		{ LOCTEXT("BotSpot0", "Шухер, Палыч!"), LOCTEXT("BotSpot1", "Палыч идёт, разбегаемся!"), LOCTEXT("BotSpot2", "Я тут просто стою…"), LOCTEXT("BotSpot3", "Атас!") },
+		{ LOCTEXT("BotCaught0", "Ну всё, попался…"), LOCTEXT("BotCaught1", "Держись, бро!"), LOCTEXT("BotCaught2", "Я его не знаю, честно"), LOCTEXT("BotCaught3", "Вот это поворот") },
+		{ LOCTEXT("BotTv0", "Смотрите, что у меня есть!"), LOCTEXT("BotTv1", "Сегодня у нас кино"), LOCTEXT("BotTv2", "Тяжёлый, зараза…"), LOCTEXT("BotTv3", "Это не то, что вы думаете") },
+		{ LOCTEXT("BotFire0", "Три часа ночи, какая тревога?!"), LOCTEXT("BotFire1", "Дайте поспать…"), LOCTEXT("BotFire2", "Опять учения?"), LOCTEXT("BotFire3", "Я в тапках вообще-то") },
+		{ LOCTEXT("BotAlibi0", "Он был со мной всю ночь!"), LOCTEXT("BotAlibi1", "Это не он, Палыч"), LOCTEXT("BotAlibi2", "Мы чай пили, честно"), LOCTEXT("BotAlibi3", "Я свидетель!") },
+	};
+	return Lines[FMath::Clamp(static_cast<int32>(Situation), 0, static_cast<int32>(EBotLine::Count) - 1)][FMath::Clamp(Variant, 0, BotLinesPerSituation - 1)];
+}
+
+FText ObshagaStory::BotLine(EBotLine Situation, int32 Variant)
+{
+	const UObshagaStoryConfig* Config = UObshagaStoryConfig::Get();
+	const int32 Index = static_cast<int32>(Situation);
+	if (Config && Config->BotLines.IsValidIndex(Index) && !Config->BotLines[Index].Lines.IsEmpty())
+	{
+		const TArray<FText>& Lines = Config->BotLines[Index].Lines;
+		return Lines[FMath::Abs(Variant) % Lines.Num()];
+	}
+	return DefaultBotLine(Situation, Variant);
 }
 
 FText ObshagaStory::DefaultWeekTitleFormat(int32 Index)

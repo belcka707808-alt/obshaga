@@ -11,6 +11,7 @@
 #include "Obshaga.h"
 #include "ObshagaCharacter.h"
 #include "ObshagaGameMode.h"
+#include "Components/CapsuleComponent.h"
 #include "ObshagaGameState.h"
 #include "ObshagaItemData.h"
 #include "ObshagaPlayerController.h"
@@ -1058,8 +1059,18 @@ bool AKomendantAIController::FollowPath(float Speed, float DeltaSeconds)
 				PathIndex = Path.Num();
 				return true;
 			}
-			UE_LOG(LogObshaga, Warning, TEXT("Komendant stuck near %s on the way to %s (point %d of %d), snapping to waypoint"),
-				*Komendant->GetActorLocation().ToCompactString(), *Point.ToCompactString(), PathIndex + 1, Path.Num());
+			// Что мешает: капсулой на полметра вперёд, к точке.
+			FHitResult Block;
+			FCollisionQueryParams BlockParams(SCENE_QUERY_STAT(KomendantStuck), false, Komendant);
+			const FVector From = Komendant->GetActorLocation();
+			GetWorld()->SweepSingleByChannel(Block, From, From + (Point - From).GetSafeNormal2D() * 60.f, FQuat::Identity, ECC_Pawn,
+				FCollisionShape::MakeCapsule(Komendant->GetCapsuleComponent()->GetScaledCapsuleRadius(), Komendant->GetCapsuleComponent()->GetScaledCapsuleHalfHeight() * 0.8f), BlockParams);
+			UE_LOG(LogObshaga, Warning, TEXT("Komendant stuck near %s on the way to %s (point %d of %d), blocked by %s, snapping to waypoint"),
+				*Komendant->GetActorLocation().ToCompactString(), *Point.ToCompactString(), PathIndex + 1, Path.Num(), *GetNameSafe(Block.GetActor()));
+			if (AObshagaGameMode* StuckMode = GetWorld()->GetAuthGameMode<AObshagaGameMode>())
+			{
+				StuckMode->ReportStuck(true);
+			}
 			Komendant->SetActorLocation(Point, false, nullptr, ETeleportType::TeleportPhysics);
 		}
 	}
@@ -1097,8 +1108,9 @@ AKomendantWaypoint* AKomendantAIController::FindNearestWaypoint(const FVector& L
 	for (AKomendantWaypoint* Waypoint : Waypoints)
 	{
 		const FVector Delta = Waypoint->GetActorLocation() - Location;
-		// Точка на другом этаже «далеко», даже если она прямо над головой.
-		float Score = Delta.Size() + (FMath::Abs(Delta.Z) > ArriveHeight ? 100000.f : 0.f);
+		// Точка на другом этаже «далеко», даже если она прямо над головой. Точка на пролёте лестницы ниже или выше
+		// тоже хуже точки на своей высоте: иначе с площадки он шагал к ней напрямик и упирался в перила.
+		float Score = Delta.Size() + FMath::Abs(Delta.Z) * 3.f + (FMath::Abs(Delta.Z) > ArriveHeight ? 100000.f : 0.f);
 		// Точка за стеной от цели хуже любой точки, откуда цель видно: иначе к тайнику он подошёл бы из коридора.
 		if (bNeedSight && !HasClearLine(Waypoint->GetActorLocation(), Location))
 		{

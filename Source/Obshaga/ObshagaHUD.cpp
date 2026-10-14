@@ -331,8 +331,8 @@ void AObshagaHUD::DrawEmotes(const AObshagaCharacter* Me)
 	for (TActorIterator<AObshagaCharacter> It(GetWorld()); It; ++It)
 	{
 		const AObshagaCharacter* Speaker = *It;
-		const int32 Emote = Speaker->GetActiveEmote();
-		if (Emote == INDEX_NONE || Speaker->IsHiding() || Speaker->IsGhost()
+		const FText Speech = Speaker->GetActiveSpeech();
+		if (Speech.IsEmpty() || Speaker->IsHiding() || Speaker->IsGhost()
 			|| FVector::Dist(Speaker->GetActorLocation(), Me->GetActorLocation()) > Config->EmoteVisibleDistance
 			|| (Speaker != Me && !Controller->LineOfSightTo(Speaker)))
 		{
@@ -345,7 +345,7 @@ void AObshagaHUD::DrawEmotes(const AObshagaCharacter* Me)
 			continue;
 		}
 
-		const FString Text = Config->Emotes[Emote].ToString();
+		const FString Text = Speech.ToString();
 		float Width = 0.f;
 		float Height = 0.f;
 		GetTextSize(Text, Width, Height, Font, Scale);

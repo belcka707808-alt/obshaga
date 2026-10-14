@@ -15,6 +15,8 @@
 #include "ObshagaItemData.h"
 #include "ObshagaPlayerState.h"
 #include "ObshagaRoundConfig.h"
+#include "ObshagaStory.h"
+#include "Components/CapsuleComponent.h"
 #include "RoomVolume.h"
 #include "TaskComponent.h"
 #include "TaskTypes.h"
@@ -71,10 +73,28 @@ AKomendantCharacter* AObshagaBotController::FindKomendant() const
 	return nullptr;
 }
 
+void AObshagaBotController::Say(uint8 Situation)
+{
+	const float Now = GetWorld()->GetTimeSeconds();
+	if (Me && Now - LastLineTime >= GetRoundConfig()->BotLineCooldown)
+	{
+		LastLineTime = Now;
+		Me->SayBotLine(Situation, static_cast<uint8>(FMath::RandRange(0, ObshagaStory::BotLinesPerSituation - 1)));
+	}
+}
+
 void AObshagaBotController::OnPossess(APawn* InPawn)
 {
 	Super::OnPossess(InPawn);
 	Me = Cast<AObshagaCharacter>(InPawn);
+	if (Me)
+	{
+		// Встречные боты обходят друг друга, а не упираются лбами в узком коридоре.
+		UCharacterMovementComponent* Movement = Me->GetCharacterMovement();
+		Movement->bUseRVOAvoidance = true;
+		Movement->AvoidanceConsiderationRadius = 250.f;
+		Movement->AvoidanceWeight = 0.5f;
+	}
 	Waypoints.Reset();
 	for (TActorIterator<AKomendantWaypoint> It(GetWorld()); It; ++It)
 	{
@@ -101,6 +121,9 @@ void AObshagaBotController::ResetForRound()
 	TipAtTime = -1.f;
 	AnswerAt = -1.f;
 	AlibiDecidedFor.Reset();
+	ReactedToCaught.Reset();
+	bFireAlarmGrumbled = false;
+	RoundStartTime = GetWorld()->GetTimeSeconds();
 	IdleUntil = GetWorld()->GetTimeSeconds() + FMath::FRandRange(1.f, 4.f);
 }
 
@@ -216,6 +239,11 @@ void AObshagaBotController::Think()
 	}
 
 	HandleInterrogation();
+	if (!bFireAlarmGrumbled && GameState->IsNightEventActive() && GameState->GetNightEvent() == ENightEvent::FireAlarm && FMath::FRand() < 0.15f)
+	{
+		bFireAlarmGrumbled = true;
+		Say(static_cast<uint8>(ObshagaStory::EBotLine::FireAlarm));
+	}
 	if (Me->IsFrozen())
 	{
 		return;
@@ -366,6 +394,15 @@ void AObshagaBotController::HandleInterrogation()
 
 	// Допрашивают соседа, а бот стоит рядом: иногда вступается.
 	const APawn* SuspectPawn = Info.Suspect->GetPawn();
+	if (ReactedToCaught.Get() != Info.Suspect && SuspectPawn && !Me->IsHiding() && FVector::Dist(SuspectPawn->GetActorLocation(), Me->GetActorLocation()) < 1200.f
+		&& FVector::Dist(SuspectPawn->GetActorLocation(), Me->GetActorLocation()) > 50.f)
+	{
+		ReactedToCaught = Info.Suspect;
+		if (FMath::FRand() < 0.6f)
+		{
+			Say(static_cast<uint8>(ObshagaStory::EBotLine::NeighbourCaught));
+		}
+	}
 	if (AlibiDecidedFor.Get() != Info.Suspect && SuspectPawn && !Me->IsHiding() && !Me->IsGhost()
 		&& FVector::Dist(SuspectPawn->GetActorLocation(), Me->GetActorLocation()) <= GameState->GetAlibiRadius())
 	{
@@ -373,6 +410,7 @@ void AObshagaBotController::HandleInterrogation()
 		if (FMath::FRand() < Config->BotAlibiChance)
 		{
 			GameMode->ConfirmAlibi(Me);
+			Say(static_cast<uint8>(ObshagaStory::EBotLine::Alibi));
 			UE_LOG(LogObshaga, Verbose, TEXT("Bot %s confirms alibi of %s"), *MyState->GetPlayerName(), *Info.Suspect->GetPlayerName());
 		}
 	}
@@ -429,6 +467,7 @@ bool AObshagaBotController::TryFleeOrHide(const AKomendantCharacter* Komendant)
 			TargetSpot = Best;
 			Me->SetSprinting(true);
 			WalkTo(Best->GetActorLocation(), EBotGoal::HideSelf, 160.f);
+			Say(static_cast<uint8>(ObshagaStory::EBotLine::SpotKomendant));
 			State = EBotState::Flee;
 			return true;
 		}
@@ -460,6 +499,7 @@ bool AObshagaBotController::TryFleeOrHide(const AKomendantCharacter* Komendant)
 	WalkTo(Best->GetActorLocation(), EBotGoal::None, 120.f);
 	State = EBotState::Flee;
 	UE_LOG(LogObshaga, Verbose, TEXT("Bot %s flees from the komendant"), *MyState->GetPlayerName());
+	Say(static_cast<uint8>(ObshagaStory::EBotLine::SpotKomendant));
 	return true;
 }
 
@@ -554,7 +594,7 @@ bool AObshagaBotController::PlanTaskRow(const FTaskRow& Row)
 	{
 		// Сломать прибор, пока Палыча рядом нет.
 		ADeviceActor* Device = FindDevice(false);
-		if (!Device || FindDevice(true) || KomendantDistance < 1500.f || GaveUp(Device))
+		if (!Device || FindDevice(true) || KomendantDistance < 1500.f || GaveUp(Device) || Now - RoundStartTime < GetRoundConfig()->BotSabotageDelaySeconds)
 		{
 			return false;
 		}
@@ -607,7 +647,7 @@ bool AObshagaBotController::PlanTaskRow(const FTaskRow& Row)
 	{
 		// Ночью выйти через ночной выход, погулять и вернуться.
 		// До утра должно хватить времени дойти, погулять и вернуться.
-		if (bCurfewDone || GameState->GetPhase() != ERoundPhase::Night || GameState->GetPhaseRemainingSeconds() < GetRoundConfig()->BotOutsideSeconds + 15.f
+		if (bCurfewDone || GameState->GetPhase() != ERoundPhase::Night || GameState->GetPhaseRemainingSeconds() < GetRoundConfig()->BotOutsideSeconds + 35.f
 			|| Carry->IsCarrying() || KomendantDistance < 1500.f)
 		{
 			return false;
@@ -692,6 +732,10 @@ void AObshagaBotController::Arrive()
 			if (Item->GetItemState() == EItemState::World && FVector::Dist(Item->GetActorLocation(), Me->GetActorLocation()) < 260.f)
 			{
 				Item->Interact(Me);
+				if (Item->GetItemData()->bHeavy && Me->GetCarryComponent()->GetCarriedItem() == Item)
+				{
+					Say(static_cast<uint8>(ObshagaStory::EBotLine::BragTV));
+				}
 				UE_LOG(LogObshaga, Verbose, TEXT("Bot %s picked up %s (%s)"), *GetMyState()->GetPlayerName(), *Item->GetItemData()->ItemId.ToString(), *Item->GetName());
 			}
 		}
@@ -890,6 +934,26 @@ bool AObshagaBotController::HasClearLine(const FVector& From, const FVector& To)
 	return !GetWorld()->LineTraceSingleByChannel(Hit, From, To, ECC_Visibility, Params);
 }
 
+bool AObshagaBotController::HasClearWay(const FVector& From, const FVector& To) const
+{
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(BotClearWay), false);
+	for (TActorIterator<APawn> It(GetWorld()); It; ++It)
+	{
+		Params.AddIgnoredActor(*It);
+	}
+	for (TActorIterator<ADoorActor> It(GetWorld()); It; ++It)
+	{
+		Params.AddIgnoredActor(*It);
+	}
+	for (TActorIterator<AItemActor> It(GetWorld()); It; ++It)
+	{
+		Params.AddIgnoredActor(*It);
+	}
+	const float Radius = Me ? Me->GetCapsuleComponent()->GetScaledCapsuleRadius() + 6.f : 40.f;
+	FHitResult Hit;
+	return !GetWorld()->SweepSingleByChannel(Hit, From, To, FQuat::Identity, ECC_Visibility, FCollisionShape::MakeSphere(Radius), Params);
+}
+
 AKomendantWaypoint* AObshagaBotController::FindNearestWaypoint(const FVector& Location) const
 {
 	AKomendantWaypoint* Best = nullptr;
@@ -898,7 +962,7 @@ AKomendantWaypoint* AObshagaBotController::FindNearestWaypoint(const FVector& Lo
 	{
 		const FVector Delta = Waypoint->GetActorLocation() - Location;
 		// Точка на другом этаже «далеко», даже прямо над головой; точка за стеной хуже видимой.
-		float Score = Delta.Size() + (FMath::Abs(Delta.Z) > BotSameFloorHeight ? 100000.f : 0.f);
+		float Score = Delta.Size() + FMath::Abs(Delta.Z) * 3.f + (FMath::Abs(Delta.Z) > BotSameFloorHeight ? 100000.f : 0.f);
 		if (Score < BestScore && !HasClearLine(Waypoint->GetActorLocation(), Location))
 		{
 			Score += 10000.f;
@@ -973,8 +1037,10 @@ bool AObshagaBotController::PlanPathTo(const FVector& Target)
 	{
 		Path.Insert(Step->GetActorLocation(), 0);
 	}
-	// Первая точка пути позади — если до второй видно напрямую, первую пропускаем, чтобы не шагать назад.
-	if (Path.Num() > 1 && HasClearLine(Me->GetActorLocation(), Path[1]))
+	// Первая точка пути позади — если до второй можно пройти напрямую, первую пропускаем, чтобы не шагать назад.
+	// Проверяем шаром толщиной с жильца, а не тонким лучом: луч проходил в дверной проём наискосок, а сам жилец
+	// цеплялся плечом за косяк и застревал.
+	if (Path.Num() > 1 && HasClearWay(Me->GetActorLocation(), Path[1]))
 	{
 		Path.RemoveAt(0);
 	}
@@ -1008,11 +1074,28 @@ bool AObshagaBotController::FollowPath(float DeltaSeconds)
 	else
 	{
 		NoProgressTime += DeltaSeconds;
+		if (NoProgressTime > BotStuckSeconds * 0.4f)
+		{
+			// Сначала пробуем обойти препятствие боком (встречный жилец, угол мебели, створка двери).
+			const FVector Side = FVector::CrossProduct(FVector::UpVector, ToPoint.GetSafeNormal2D()) * (FMath::Fmod(NoProgressTime, 1.6f) < 0.8f ? 1.f : -1.f);
+			Me->AddMovementInput(Side);
+		}
 		if (NoProgressTime > BotStuckSeconds)
 		{
 			NoProgressTime = 0.f;
-			UE_LOG(LogObshaga, Verbose, TEXT("Bot %s stuck near %s, snapping to waypoint"), *GetNameSafe(GetMyState()), *Me->GetActorLocation().ToCompactString());
+			// Что мешает: капсулой на полметра вперёд, к точке.
+			FHitResult Block;
+			FCollisionQueryParams BlockParams(SCENE_QUERY_STAT(BotStuck), false, Me);
+			const FVector From = Me->GetActorLocation();
+			GetWorld()->SweepSingleByChannel(Block, From, From + ToPoint.GetSafeNormal2D() * 60.f, FQuat::Identity, ECC_Pawn,
+				FCollisionShape::MakeCapsule(Me->GetCapsuleComponent()->GetScaledCapsuleRadius(), Me->GetCapsuleComponent()->GetScaledCapsuleHalfHeight() * 0.8f), BlockParams);
+			UE_LOG(LogObshaga, Log, TEXT("Bot %s stuck near %s on the way to %s (point %d of %d), blocked by %s, snapping to waypoint"), GetMyState() ? *GetMyState()->GetPlayerName() : TEXT("-"),
+				*Me->GetActorLocation().ToCompactString(), *Point.ToCompactString(), PathIndex + 1, Path.Num(), *GetNameSafe(Block.GetActor()));
 			Me->SetActorLocation(Point, false, nullptr, ETeleportType::TeleportPhysics);
+			if (AObshagaGameMode* GameMode = GetWorld()->GetAuthGameMode<AObshagaGameMode>())
+			{
+				GameMode->ReportStuck(false);
+			}
 		}
 	}
 	return false;

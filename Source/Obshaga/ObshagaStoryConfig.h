@@ -94,6 +94,13 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Story")
 	TArray<FStoryInfo> Stories;
 
+	/**
+	 * Что говорят жильцы-боты, по ситуациям (по порядку EBotLine: увидел Палыча, поймали соседа, хвастается ТВ,
+	 * разбудила пожарная тревога, подтверждает алиби). Подпись набора — для того, кто правит тексты.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Story")
+	TArray<FKomendantLineSet> BotLines;
+
 	/** Пять ночей недели, с понедельника по пятницу. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Story")
 	TArray<FWeekNightInfo> WeekNights;

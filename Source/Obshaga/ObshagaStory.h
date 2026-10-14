@@ -58,6 +58,20 @@ namespace ObshagaStory
 	OBSHAGA_API FText DefaultStoryTitle(int32 Index);
 	OBSHAGA_API FText DefaultStoryText(int32 Index);
 
+	/** Реплики жильцов-ботов. */
+	enum class EBotLine : uint8
+	{
+		SpotKomendant,
+		NeighbourCaught,
+		BragTV,
+		FireAlarm,
+		Alibi,
+		Count
+	};
+	constexpr int32 BotLinesPerSituation = 4;
+	OBSHAGA_API FText BotLine(EBotLine Situation, int32 Variant);
+	OBSHAGA_API FText DefaultBotLine(EBotLine Situation, int32 Variant);
+
 	/** «Неделя в общаге №7»: пять ночей, с понедельника (0) по пятницу (4). */
 	constexpr int32 NumWeekNights = 5;
 	/** «Понедельник»… и короткое «Пн»… */

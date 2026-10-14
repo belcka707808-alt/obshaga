@@ -52,6 +52,9 @@ public:
 	/** Манера Палыча, заданная ночью недели: 0 — строгий, 1 — рассеянный, 2 — мстительный; -1 — любая. */
 	int32 GetWeekKomendantStyle() const;
 
+	/** Для телеметрии: кто-то упёрся и был перенесён на точку маршрута. */
+	void ReportStuck(bool bKomendant) { ++(bKomendant ? NumKomendantStuck : NumBotStuck); }
+
 	/** Кого комендант ловил в прошлом раунде (для мстительной личности). */
 	const TArray<TWeakObjectPtr<APlayerState>>& GetCaughtLastRound() const { return CaughtLastRound; }
 
@@ -133,6 +136,14 @@ private:
 	void TickFireAlarm();
 
 	float RoundStartWorldTime = 0.f;
+	int32 NumKomendantStuck = 0;
+	int32 NumBotStuck = 0;
+	/** Частота кадров за раунд (раз в секунду, на хосте): для отчёта о балансе и производительности. */
+	FTimerHandle FpsTimer;
+	float FpsMin = 0.f;
+	float FpsSum = 0.f;
+	int32 FpsSamples = 0;
+	void SampleFps();
 	int32 SmsSent = 0;
 	int32 NextPlayerNumber = 1;
 

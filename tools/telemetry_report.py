@@ -11,6 +11,8 @@ from collections import defaultdict
 # Пары заданий, которые мешают друг другу (CLAUDE.md, раздел 9). Если таблица DT_Tasks изменится — поправить и здесь.
 CONFLICTS = [
     ("steal_tv", "protect_tv"),
+    ("steal_tv", "investigate_theft"),
+    ("frame_roommate", "investigate_theft"),
     ("frame_roommate", "investigate_theft"),
     ("hide_contraband", "tip_off"),
     ("sabotage_kitchen", "fix_kitchen"),
@@ -29,6 +31,8 @@ DRAMA = {
     "ContrabandConfiscated": "изъята запрещёнка",
     "TipSucceeded": "стук сработал",
     "Accusation": "обвинение",
+    "InterrogationConfessed": "сознался на допросе",
+    "InterrogationSilent": "молчал на допросе",
 }
 
 # Цели из CLAUDE.md, раздел 12.
@@ -97,6 +101,17 @@ def main():
     average_drama = sum(drama) / len(drama)
     print("Драматические моменты: в среднем %.1f на раунд — %s (цель от %d); раундов без них: %d" % (
         average_drama, "в цели" if average_drama >= DRAMA_TARGET else "ниже цели", DRAMA_TARGET, sum(1 for count in drama if count == 0)))
+
+    stuck_k = [r.get("komendantStuck") for r in rounds if "komendantStuck" in r]
+    stuck_b = [r.get("botStuck") for r in rounds if "botStuck" in r]
+    if stuck_k:
+        print("Застревания (перенос на точку маршрута) за раунд: Палыч %.1f, боты %.1f" % (sum(stuck_k) / len(stuck_k), sum(stuck_b) / max(len(stuck_b), 1)))
+    fps = [(r["fpsMin"], r["fpsAvg"]) for r in rounds if "fpsAvg" in r]
+    if fps:
+        print("Частота кадров на хосте: минимум %d, в среднем %.0f" % (min(f[0] for f in fps), sum(f[1] for f in fps) / len(fps)))
+    bots = sum(1 for p in players if p.get("bot"))
+    if bots:
+        print("Из жильцов ботов: %d из %d" % (bots, len(players)))
 
     kinds = defaultdict(int)
     for r in rounds:

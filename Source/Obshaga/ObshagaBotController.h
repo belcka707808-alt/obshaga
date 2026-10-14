@@ -98,6 +98,8 @@ private:
 	AKomendantWaypoint* FindNearestWaypoint(const FVector& Location) const;
 	bool FollowPath(float DeltaSeconds);
 	bool HasClearLine(const FVector& From, const FVector& To) const;
+	/** Пройдёт ли жилец напрямую (шаром его толщины). */
+	bool HasClearWay(const FVector& From, const FVector& To) const;
 	void OpenDoorsNearby();
 	/** Точка маршрута в комнате с таким id (ближайшая к её середине); нулевой вектор — такой нет. */
 	FVector RoomPoint(FName RoomId) const;
@@ -146,6 +148,13 @@ private:
 	float TipAtTime = -1.f;
 	/** Допрос: когда ответить; на какой допрос уже решили про алиби. */
 	float AnswerAt = -1.f;
+	/** Реплика над головой: не чаще раза в BotLineCooldown. */
+	void Say(uint8 Situation);
+	float LastLineTime = -100.f;
+	float RoundStartTime = 0.f;
+	/** На какой допрос соседа уже отреагировали фразой; кричали ли про тревогу. */
+	TWeakObjectPtr<APlayerState> ReactedToCaught;
+	bool bFireAlarmGrumbled = false;
 	TWeakObjectPtr<APlayerState> AlibiDecidedFor;
 	/** Цель, до которой не дошёл: какое-то время её не берём. */
 	TWeakObjectPtr<AActor> GaveUpOn;
