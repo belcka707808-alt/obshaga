@@ -338,7 +338,7 @@ void AObshagaHUD::DrawEmotes(const AObshagaCharacter* Me)
 		const FText Speech = Speaker->GetActiveSpeech();
 		if (Speech.IsEmpty() || Speaker->IsHiding() || Speaker->IsGhost()
 			|| FVector::Dist(Speaker->GetActorLocation(), ViewLocation) > Config->EmoteVisibleDistance
-			|| (Speaker != Me && !Controller->LineOfSightTo(Speaker)))
+			|| (Speaker != Me && Speaker != Controller->GetViewTarget() && !Controller->LineOfSightTo(Speaker)))
 		{
 			continue;
 		}

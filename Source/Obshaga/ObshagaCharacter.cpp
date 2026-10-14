@@ -255,6 +255,7 @@ void AObshagaCharacter::MulticastBotLine_Implementation(uint8 Situation, uint8 V
 	BotSpeech = ObshagaStory::BotLine(static_cast<ObshagaStory::EBotLine>(Situation), Variant);
 	EmoteIndex = INDEX_NONE;
 	EmoteStartTime = GetWorld()->GetTimeSeconds();
+	UE_LOG(LogObshaga, Verbose, TEXT("%s says: %s"), *GetNameSafe(GetPlayerState()), *BotSpeech.ToString());
 }
 
 FText AObshagaCharacter::GetActiveSpeech() const
