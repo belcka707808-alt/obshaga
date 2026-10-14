@@ -472,7 +472,8 @@ void AKomendantAIController::Tick(float DeltaSeconds)
 	{
 		AObshagaCharacter* Player = Cast<AObshagaCharacter>(Actor);
 		// Спрятавшихся и выселенных призраков комендант не видит.
-		if (Player && !Player->IsHiding() && !Player->IsGhost())
+		const AObshagaPlayerState* SeenState = Player ? Player->GetPlayerState<AObshagaPlayerState>() : nullptr;
+		if (Player && !Player->IsHiding() && !Player->IsGhost() && !(SeenState && SeenState->IsEvicted()))
 		{
 			SeenPlayers.Add(Player);
 		}

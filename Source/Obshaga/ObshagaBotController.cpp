@@ -136,6 +136,7 @@ void AObshagaBotController::ResetForRound()
 	ReactedToCaught.Reset();
 	bFireAlarmGrumbled = false;
 	bCalledKomendant = false;
+	bKnowsBroken = false;
 	RoundStartTime = GetWorld()->GetTimeSeconds();
 	IdleUntil = GetWorld()->GetTimeSeconds() + FMath::FRandRange(1.f, 4.f);
 }
@@ -646,13 +647,21 @@ bool AObshagaBotController::PlanTaskRow(const FTaskRow& Row)
 
 	case ETaskCondition::DeviceRepaired:
 	{
+		// Чинить идёт только тот, кто знает о поломке: видел сломанный прибор сам. Иначе изредка заглядывает на кухню.
 		ADeviceActor* Device = FindDevice(true);
-		if (!Device || GaveUp(Device))
+		if (Device && !GaveUp(Device) && (bKnowsBroken || (FVector::Dist(Device->GetActorLocation(), Me->GetActorLocation()) < 900.f
+			&& HasClearLine(Me->GetActorLocation(), Device->GetActorLocation() + FVector(0.f, 0.f, 60.f)))))
 		{
-			return false;
+			bKnowsBroken = true;
+			TargetDevice = Device;
+			return WalkTo(Device->GetActorLocation(), EBotGoal::RepairDevice, 160.f);
 		}
-		TargetDevice = Device;
-		return WalkTo(Device->GetActorLocation(), EBotGoal::RepairDevice, 160.f);
+		ADeviceActor* Any = Device ? Device : FindDevice(false);
+		if (Any && FMath::FRand() < 0.15f)
+		{
+			return WalkTo(Any->GetActorLocation() + FVector(FMath::FRandRange(-200.f, 200.f), FMath::FRandRange(-200.f, 200.f), 0.f), EBotGoal::Wander, 200.f);
+		}
+		return false;
 	}
 
 	case ETaskCondition::NoteReadByDistinctPlayers:
@@ -714,6 +723,18 @@ bool AObshagaBotController::PlanTaskRow(const FTaskRow& Row)
 void AObshagaBotController::PlanWander()
 {
 	const UObshagaRoundConfig* Config = GetRoundConfig();
+	// «Не попадись на глаза»: такой бот по общаге не гуляет, а сидит у себя в комнате.
+	if (GetMyState()->GetTaskComponent()->FindRowByCondition(ETaskCondition::NeverSpottedWholeRound) && FMath::FRand() < 0.8f)
+	{
+		const ARoomVolume* Home = ARoomVolume::FindRoomById(this, GetMyState()->GetHomeRoomId());
+		const ARoomVolume* Here = ARoomVolume::FindRoomAt(this, Me->GetActorLocation());
+		if (Home && Here != Home && WalkTo(RoomPoint(Home->RoomId), EBotGoal::Wander, 150.f))
+		{
+			return;
+		}
+		IdleUntil = GetWorld()->GetTimeSeconds() + FMath::FRandRange(Config->BotIdleMaxSeconds, Config->BotIdleMaxSeconds * 3.f);
+		return;
+	}
 	// Прогулка: случайная точка на своём этаже, чаще в коридоре и общих комнатах.
 	TArray<AKomendantWaypoint*> Candidates;
 	for (AKomendantWaypoint* Waypoint : Waypoints)

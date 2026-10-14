@@ -328,12 +328,16 @@ void AObshagaHUD::DrawEmotes(const AObshagaCharacter* Me)
 	// Фразы над головами — и над своей тоже. Сквозь стены не видны.
 	const APlayerController* Controller = GetOwningPlayerController();
 	const UObshagaCharacterConfig* Config = Me->GetConfig();
+	// Расстояние — от камеры: она обычно за спиной игрока, но может смотреть и чужими глазами (допрос, проверки).
+	FVector ViewLocation;
+	FRotator ViewRotation;
+	Controller->GetPlayerViewPoint(ViewLocation, ViewRotation);
 	for (TActorIterator<AObshagaCharacter> It(GetWorld()); It; ++It)
 	{
 		const AObshagaCharacter* Speaker = *It;
 		const FText Speech = Speaker->GetActiveSpeech();
 		if (Speech.IsEmpty() || Speaker->IsHiding() || Speaker->IsGhost()
-			|| FVector::Dist(Speaker->GetActorLocation(), Me->GetActorLocation()) > Config->EmoteVisibleDistance
+			|| FVector::Dist(Speaker->GetActorLocation(), ViewLocation) > Config->EmoteVisibleDistance
 			|| (Speaker != Me && !Controller->LineOfSightTo(Speaker)))
 		{
 			continue;

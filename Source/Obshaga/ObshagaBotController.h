@@ -157,6 +157,8 @@ private:
 	bool bFireAlarmGrumbled = false;
 	/** Сторож телевизора уже позвал Палыча к вору (раз за раунд). */
 	bool bCalledKomendant = false;
+	/** Чинящий бот видел сломанный прибор. */
+	bool bKnowsBroken = false;
 	/** Сторож видит, что его предмет уносят, — зовёт Палыча к вору. */
 	void GuardWatch();
 	TWeakObjectPtr<APlayerState> AlibiDecidedFor;

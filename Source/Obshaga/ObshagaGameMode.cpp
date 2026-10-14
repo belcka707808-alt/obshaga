@@ -1320,7 +1320,12 @@ void AObshagaGameMode::Evict(AObshagaPlayerState* PlayerState, AObshagaCharacter
 	PlayerState->SetScore(PlayerState->GetScore() - GetRoundConfig()->EvictionPenalty);
 	if (Character)
 	{
-		Character->SetGhost(true);
+		// Выселенный бот у всех на виду уходит к ночному выходу и там исчезает (его мозг сам уберёт персонажа).
+		// Палыч его больше не видит и не ловит. Человек становится наблюдателем сразу.
+		if (!PlayerState->IsABot())
+		{
+			Character->SetGhost(true);
+		}
 		UGameEventSubsystem::PublishFrom(Character, EGameEventType::PlayerEvicted);
 	}
 	NotifyAll(FText::Format(LOCTEXT("Evicted", "{0} выселен из общаги!"), FText::FromString(PlayerState->GetPlayerName())));
