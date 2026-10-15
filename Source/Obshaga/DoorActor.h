@@ -5,6 +5,7 @@
 #include "Interactable.h"
 #include "DoorActor.generated.h"
 
+class ANightExitDoor;
 class UStaticMeshComponent;
 
 UENUM()
@@ -97,4 +98,10 @@ protected:
 
 private:
 	float CurrentYaw = 0.f;
+
+	/**
+	 * Ночной выход, в проёме которого стоит эта дверь (если стоит). Снаружи такая дверь не просто открывается,
+	 * а сразу впускает в общагу — иначе спрыгнувшему с балкона нужно два нажатия: открыть створку, потом войти.
+	 */
+	TWeakObjectPtr<ANightExitDoor> NightExit;
 };
