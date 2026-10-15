@@ -6,7 +6,8 @@
 
 /**
  * Ночной выход на улицу. Устроен как укрытие: кто вышел — «спрятан» за дверью, пока не вернётся.
- * Открыт только ночью; предметы сюда не прячут. Комендант может проверить дверь и застать гуляку.
+ * Выйти можно только ночью; предметы сюда не прячут. Комендант может проверить дверь и застать гуляку.
+ * Снаружи дверь открыта всегда: кто оказался на улице иначе (спрыгнул с балкона), возвращается через неё.
  */
 UCLASS()
 class OBSHAGA_API ANightExitDoor : public AHidingSpot
@@ -28,11 +29,24 @@ public:
 	/** Сервер: ночь кончилась — того, кто на улице, загоняют обратно. */
 	void ForceReturn();
 
+	/** Сервер: впустить того, кто стоит снаружи не через эту дверь (спрыгнул с балкона), и сказать ему Notice. */
+	void LetIn(AObshagaCharacter* Character, const FText& Notice);
+
 protected:
 	virtual void EjectHiddenPlayer() override;
 
 private:
 	bool IsNight() const;
+	/** Стоит ли персонаж снаружи, за задней стороной двери (а не спрятан за ней как гуляющий). */
+	bool IsOnStreetSide(const AObshagaCharacter* By) const;
 
 	float LeftTime = 0.f;
+
+	/**
+	 * Кто только что вернулся в общагу через эту дверь. Его клиент ещё долю секунды видит себя снаружи и подсказку
+	 * «Вернуться»; повторное нажатие в это время — не просьба выйти на улицу.
+	 */
+	TWeakObjectPtr<AObshagaCharacter> LastReturned;
+	float LastReturnedTime = -100.f;
+	void RememberReturned(AObshagaCharacter* Character);
 };

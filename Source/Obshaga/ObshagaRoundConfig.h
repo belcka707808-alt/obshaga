@@ -196,6 +196,20 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tasks", meta = (ClampMin = "0", Units = "s"))
 	float CurfewOutsideSeconds = 10.f;
 
+	/**
+	 * Кто оказался снаружи общаги не через ночной выход (спрыгнул с балкона) и за это время не вернулся сам через дверь,
+	 * того впускают через ночной выход: вдруг до двери снаружи не дойти.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Round", meta = (ClampMin = "1", Units = "s"))
+	float StrandedReturnSeconds = 20.f;
+
+	/**
+	 * Зона общаги ближе этого (по горизонтали, на её высоте) и без стены между ней и жильцом — значит, он ещё внутри
+	 * (стык зон, дверной проём), а не снаружи.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Round", meta = (ClampMin = "0", Units = "cm"))
+	float StrandedMargin = 100.f;
+
 	/** Подозрение вору, которого верно назвали коменданту. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tasks", meta = (ClampMin = "0"))
 	float AccusationSuspicion = 40.f;

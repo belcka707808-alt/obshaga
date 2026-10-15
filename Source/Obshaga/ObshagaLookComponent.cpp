@@ -19,8 +19,8 @@ namespace
 	constexpr float SpeedSmoothing = 6.f;
 	// Сколько разовый клип (взял, жест) ждёт, пока персонаж остановится.
 	constexpr float OneShotWaitSeconds = 1.f;
-	// Пределы ускорения и замедления клипов ходьбы и бега.
-	constexpr float MinStepRate = 0.6f;
+	// Пределы ускорения и замедления клипов ходьбы и бега. Нижний — ниже шага с телевизором (165 из 300 см/с), иначе ноги скользят.
+	constexpr float MinStepRate = 0.5f;
 	constexpr float MaxStepRate = 1.5f;
 }
 
@@ -164,10 +164,7 @@ UAnimSequenceBase* UObshagaLookComponent::PickAnimation(bool& bOutLoop)
 	{
 		return Config->Crouch;
 	}
-	if (Resident && Resident->GetCarryComponent()->IsCarrying() && Config->Carry)
-	{
-		return Config->Carry;
-	}
+	// Предмет в руках клип не меняет: ноги идут как обычно, а руки поверх них держат предмет (см. TickComponent).
 	if (Speed > Config->RunSpeedThreshold && Config->Sprint)
 	{
 		return Config->Sprint;
@@ -199,7 +196,7 @@ void UObshagaLookComponent::TickComponent(float DeltaTime, ELevelTick TickType, 
 	if (UObshagaAnimInstance* Animator = Cast<UObshagaAnimInstance>(CastChecked<ACharacter>(GetOwner())->GetMesh()->GetAnimInstance()))
 	{
 		float Rate = 1.f;
-		if (Wanted && (Wanted == LookConfig->Walk || Wanted == LookConfig->Carry))
+		if (Wanted && Wanted == LookConfig->Walk)
 		{
 			Rate = SmoothedSpeed / LookConfig->WalkClipSpeed;
 		}
@@ -208,6 +205,16 @@ void UObshagaLookComponent::TickComponent(float DeltaTime, ELevelTick TickType, 
 			Rate = SmoothedSpeed / LookConfig->SprintClipSpeed;
 		}
 		Animator->SetPlayRate(FMath::Clamp(Rate, MinStepRate, MaxStepRate));
+
+		// Несёт предмет: руки держат его поверх любого клипа, кроме разовых (взял, бросил, жест — там руки заняты).
+		const AObshagaCharacter* Resident = Cast<AObshagaCharacter>(GetOwner());
+		UAnimSequence* Hold = (Resident && Resident->GetCarryComponent()->IsCarrying() && bLoop) ? Cast<UAnimSequence>(LookConfig->Carry) : nullptr;
+		Animator->SetOverlay(Hold, LookConfig->CarryBones, LookConfig->BlendSeconds);
+		if ((Hold != nullptr) != bHolding)
+		{
+			bHolding = Hold != nullptr;
+			UE_LOG(LogObshaga, Verbose, TEXT("[%s] %s holds item: %d"), *GetNameSafe(GetWorld()), *GetOwner()->GetName(), bHolding ? 1 : 0);
+		}
 	}
 	if (Wanted && Wanted != Current)
 	{
@@ -227,5 +234,5 @@ void UObshagaLookComponent::TickComponent(float DeltaTime, ELevelTick TickType, 
 
 FString UObshagaLookComponent::GetCurrentAnimName() const
 {
-	return GetNameSafe(Current);
+	return bHolding ? GetNameSafe(Current) + TEXT("+holding") : GetNameSafe(Current);
 }

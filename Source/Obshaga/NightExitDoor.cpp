@@ -8,11 +8,15 @@
 #include "ObshagaGameState.h"
 #include "ObshagaPlayerController.h"
 #include "ObshagaRoundConfig.h"
+#include "GameFramework/CharacterMovementComponent.h"
 
 #define LOCTEXT_NAMESPACE "NightExitDoor"
 
 namespace
 {
+	// Сколько после возвращения повторное нажатие E не выпускает обратно на улицу (с запасом на задержку сети).
+	constexpr float ReturnGuardSeconds = 1.f;
+
 	void NotifyWalker(AObshagaCharacter* Character, const FText& Text)
 	{
 		if (AObshagaPlayerController* Controller = Character ? Cast<AObshagaPlayerController>(Character->GetController()) : nullptr)
@@ -38,13 +42,19 @@ bool ANightExitDoor::IsNight() const
 	return GameState && GameState->GetRoundState() == ERoundState::InProgress && GameState->GetPhase() == ERoundPhase::Night;
 }
 
+bool ANightExitDoor::IsOnStreetSide(const AObshagaCharacter* By) const
+{
+	// «Лицо» двери (+X) смотрит в общагу, улица — с обратной стороны.
+	return By && !By->IsHiding() && FVector::DotProduct(By->GetActorLocation() - GetActorLocation(), GetActorForwardVector()) < -BoxSize.X * 0.5f;
+}
+
 FText ANightExitDoor::GetInteractionPrompt(const AObshagaCharacter* By) const
 {
 	if (!By)
 	{
 		return FText::GetEmpty();
 	}
-	if (By->GetHidingSpot() == this)
+	if (By->GetHidingSpot() == this || IsOnStreetSide(By))
 	{
 		return LOCTEXT("Return", "Вернуться в общагу");
 	}
@@ -83,6 +93,32 @@ void ANightExitDoor::ForceReturn()
 	}
 }
 
+void ANightExitDoor::LetIn(AObshagaCharacter* Character, const FText& Notice)
+{
+	if (!HasAuthority() || !Character || Character->IsHiding())
+	{
+		return;
+	}
+
+	// Встаёт там же, где выходит вернувшийся гуляка: перед дверью со стороны общаги.
+	const FVector Inside = ExitPoint->GetComponentLocation();
+	Character->GetCharacterMovement()->StopMovementImmediately();
+	if (!Character->TeleportTo(Inside, Character->GetActorRotation()))
+	{
+		Character->SetActorLocation(Inside, false, nullptr, ETeleportType::TeleportPhysics);
+	}
+	Character->ForceNetUpdate();
+	RememberReturned(Character);
+	NotifyWalker(Character, Notice);
+	UE_LOG(LogObshaga, Verbose, TEXT("%s let in from the street through %s"), *Character->GetName(), *GetName());
+}
+
+void ANightExitDoor::RememberReturned(AObshagaCharacter* Character)
+{
+	LastReturned = Character;
+	LastReturnedTime = GetWorld()->GetTimeSeconds();
+}
+
 void ANightExitDoor::Interact(AObshagaCharacter* By)
 {
 	if (!HasAuthority() || !By)
@@ -101,7 +137,18 @@ void ANightExitDoor::Interact(AObshagaCharacter* By)
 		EjectHiddenPlayer();
 		return;
 	}
+	// Оказался на улице не через эту дверь (спрыгнул с балкона): снаружи она открыта всегда, иначе назад не попасть.
+	if (IsOnStreetSide(By))
+	{
+		LetIn(By, LOCTEXT("CameIn", "Ты вернулся в общагу через ночной выход"));
+		return;
+	}
 	if (!IsNight() || By->IsHiding() || By->GetCarryComponent()->IsCarrying())
+	{
+		return;
+	}
+	// Только что вернулся, а клиент ещё не узнал об этом и нажал «Вернуться» второй раз.
+	if (LastReturned.Get() == By && GetWorld()->GetTimeSeconds() - LastReturnedTime < ReturnGuardSeconds)
 	{
 		return;
 	}
@@ -128,6 +175,7 @@ void ANightExitDoor::EjectHiddenPlayer()
 	{
 		return;
 	}
+	RememberReturned(Player);
 
 	// Вылазка засчитывается, только если гулял достаточно долго.
 	const AObshagaGameMode* GameMode = GetWorld()->GetAuthGameMode<AObshagaGameMode>();

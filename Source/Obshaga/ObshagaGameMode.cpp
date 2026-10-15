@@ -25,6 +25,7 @@
 #include "SuspicionComponent.h"
 #include "TaskComponent.h"
 #include "TaskDirector.h"
+#include "Components/BoxComponent.h"
 #include "Dom/JsonObject.h"
 #include "Engine/PlayerStartPIE.h"
 #include "EngineUtils.h"
@@ -91,6 +92,86 @@ void AObshagaGameMode::BeginPlay()
 	{
 		const float Delay = FMath::Max(GetRoundConfig()->StartDelaySeconds, 0.1f);
 		GetWorldTimerManager().SetTimer(PhaseTimer, this, &AObshagaGameMode::StartRound, Delay, false);
+	}
+
+	GetWorldTimerManager().SetTimer(StrandedTimer, this, &AObshagaGameMode::CheckStrandedPlayers, 1.f, true);
+}
+
+bool AObshagaGameMode::IsOutsideBuilding(const AObshagaCharacter* Character) const
+{
+	// Снаружи — центр персонажа ни в одной зоне, а до ближних зон его высоты не дойти без стены.
+	// Близкая зона без стены между ними — это стык зон или дверной проём внутри общаги, а не улица.
+	// Капсулу не берём: прижавшись к наружной стене с улицы, она задевает зону за стеной.
+	const FVector Location = Character->GetActorLocation();
+	if (ARoomVolume::FindRoomAt(this, Location))
+	{
+		return false;
+	}
+	const float Margin = GetRoundConfig()->StrandedMargin;
+	const FCollisionQueryParams Params(SCENE_QUERY_STAT(StrandedCheck), false, Character);
+	const FCollisionObjectQueryParams Walls(ECC_WorldStatic);
+	for (TActorIterator<ARoomVolume> It(GetWorld()); It; ++It)
+	{
+		const FBox Box = It->GetBox()->Bounds.GetBox();
+		if (!Box.ExpandBy(FVector(Margin, Margin, 50.f)).IsInsideOrOn(Location))
+		{
+			continue;
+		}
+		// Луч заходит в зону на полметра: стена стоит у края зоны, и луч до самого края мог бы её не задеть.
+		const FVector Edge = Box.GetClosestPointTo(Location);
+		const FVector Target = Edge + (Edge - Location).GetSafeNormal2D() * 50.f;
+		FHitResult Hit;
+		if (!GetWorld()->LineTraceSingleByObjectType(Hit, Location, Target, Walls, Params))
+		{
+			return false;
+		}
+	}
+	return true;
+}
+
+void AObshagaGameMode::CheckStrandedPlayers()
+{
+	const float Now = GetWorld()->GetTimeSeconds();
+	for (TActorIterator<AObshagaCharacter> It(GetWorld()); It; ++It)
+	{
+		AObshagaCharacter* Character = *It;
+		const AObshagaPlayerState* State = Character->GetPlayerState<AObshagaPlayerState>();
+		// Гуляющий через ночной выход «спрятан» за дверью, выселенный бот уходит из общаги сам, а на допросе стоят на месте.
+		// Выселенный человек — призрак-наблюдатель: трогать дверь он не может, и если спрыгнул с балкона, вернуть его можно только так.
+		const bool bLeavingBot = State && State->IsEvicted() && State->IsABot();
+		const bool bStranded = !Character->IsHiding() && !Character->IsFrozen() && !bLeavingBot && IsOutsideBuilding(Character);
+		if (!bStranded)
+		{
+			OutsideSince.Remove(Character);
+			continue;
+		}
+
+		const float Since = OutsideSince.FindOrAdd(Character, Now);
+		if (Now - Since < GetRoundConfig()->StrandedReturnSeconds)
+		{
+			continue;
+		}
+		OutsideSince.Remove(Character);
+		UE_LOG(LogObshaga, Verbose, TEXT("%s stranded outside at %s for %.0f s"), *Character->GetName(), *Character->GetActorLocation().ToCompactString(), Now - Since);
+
+		TActorIterator<ANightExitDoor> Door(GetWorld());
+		if (Door)
+		{
+			Door->LetIn(Character, LOCTEXT("Stranded", "Нагулялся снаружи: вернулся через ночной выход"));
+		}
+		else if (const AActor* Start = Character->GetController() ? FindPlayerStart(Character->GetController()) : nullptr)
+		{
+			Character->TeleportTo(Start->GetActorLocation(), Start->GetActorRotation());
+		}
+	}
+
+	// Ушедшие из игры персонажи больше не нужны.
+	for (auto It = OutsideSince.CreateIterator(); It; ++It)
+	{
+		if (!It.Key().IsValid())
+		{
+			It.RemoveCurrent();
+		}
 	}
 }
 
