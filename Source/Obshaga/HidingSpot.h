@@ -52,6 +52,11 @@ public:
 	/** Где стоит спрятавшийся игрок. HalfHeight — половина роста его капсулы. */
 	virtual FVector GetHiddenPlayerLocation(float HalfHeight) const;
 
+	/** Откуда смотрит камера спрятавшегося: у самой дверцы снаружи, на высоте глаз (как в щель). */
+	FVector GetPeekLocation() const;
+	/** Куда она смотрит сразу после того, как игрок спрятался: из тайника наружу. */
+	FRotator GetPeekRotation() const;
+
 	/** Сервер: опустошить тайник (реванш). Предметы и игроков возвращает на место тот, кто вызывает. */
 	void ResetSpot();
 

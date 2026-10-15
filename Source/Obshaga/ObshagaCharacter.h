@@ -74,11 +74,14 @@ public:
 
 	// Только сервер. Вызывает AHidingSpot.
 	void EnterHidingSpot(AHidingSpot* Spot);
-	void ExitHidingSpot(const FVector& ExitLocation);
+	/** SideStep — куда сдвинуться (и в обратную сторону), если прямо в точке выхода кто-то стоит. */
+	void ExitHidingSpot(const FVector& ExitLocation, const FVector& SideStep = FVector::ZeroVector);
 
 protected:
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+	/** Сменился управляющий (сервер и своя машина): камере в укрытии надо знать, чей это персонаж. */
+	virtual void NotifyControllerChanged() override;
 
 	UFUNCTION(Server, Reliable)
 	void ServerSetSprinting(bool bNewSprinting);
@@ -131,6 +134,12 @@ protected:
 	/** После приседа и вставания движок ставит меш на высоту манекена — возвращаем высоту надетой модели. */
 	void FixLookMeshHeight(float CrouchAdjust);
 	void ApplyHiding();
+	/** Своя машина: в шкафу или кабинке камера смотрит наружу из-за дверцы, на выходе рука камеры прежняя. */
+	void UpdateHidingCamera();
+	/** Своя машина: запрет на бег кончился, а Shift всё ещё зажат — снова бежим. */
+	void ResumeSprintIfHeld();
+	/** Этим персонажем управляет игрок за этой машиной (не бот и не чужой игрок). */
+	bool IsLocalHuman() const;
 	void PublishRoomEvent(EGameEventType Type, const ARoomVolume* Room);
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Camera")
@@ -174,6 +183,20 @@ protected:
 
 private:
 	TArray<TWeakObjectPtr<ARoomVolume>> OverlappingRooms;
+
+	/** Своя машина: игрок просил бег (держит Shift), даже если бежать сейчас нельзя. */
+	bool bSprintHeld = false;
+
+	// Камера в укрытии (только своя машина): смотрит ли сейчас из-за дверцы, из какого тайника
+	// и какой была рука камеры до этого.
+	bool bPeekCamera = false;
+	TWeakObjectPtr<AHidingSpot> PeekSpot;
+	FVector SavedBoomLocation = FVector::ZeroVector;
+	float SavedBoomArmLength = 0.f;
+	bool bSavedBoomCollisionTest = true;
+	/** Вышел из укрытия, но своя машина ещё видит персонажа внутри мебели: ждём, пока придёт новое место. */
+	FTimerHandle PeekRestoreTimer;
+	float PeekRestoreDeadline = 0.f;
 
 	// Фраза над головой: у каждой машины своя копия и свои часы.
 	int32 EmoteIndex = INDEX_NONE;

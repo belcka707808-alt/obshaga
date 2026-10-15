@@ -1236,15 +1236,31 @@ bool AObshagaBotController::FollowPath(float DeltaSeconds)
 		if (NoProgressTime > BotStuckSeconds)
 		{
 			NoProgressTime = 0.f;
-			// Что мешает: капсулой на полметра вперёд, к точке.
+			// Что мешает: капсулой на полметра вперёд, к точке. Других ботов бот проходит насквозь — их и здесь не считаем.
 			FHitResult Block;
 			FCollisionQueryParams BlockParams(SCENE_QUERY_STAT(BotStuck), false, Me);
+			FCollisionResponseParams BlockResponse;
+			Me->GetCapsuleComponent()->InitSweepCollisionParams(BlockParams, BlockResponse);
 			const FVector From = Me->GetActorLocation();
 			GetWorld()->SweepSingleByChannel(Block, From, From + ToPoint.GetSafeNormal2D() * 60.f, FQuat::Identity, ECC_Pawn,
-				FCollisionShape::MakeCapsule(Me->GetCapsuleComponent()->GetScaledCapsuleRadius(), Me->GetCapsuleComponent()->GetScaledCapsuleHalfHeight() * 0.8f), BlockParams);
+				FCollisionShape::MakeCapsule(Me->GetCapsuleComponent()->GetScaledCapsuleRadius(), Me->GetCapsuleComponent()->GetScaledCapsuleHalfHeight() * 0.8f), BlockParams, BlockResponse);
+
+			// Дорогу загородил человек или Палыч (встал в дверях) — сквозь него не переносим, иначе оба застревали
+			// друг в друге. Бот и дальше обходит его боком, а не дойдёт — бросит цель, как обычно.
+			if (Cast<APawn>(Block.GetActor()))
+			{
+				UE_LOG(LogObshaga, Verbose, TEXT("Bot %s blocked by %s on the way to %s, side-stepping"), GetMyState() ? *GetMyState()->GetPlayerName() : TEXT("-"),
+					*GetNameSafe(Block.GetActor()), *Point.ToCompactString());
+				return false;
+			}
+
 			UE_LOG(LogObshaga, Log, TEXT("Bot %s stuck near %s on the way to %s (point %d of %d), blocked by %s, snapping to waypoint"), GetMyState() ? *GetMyState()->GetPlayerName() : TEXT("-"),
 				*Me->GetActorLocation().ToCompactString(), *Point.ToCompactString(), PathIndex + 1, Path.Num(), *GetNameSafe(Block.GetActor()));
-			Me->SetActorLocation(Point, false, nullptr, ETeleportType::TeleportPhysics);
+			// TeleportTo не ставит внутрь мебели или чужой капсулы; свободного места у точки нет — переносить некуда.
+			if (!Me->TeleportTo(Point, Me->GetActorRotation()))
+			{
+				UE_LOG(LogObshaga, Verbose, TEXT("Bot %s: no free room at %s, snap skipped"), GetMyState() ? *GetMyState()->GetPlayerName() : TEXT("-"), *Point.ToCompactString());
+			}
 			if (AObshagaGameMode* GameMode = GetWorld()->GetAuthGameMode<AObshagaGameMode>())
 			{
 				GameMode->ReportStuck(false);

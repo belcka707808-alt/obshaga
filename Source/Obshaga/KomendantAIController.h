@@ -156,6 +156,8 @@ private:
 	int32 PathIndex = 0;
 	float BestDistanceToPoint = 0.f;
 	float NoProgressTime = 0.f;
+	/** Сколько раз подряд он упёрся и не перенёсся: дорогу загораживал жилец (сквозь людей не переносится) или у точки не было места. */
+	int32 PawnBlockedCount = 0;
 
 	// Обход.
 	float WaitTime = 0.f;

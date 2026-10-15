@@ -43,6 +43,9 @@ namespace
 	constexpr float ArriveHeight = 220.f;
 	constexpr float DoorOpenDistance = 190.f;
 	constexpr float StuckSeconds = 2.5f;
+	// Сколько раз подряд по StuckSeconds он ждёт, пока жилец уйдёт с дороги (или у точки освободится место для переноса),
+	// прежде чем бросить путь.
+	constexpr int32 StuckBehindPawnWaits = 3;
 	constexpr float DirectChaseDistance = 900.f;
 	constexpr float SameFloorHeight = 150.f;
 	// Обыск: с какого расстояния начинает рыться, сколько секунд подходит и дальше чего не дотянется.
@@ -809,6 +812,12 @@ void AKomendantAIController::TickChase(float DeltaSeconds)
 		}
 		else
 		{
+			// Не видел, куда тот делся, — это такой же удачный побег, как если бы нарушитель просто убежал.
+			if (const AObshagaPlayerState* TargetState = Target->GetPlayerState<AObshagaPlayerState>())
+			{
+				TargetState->GetSuspicionComponent()->SetSuspicion(GetRoundConfig()->SuspicionAfterStrike);
+				NotifyPlayer(TargetState, LOCTEXT("LostHiddenNotice", "Палыч тебя потерял — посиди тихо"));
+			}
 			StartInvestigate(LastKnownLocation);
 		}
 		return;
@@ -1045,6 +1054,7 @@ bool AKomendantAIController::FollowPath(float Speed, float DeltaSeconds)
 		++PathIndex;
 		BestDistanceToPoint = TNumericLimits<float>::Max();
 		NoProgressTime = 0.f;
+		PawnBlockedCount = 0;
 		return !Path.IsValidIndex(PathIndex);
 	}
 
@@ -1054,6 +1064,7 @@ bool AKomendantAIController::FollowPath(float Speed, float DeltaSeconds)
 	{
 		BestDistanceToPoint = Distance;
 		NoProgressTime = 0.f;
+		PawnBlockedCount = 0;
 	}
 	else
 	{
@@ -1069,19 +1080,46 @@ bool AKomendantAIController::FollowPath(float Speed, float DeltaSeconds)
 				PathIndex = Path.Num();
 				return true;
 			}
-			// Что мешает: капсулой на полметра вперёд, к точке.
+			// Что мешает: капсулой на полметра вперёд, к точке (с теми же исключениями, что и при ходьбе).
 			FHitResult Block;
 			FCollisionQueryParams BlockParams(SCENE_QUERY_STAT(KomendantStuck), false, Komendant);
+			FCollisionResponseParams BlockResponse;
+			Komendant->GetCapsuleComponent()->InitSweepCollisionParams(BlockParams, BlockResponse);
 			const FVector From = Komendant->GetActorLocation();
 			GetWorld()->SweepSingleByChannel(Block, From, From + (Point - From).GetSafeNormal2D() * 60.f, FQuat::Identity, ECC_Pawn,
-				FCollisionShape::MakeCapsule(Komendant->GetCapsuleComponent()->GetScaledCapsuleRadius(), Komendant->GetCapsuleComponent()->GetScaledCapsuleHalfHeight() * 0.8f), BlockParams);
-			UE_LOG(LogObshaga, Warning, TEXT("Komendant stuck near %s on the way to %s (point %d of %d), blocked by %s, snapping to waypoint"),
-				*Komendant->GetActorLocation().ToCompactString(), *Point.ToCompactString(), PathIndex + 1, Path.Num(), *GetNameSafe(Block.GetActor()));
-			if (AObshagaGameMode* StuckMode = GetWorld()->GetAuthGameMode<AObshagaGameMode>())
+				FCollisionShape::MakeCapsule(Komendant->GetCapsuleComponent()->GetScaledCapsuleRadius(), Komendant->GetCapsuleComponent()->GetScaledCapsuleHalfHeight() * 0.8f), BlockParams, BlockResponse);
+
+			// Дорогу загородил жилец (встал в дверях) — сквозь него не переносим, иначе оба застревали друг в друге.
+			if (Cast<APawn>(Block.GetActor()))
 			{
-				StuckMode->ReportStuck(true);
+				UE_LOG(LogObshaga, Verbose, TEXT("Komendant blocked by %s on the way to %s, waiting (%d of %d)"),
+					*GetNameSafe(Block.GetActor()), *Point.ToCompactString(), PawnBlockedCount + 1, StuckBehindPawnWaits);
 			}
-			Komendant->SetActorLocation(Point, false, nullptr, ETeleportType::TeleportPhysics);
+			else
+			{
+				UE_LOG(LogObshaga, Warning, TEXT("Komendant stuck near %s on the way to %s (point %d of %d), blocked by %s, snapping to waypoint"),
+					*Komendant->GetActorLocation().ToCompactString(), *Point.ToCompactString(), PathIndex + 1, Path.Num(), *GetNameSafe(Block.GetActor()));
+				if (AObshagaGameMode* StuckMode = GetWorld()->GetAuthGameMode<AObshagaGameMode>())
+				{
+					StuckMode->ReportStuck(true);
+				}
+				// TeleportTo не ставит внутрь мебели или чужой капсулы; свободного места у точки нет — переносить некуда.
+				if (Komendant->TeleportTo(Point, Komendant->GetActorRotation()))
+				{
+					return false;
+				}
+				UE_LOG(LogObshaga, Verbose, TEXT("Komendant: no free room at %s, snap skipped"), *Point.ToCompactString());
+			}
+
+			// Ждём, пока жилец отойдёт или у точки освободится место. Не выходит несколько раз подряд — бросаем этот путь,
+			// как будто дошли, и идём дальше по своим делам: иначе тот, кто встал в дверях, держал бы Палыча вечно.
+			++PawnBlockedCount;
+			if (PawnBlockedCount >= StuckBehindPawnWaits)
+			{
+				PawnBlockedCount = 0;
+				PathIndex = Path.Num();
+				return true;
+			}
 		}
 	}
 	return false;
@@ -1141,6 +1179,7 @@ bool AKomendantAIController::PlanPathTo(const FVector& Goal, bool bGoalNeedsSigh
 	PathIndex = 0;
 	BestDistanceToPoint = TNumericLimits<float>::Max();
 	NoProgressTime = 0.f;
+	PawnBlockedCount = 0;
 
 	// Стартовая точка — ближайшая, до которой можно пройти напрямую телом Палыча (мебель мешает, люди и двери — нет).
 	// Иначе после обыска шкафа он выбирал точку за этим же шкафом и упирался в него.

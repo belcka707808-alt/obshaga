@@ -20,12 +20,27 @@
 
 namespace
 {
+	// Геометрия, а не баланс. Насколько вбок от дверцы встаёт выходящий, если прямо перед ней кто-то стоит.
+	constexpr float ExitSideStep = 80.f;
+	// Камера спрятавшегося: насколько перед «лицом» тайника (изнутри мебель видна насквозь), на какой высоте
+	// (как обычная камера над стоящим жильцом) и насколько ниже крыши тайника, если он низкий; наклон взгляда вниз.
+	constexpr float PeekForwardOffset = 15.f;
+	constexpr float PeekHeight = 140.f;
+	constexpr float PeekBelowTop = 20.f;
+	constexpr float PeekPitch = -10.f;
+
 	void Notify(AObshagaCharacter* Character, const FText& Text)
 	{
 		if (AObshagaPlayerController* Controller = Character ? Cast<AObshagaPlayerController>(Character->GetController()) : nullptr)
 		{
 			Controller->ClientShowNotice(Text);
 		}
+	}
+
+	FText DropFirstText()
+	{
+		// «Положи», как в строке «[G] положить» внизу экрана: «бросить» там — ЛКМ, а бросок шумит, тяжёлое ещё и роняет игрока.
+		return LOCTEXT("HideSelfDropFirst", "Спрятаться — сначала положи вещь [G]");
 	}
 }
 
@@ -108,9 +123,14 @@ FText AHidingSpot::GetInteractionPrompt(const AObshagaCharacter* By) const
 
 FText AHidingSpot::GetSecondaryPrompt(const AObshagaCharacter* By) const
 {
-	if (!bCanHidePlayer || !By || bBusy || By->IsHiding() || By->GetCarryComponent()->IsCarrying())
+	if (!bCanHidePlayer || !By || bBusy || By->IsHiding())
 	{
 		return FText::GetEmpty();
+	}
+	// С вещью в руках в шкаф не залезть — подсказываем, что делать, а не молчим.
+	if (By->GetCarryComponent()->IsCarrying())
+	{
+		return DropFirstText();
 	}
 	return LOCTEXT("HideSelf", "Спрятаться");
 }
@@ -137,8 +157,13 @@ void AHidingSpot::Interact(AObshagaCharacter* By)
 
 void AHidingSpot::SecondaryInteract(AObshagaCharacter* By)
 {
-	if (!HasAuthority() || !By || !bCanHidePlayer || bBusy || By->IsHiding() || By->GetCarryComponent()->IsCarrying())
+	if (!HasAuthority() || !By || !bCanHidePlayer || bBusy || By->IsHiding())
 	{
+		return;
+	}
+	if (By->GetCarryComponent()->IsCarrying())
+	{
+		Notify(By, DropFirstText());
 		return;
 	}
 
@@ -268,6 +293,18 @@ FVector AHidingSpot::GetHiddenPlayerLocation(float HalfHeight) const
 	return GetActorLocation() + FVector(0.f, 0.f, HalfHeight + 2.f);
 }
 
+FVector AHidingSpot::GetPeekLocation() const
+{
+	// «Лицо» тайника (+X). Снаружи, а не внутри: изнутри мебель видна насквозь, а оглянувшись, игрок видит закрытую дверцу.
+	const float Height = FMath::Min(PeekHeight, static_cast<float>(BoxSize.Z) - PeekBelowTop);
+	return GetActorLocation() + GetActorForwardVector() * (BoxSize.X * 0.5f + PeekForwardOffset) + FVector(0.f, 0.f, Height);
+}
+
+FRotator AHidingSpot::GetPeekRotation() const
+{
+	return FRotator(PeekPitch, GetActorRotation().Yaw, 0.f);
+}
+
 void AHidingSpot::ResetSpot()
 {
 	if (HasAuthority())
@@ -303,7 +340,8 @@ void AHidingSpot::EjectHiddenPlayer()
 	if (AObshagaCharacter* Player = HiddenPlayer)
 	{
 		HiddenPlayer = nullptr;
-		Player->ExitHidingSpot(ExitPoint->GetComponentLocation());
+		// Перед дверцей может стоять тот, кто её открыл: тогда выходящий встаёт сбоку от неё.
+		Player->ExitHidingSpot(ExitPoint->GetComponentLocation(), GetActorRightVector() * ExitSideStep);
 		UGameEventSubsystem::PublishFrom(Player, EGameEventType::PlayerLeftHiding);
 		Notify(Player, LOCTEXT("Ejected", "Ты вышел из укрытия"));
 		UE_LOG(LogObshaga, Verbose, TEXT("%s left hiding spot %s"), *Player->GetName(), *GetName());

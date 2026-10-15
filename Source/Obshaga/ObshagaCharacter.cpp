@@ -6,6 +6,7 @@
 #include "GameEventSubsystem.h"
 #include "HidingSpot.h"
 #include "InteractionComponent.h"
+#include "NightExitDoor.h"
 #include "ObshagaLookComponent.h"
 #include "ObshagaStory.h"
 #include "ObshagaPlayerState.h"
@@ -16,8 +17,18 @@
 #include "Camera/CameraComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
+#include "GameFramework/PlayerController.h"
 #include "GameFramework/SpringArmComponent.h"
 #include "Net/UnrealNetwork.h"
+
+namespace
+{
+	// Поймали в прыжке: насколько глубоко под ногами ищем пол, чтобы поставить на него до допроса.
+	constexpr float FrozenFloorSearchDepth = 400.f;
+	// Вышел из укрытия: как часто проверяем, что персонаж уже снаружи, и сколько самое большее ждём, чтобы вернуть камеру.
+	constexpr float PeekRestoreCheckSeconds = 0.05f;
+	constexpr float PeekRestoreMaxWait = 1.f;
+}
 
 AObshagaCharacter::AObshagaCharacter()
 {
@@ -115,6 +126,14 @@ void AObshagaCharacter::PossessedBy(AController* NewController)
 	}
 }
 
+void AObshagaCharacter::NotifyControllerChanged()
+{
+	Super::NotifyControllerChanged();
+
+	// Укрытие могло прийти по сети раньше, чем стало известно, что это наш персонаж.
+	UpdateHidingCamera();
+}
+
 void AObshagaCharacter::OnRep_LookIndex()
 {
 	if (LookIndex > 0)
@@ -145,8 +164,11 @@ const UObshagaCharacterConfig* AObshagaCharacter::GetConfig() const
 
 void AObshagaCharacter::SetSprinting(bool bNewSprinting)
 {
-	// Вприсядку и с тяжёлым предметом не бегаем.
-	bNewSprinting = bNewSprinting && !IsCrouched() && !CarryComponent->IsCarryingHeavy();
+	// Просьбу помним: кончится запрет (тяжёлое в руках, укрытие, допрос) — бег включится сам, если Shift ещё зажат.
+	bSprintHeld = bNewSprinting;
+
+	// Вприсядку, с тяжёлым предметом, в укрытии и на допросе не бегаем.
+	bNewSprinting = bNewSprinting && !IsCrouched() && !CarryComponent->IsCarryingHeavy() && !IsHiding() && !bIsFrozen;
 	if (bIsSprinting == bNewSprinting)
 	{
 		return;
@@ -163,7 +185,9 @@ void AObshagaCharacter::SetSprinting(bool bNewSprinting)
 
 void AObshagaCharacter::ServerSetSprinting_Implementation(bool bNewSprinting)
 {
-	bIsSprinting = bNewSprinting && !IsCrouched() && !CarryComponent->IsCarryingHeavy();
+	// Просьба могла прийти, когда его уже поймали или он уже в шкафу: тогда не включаем — иначе после допроса
+	// сервер считал бы, что он бежит, а его машина (сбросившая бег у себя) — что идёт.
+	bIsSprinting = bNewSprinting && !IsCrouched() && !CarryComponent->IsCarryingHeavy() && !IsHiding() && !bIsFrozen;
 	UpdateMovementSpeed();
 }
 
@@ -186,11 +210,34 @@ void AObshagaCharacter::UpdateMovementSpeed()
 
 void AObshagaCharacter::OnCarriedItemChanged()
 {
-	if (HasAuthority() && CarryComponent->IsCarryingHeavy())
+	// С тяжёлым не бегают. Сбрасываем и на сервере, и у самого игрока: владельцу сервер свой флаг бега не шлёт,
+	// и без этого его машина после броска телевизора считала бы, что он бежит, а сервер — что идёт (персонажа дёргало).
+	const bool bHeavy = CarryComponent->IsCarryingHeavy();
+	if (bHeavy && (HasAuthority() || IsLocallyControlled()))
 	{
 		bIsSprinting = false;
 	}
 	UpdateMovementSpeed();
+
+	if (!bHeavy)
+	{
+		ResumeSprintIfHeld();
+	}
+}
+
+bool AObshagaCharacter::IsLocalHuman() const
+{
+	const APlayerController* PlayerController = Cast<APlayerController>(GetController());
+	return PlayerController && PlayerController->IsLocalController();
+}
+
+void AObshagaCharacter::ResumeSprintIfHeld()
+{
+	// Только у самого игрока: боты включают бег сами, а за чужого игрока решает его машина.
+	if (bSprintHeld && !bIsSprinting && !IsHiding() && !bIsFrozen && IsLocalHuman())
+	{
+		SetSprinting(true);
+	}
 }
 
 void AObshagaCharacter::TryEmote(int32 Index)
@@ -292,19 +339,50 @@ void AObshagaCharacter::EnterHidingSpot(AHidingSpot* Spot)
 	ForceNetUpdate();
 }
 
-void AObshagaCharacter::ExitHidingSpot(const FVector& ExitLocation)
+void AObshagaCharacter::ExitHidingSpot(const FVector& ExitLocation, const FVector& SideStep)
 {
 	check(HasAuthority());
 
+	// Сначала вернуть движение: перенос ниже сам находит пол под ногами.
 	HidingSpot = nullptr;
-	SetActorLocation(ExitLocation, false, nullptr, ETeleportType::TeleportPhysics);
 	ApplyHiding();
+
+	// Перед дверцей обычно стоит тот, кто её открыл. TeleportTo не ставит внутрь чужой капсулы или мебели,
+	// а выталкивает рядом; не вышло — пробуем встать сбоку от дверцы, и только в крайнем случае ставим как есть.
+	const FRotator Rotation = GetActorRotation();
+	const bool bPlaced = TeleportTo(ExitLocation, Rotation)
+		|| (!SideStep.IsNearlyZero() && (TeleportTo(ExitLocation + SideStep, Rotation) || TeleportTo(ExitLocation - SideStep, Rotation)));
+	if (!bPlaced)
+	{
+		UE_LOG(LogObshaga, Verbose, TEXT("%s: no free room to leave hiding at %s, placing as is"), *GetName(), *ExitLocation.ToCompactString());
+		SetActorLocation(ExitLocation, false, nullptr, ETeleportType::TeleportPhysics);
+	}
 	ForceNetUpdate();
 }
 
 void AObshagaCharacter::SetFrozen(bool bNewFrozen)
 {
 	check(HasAuthority());
+
+	// Поймали в прыжке: без движения персонаж не падает и провисел бы в воздухе весь допрос. Сначала ставим на пол.
+	UCharacterMovementComponent* Movement = GetCharacterMovement();
+	if (bNewFrozen && Movement->IsFalling())
+	{
+		const UCapsuleComponent* Capsule = GetCapsuleComponent();
+		FCollisionQueryParams Params(SCENE_QUERY_STAT(FrozenFloor), false, this);
+		FCollisionResponseParams ResponseParams;
+		Capsule->InitSweepCollisionParams(Params, ResponseParams);
+		// Чуть уже капсулы: у стены широкая капсула упёрлась бы в неё с самого начала.
+		const FCollisionShape Shape = FCollisionShape::MakeCapsule(Capsule->GetScaledCapsuleRadius() * 0.9f, Capsule->GetScaledCapsuleHalfHeight());
+		const FVector From = GetActorLocation();
+		FHitResult Floor;
+		if (GetWorld()->SweepSingleByChannel(Floor, From, From - FVector(0.f, 0.f, FrozenFloorSearchDepth), FQuat::Identity, Capsule->GetCollisionObjectType(), Shape, Params, ResponseParams)
+			&& !Floor.bStartPenetrating)
+		{
+			SetActorLocation(Floor.Location + FVector(0.f, 0.f, 2.f), false, nullptr, ETeleportType::TeleportPhysics);
+			UE_LOG(LogObshaga, Verbose, TEXT("%s caught mid-air, put down %.0f cm"), *GetName(), From.Z - Floor.Location.Z);
+		}
+	}
 
 	bIsFrozen = bNewFrozen;
 	if (bNewFrozen)
@@ -362,6 +440,12 @@ void AObshagaCharacter::ApplyHiding()
 	UCharacterMovementComponent* Movement = GetCharacterMovement();
 	if (bHide || bIsFrozen)
 	{
+		// Сервер бег уже сбросил, но владельцу этот флаг не шлёт — сбрасываем и у него, иначе после выхода
+		// его машина считала бы, что персонаж бежит, а сервер — что идёт.
+		if (IsLocallyControlled())
+		{
+			bIsSprinting = false;
+		}
 		Movement->StopMovementImmediately();
 		Movement->DisableMovement();
 	}
@@ -370,6 +454,69 @@ void AObshagaCharacter::ApplyHiding()
 		Movement->SetMovementMode(MOVE_Walking);
 	}
 	UpdateMovementSpeed();
+	UpdateHidingCamera();
+
+	if (!bHide && !bIsFrozen)
+	{
+		ResumeSprintIfHeld();
+	}
+}
+
+void AObshagaCharacter::UpdateHidingCamera()
+{
+	// Только у того, кто сам прячется. На ночном выходе камера остаётся обычной: там она стоит за дверью на улице.
+	AHidingSpot* Spot = HidingSpot;
+	if (Spot && !Spot->IsA<ANightExitDoor>() && IsLocalHuman())
+	{
+		GetWorldTimerManager().ClearTimer(PeekRestoreTimer);
+		if (!bPeekCamera)
+		{
+			// Запоминаем обычную руку камеры, чтобы на выходе вернуть ровно её.
+			bPeekCamera = true;
+			SavedBoomLocation = CameraBoom->GetRelativeLocation();
+			SavedBoomArmLength = CameraBoom->TargetArmLength;
+			bSavedBoomCollisionTest = CameraBoom->bDoCollisionTest;
+			// Забегая в шкаф, игрок смотрел на его дверцу — сразу разворачиваем взгляд наружу.
+			GetController()->SetControlRotation(Spot->GetPeekRotation());
+		}
+		PeekSpot = Spot;
+		// Изнутри мебели камера видела бы всё насквозь. Ставим её к самой дверце, как будто смотрим в щель:
+		// рука нулевой длины, мебель её не отталкивает, а сама она стоит в мире, а не за персонажем.
+		CameraBoom->SetUsingAbsoluteLocation(true);
+		CameraBoom->SetWorldLocation(Spot->GetPeekLocation());
+		CameraBoom->TargetArmLength = 0.f;
+		CameraBoom->bDoCollisionTest = false;
+		UE_LOG(LogObshaga, Verbose, TEXT("%s: hiding camera at %s"), *GetName(), *Spot->GetPeekLocation().ToCompactString());
+		return;
+	}
+	if (!bPeekCamera)
+	{
+		return;
+	}
+
+	// Что игрок вышел, его машина узнаёт чуть раньше, чем новое место (у гостя — на время пинга). Пока персонаж
+	// ещё сидит внутри мебели, камера стоит у дверцы: иначе на мгновение снова показала бы шкаф изнутри.
+	const float Now = GetWorld()->GetTimeSeconds();
+	if (!PeekRestoreTimer.IsValid())
+	{
+		PeekRestoreDeadline = Now + PeekRestoreMaxWait;
+	}
+	const AHidingSpot* OldSpot = PeekSpot.Get();
+	if (IsLocalHuman() && OldSpot && Now < PeekRestoreDeadline && OldSpot->GetComponentsBoundingBox().IsInsideOrOn(GetActorLocation()))
+	{
+		GetWorldTimerManager().SetTimer(PeekRestoreTimer, this, &AObshagaCharacter::UpdateHidingCamera, PeekRestoreCheckSeconds, false);
+		return;
+	}
+
+	GetWorldTimerManager().ClearTimer(PeekRestoreTimer);
+	bPeekCamera = false;
+	PeekSpot.Reset();
+	CameraBoom->SetUsingAbsoluteLocation(false);
+	CameraBoom->SetRelativeLocation(SavedBoomLocation);
+	CameraBoom->TargetArmLength = SavedBoomArmLength;
+	CameraBoom->bDoCollisionTest = bSavedBoomCollisionTest;
+	CameraBoom->UpdateComponentToWorld();
+	UE_LOG(LogObshaga, Verbose, TEXT("%s: hiding camera restored"), *GetName());
 }
 
 void AObshagaCharacter::OnStartCrouch(float HalfHeightAdjust, float ScaledHalfHeightAdjust)
