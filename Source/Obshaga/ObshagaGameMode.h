@@ -172,4 +172,11 @@ private:
 
 	TArray<TWeakObjectPtr<APlayerState>> CaughtThisRound;
 	TArray<TWeakObjectPtr<APlayerState>> CaughtLastRound;
+
+	/** Кто оказался снаружи общаги не через ночной выход (спрыгнул с балкона) и с какого времени. */
+	TMap<TWeakObjectPtr<AObshagaCharacter>, float> OutsideSince;
+	FTimerHandle StrandedTimer;
+	/** Раз в секунду: кто слишком долго снаружи и не вернулся сам, того впускают через ночной выход. */
+	void CheckStrandedPlayers();
+	bool IsOutsideBuilding(const AObshagaCharacter* Character) const;
 };

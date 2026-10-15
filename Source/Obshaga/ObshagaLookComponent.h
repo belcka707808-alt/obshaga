@@ -52,9 +52,13 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Animation")
 	TObjectPtr<UAnimSequenceBase> Crouch;
 
-	/** Несёт предмет. */
+	/** Несёт предмет: из этого клипа берутся только руки (CarryBones), ноги идут, стоят или бегут как обычно. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Animation")
 	TObjectPtr<UAnimSequenceBase> Carry;
+
+	/** Кости, которые при переноске берут позу из клипа Carry (вместе со всем, что к ним прикреплено). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Animation")
+	TArray<FName> CarryBones = { TEXT("arm-left"), TEXT("arm-right") };
 
 	/** Взял предмет (один раз). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Animation")
@@ -135,6 +139,8 @@ private:
 
 	float OneShotUntil = 0.f;
 	bool bOneShotStarted = false;
+	/** Руки сейчас держат предмет поверх основного клипа. */
+	bool bHolding = false;
 	float StandingMeshZ = 0.f;
 	float SmoothedSpeed = 0.f;
 	bool bLookApplied = false;

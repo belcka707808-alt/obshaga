@@ -50,6 +50,27 @@ void UObshagaAnimInstance::Play(UAnimSequence* Sequence, bool bLoop, float Blend
 	Alpha = (Previous && BlendSeconds > 0.f) ? 0.f : 1.f;
 }
 
+void UObshagaAnimInstance::SetOverlay(UAnimSequence* Sequence, const TArray<FName>& Bones, float BlendSeconds)
+{
+	OverlayBlendTime = BlendSeconds;
+	if (!Sequence)
+	{
+		// Клип не пропадает сразу: он ещё BlendSeconds плавно уходит, а потом его забудет NativeUpdateAnimation.
+		OverlayTarget = 0.f;
+		return;
+	}
+	if (Sequence != Overlay)
+	{
+		Overlay = Sequence;
+		OverlayTime = 0.f;
+	}
+	if (OverlayBones != Bones)
+	{
+		OverlayBones = Bones;
+	}
+	OverlayTarget = 1.f;
+}
+
 void UObshagaAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 {
 	Super::NativeUpdateAnimation(DeltaSeconds);
@@ -63,6 +84,20 @@ void UObshagaAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	else
 	{
 		Previous = nullptr;
+	}
+
+	if (Overlay)
+	{
+		OverlayTime = Advance(Overlay, OverlayTime, DeltaSeconds, true);
+		OverlayWeight = FMath::FInterpConstantTo(OverlayWeight, OverlayTarget, DeltaSeconds, 1.f / FMath::Max(OverlayBlendTime, 0.01f));
+		if (OverlayTarget <= 0.f && OverlayWeight <= 0.f)
+		{
+			Overlay = nullptr;
+		}
+	}
+	else
+	{
+		OverlayWeight = 0.f;
 	}
 }
 
@@ -83,22 +118,66 @@ void FObshagaAnimProxy::PreUpdate(UAnimInstance* InAnimInstance, float DeltaSeco
 		CurrentTime = Instance->CurrentTime;
 		PreviousTime = Instance->PreviousTime;
 		Alpha = Instance->Alpha;
+		Overlay = Instance->Overlay;
+		OverlayTime = Instance->OverlayTime;
+		OverlayWeight = Instance->OverlayWeight;
+		if (OverlayBones != Instance->OverlayBones)
+		{
+			OverlayBones = Instance->OverlayBones;
+		}
 	}
 }
 
 bool FObshagaAnimProxy::Evaluate(FPoseContext& Output)
 {
+	EvaluateBase(Output);
+	if (Current && Overlay && OverlayWeight > 0.f && !OverlayBones.IsEmpty())
+	{
+		ApplyOverlay(Output);
+	}
+	return true;
+}
+
+void FObshagaAnimProxy::ApplyOverlay(FPoseContext& Output)
+{
+	FPoseContext OverlayPose(Output);
+	FAnimationPoseData OverlayData(OverlayPose);
+	Overlay->GetAnimationPose(OverlayData, FAnimExtractContext(static_cast<double>(OverlayTime), false));
+
+	// Кости идут от родителя к детям, поэтому ребёнок кости из списка узнаёт об этом по родителю за один проход.
+	const FBoneContainer& BoneContainer = Output.Pose.GetBoneContainer();
+	const FReferenceSkeleton& RefSkeleton = BoneContainer.GetReferenceSkeleton();
+	const float Weight = FMath::SmoothStep(0.f, 1.f, OverlayWeight);
+	TArray<bool, TInlineAllocator<64>> Masked;
+	Masked.SetNumZeroed(Output.Pose.GetNumBones());
+	for (const FCompactPoseBoneIndex Index : Output.Pose.ForEachBoneIndex())
+	{
+		const FCompactPoseBoneIndex Parent = BoneContainer.GetParentBoneIndex(Index);
+		const FName BoneName = RefSkeleton.GetBoneName(BoneContainer.MakeMeshPoseIndex(Index).GetInt());
+		const bool bMasked = OverlayBones.Contains(BoneName) || (Parent.IsValid() && Masked[Parent.GetInt()]);
+		Masked[Index.GetInt()] = bMasked;
+		if (bMasked)
+		{
+			FTransform Blended;
+			Blended.Blend(Output.Pose[Index], OverlayPose.Pose[Index], Weight);
+			Output.Pose[Index] = Blended;
+		}
+	}
+}
+
+void FObshagaAnimProxy::EvaluateBase(FPoseContext& Output)
+{
 	if (!Current)
 	{
 		Output.ResetToRefPose();
-		return true;
+		return;
 	}
 
 	if (!Previous || Alpha >= 1.f)
 	{
 		FAnimationPoseData Data(Output);
 		Current->GetAnimationPose(Data, FAnimExtractContext(static_cast<double>(CurrentTime), false));
-		return true;
+		return;
 	}
 
 	// Идёт переход: считаем обе позы и смешиваем. Кривая S-образная, чтобы движение не дёргалось в начале и в конце.
@@ -111,5 +190,4 @@ bool FObshagaAnimProxy::Evaluate(FPoseContext& Output)
 
 	FAnimationPoseData OutData(Output);
 	FAnimationRuntime::BlendTwoPosesTogether(FromData, ToData, 1.f - FMath::SmoothStep(0.f, 1.f, Alpha), OutData);
-	return true;
 }
