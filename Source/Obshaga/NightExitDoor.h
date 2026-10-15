@@ -32,13 +32,16 @@ public:
 	/** Сервер: впустить того, кто стоит снаружи не через эту дверь (спрыгнул с балкона), и сказать ему Notice. */
 	void LetIn(AObshagaCharacter* Character, const FText& Notice);
 
+	/** Стоит ли персонаж снаружи, за задней стороной двери (а не спрятан за ней как гуляющий). */
+	bool IsOnStreetSide(const AObshagaCharacter* By) const;
+	/** Сервер: если By стоит снаружи — впустить его в общагу и вернуть true. Так же работает обычная дверь в этом проёме. */
+	bool TryLetInFromStreet(AObshagaCharacter* By);
+
 protected:
 	virtual void EjectHiddenPlayer() override;
 
 private:
 	bool IsNight() const;
-	/** Стоит ли персонаж снаружи, за задней стороной двери (а не спрятан за ней как гуляющий). */
-	bool IsOnStreetSide(const AObshagaCharacter* By) const;
 
 	float LeftTime = 0.f;
 

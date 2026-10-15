@@ -1,6 +1,7 @@
 #include "DoorActor.h"
 
 #include "GameEventSubsystem.h"
+#include "NightExitDoor.h"
 #include "NoiseStatics.h"
 #include "Obshaga.h"
 #include "ObshagaCharacter.h"
@@ -15,6 +16,12 @@
 #include "UObject/ConstructorHelpers.h"
 
 #define LOCTEXT_NAMESPACE "DoorActor"
+
+namespace
+{
+	// Дальше этого от ночного выхода дверь считается обычной, не его.
+	constexpr float NightExitLinkRadius = 250.f;
+}
 
 ADoorActor::ADoorActor()
 {
@@ -58,6 +65,18 @@ void ADoorActor::BeginPlay()
 	Hinge->SetRelativeRotation(FRotator(0.f, CurrentYaw, 0.f));
 	ObshagaVisuals::Tint(DoorMesh, Color);
 	ObshagaVisuals::Dress(DoorMesh, Model, ModelYaw, Color);
+
+	// Дверь в проёме ночного выхода: на каждой машине, чтобы и подсказка снаружи была правильной.
+	float BestDistSq = FMath::Square(NightExitLinkRadius);
+	for (TActorIterator<ANightExitDoor> It(GetWorld()); It; ++It)
+	{
+		const float DistSq = FVector::DistSquared(It->GetActorLocation(), GetDoorCenter());
+		if (DistSq < BestDistSq)
+		{
+			BestDistSq = DistSq;
+			NightExit = *It;
+		}
+	}
 }
 
 float ADoorActor::GetTargetYaw() const
@@ -75,12 +94,22 @@ float ADoorActor::GetTargetYaw() const
 
 FText ADoorActor::GetInteractionPrompt(const AObshagaCharacter* By) const
 {
+	if (const ANightExitDoor* Exit = NightExit.Get(); Exit && Exit->IsOnStreetSide(By))
+	{
+		return LOCTEXT("Return", "Вернуться в общагу");
+	}
 	return IsOpen() ? LOCTEXT("Close", "Закрыть дверь") : LOCTEXT("Open", "Открыть дверь");
 }
 
 void ADoorActor::Interact(AObshagaCharacter* By)
 {
 	if (!HasAuthority())
+	{
+		return;
+	}
+
+	// Снаружи дверь ночного выхода сразу впускает в общагу (спрыгнул с балкона — заходи с одного нажатия).
+	if (ANightExitDoor* Exit = NightExit.Get(); Exit && Exit->TryLetInFromStreet(By))
 	{
 		return;
 	}

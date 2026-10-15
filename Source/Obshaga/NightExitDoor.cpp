@@ -113,6 +113,16 @@ void ANightExitDoor::LetIn(AObshagaCharacter* Character, const FText& Notice)
 	UE_LOG(LogObshaga, Verbose, TEXT("%s let in from the street through %s"), *Character->GetName(), *GetName());
 }
 
+bool ANightExitDoor::TryLetInFromStreet(AObshagaCharacter* By)
+{
+	if (!HasAuthority() || !IsOnStreetSide(By))
+	{
+		return false;
+	}
+	LetIn(By, LOCTEXT("CameIn", "Ты вернулся в общагу через ночной выход"));
+	return true;
+}
+
 void ANightExitDoor::RememberReturned(AObshagaCharacter* Character)
 {
 	LastReturned = Character;
@@ -138,9 +148,8 @@ void ANightExitDoor::Interact(AObshagaCharacter* By)
 		return;
 	}
 	// Оказался на улице не через эту дверь (спрыгнул с балкона): снаружи она открыта всегда, иначе назад не попасть.
-	if (IsOnStreetSide(By))
+	if (TryLetInFromStreet(By))
 	{
-		LetIn(By, LOCTEXT("CameIn", "Ты вернулся в общагу через ночной выход"));
 		return;
 	}
 	if (!IsNight() || By->IsHiding() || By->GetCarryComponent()->IsCarrying())
