@@ -9,11 +9,13 @@
 #include "NightExitDoor.h"
 #include "ObshagaCharacter.h"
 #include "ObshagaCharacterConfig.h"
+#include "ObshagaGameMode.h"
 #include "ObshagaGameState.h"
 #include "ObshagaLookComponent.h"
 #include "ObshagaVisuals.h"
 #include "ObshagaPlayerController.h"
 #include "ObshagaPlayerState.h"
+#include "ObshagaRoundConfig.h"
 #include "ObshagaSessionSubsystem.h"
 #include "ObshagaSettings.h"
 #include "ObshagaStory.h"
@@ -45,6 +47,16 @@ namespace
 	// Сколько секунд реплика коменданта держится на экране и с какого расстояния её слышно.
 	constexpr float KomendantLineSeconds = 4.f;
 	constexpr float KomendantVoiceDistance = 1500.f;
+	// Субтитр Палыча — между сообщением (0.62) и подсказками [E]/[F]/[R]/[B] (0.72–0.87): ни на что из них не ложится.
+	constexpr float KomendantSubtitleY = 0.67f;
+	// Сколько секунд надо пробыть вне всех зон, чтобы появилась подсказка «Ты снаружи»: стык зон и дверной проём не в счёт.
+	constexpr float StreetHintDelaySeconds = 1.5f;
+	// Сколько секунд после срока ещё обещать «вернёшься сам через 1 с». Не вернули и тогда — значит, сервер считает,
+	// что игрок ещё у самой общаги (в проёме ночного выхода, у окна), и сам его не перенесёт: отсчёт убираем.
+	constexpr float StreetReturnSlackSeconds = 3.f;
+	// Виньетка опасности: толщина одной рамки в пикселях и предел их числа (на 4K рамки просто становятся толще).
+	constexpr float DangerBandPixels = 2.f;
+	constexpr int32 DangerMaxBands = 160;
 	// Сколько секунд в начале раунда висит карточка с завязкой вечера.
 	constexpr float StoryCardSeconds = 9.f;
 	// Сколько секунд после F12 на экране итогов виден путь к сохранённому снимку.
@@ -168,7 +180,6 @@ void AObshagaHUD::DrawHUD()
 		DrawCharacterInfo(Character);
 		DrawKomendantLabels(MyLocation);
 		DrawEmotes(Character);
-		DrawNoise(Controller, MyLocation);
 		if (Controller->IsEmoteWheelOpen())
 		{
 			DrawEmoteWheel(Character);
@@ -180,6 +191,11 @@ void AObshagaHUD::DrawHUD()
 	}
 
 	DrawTopStatus(GameState);
+	// Шум — после строк сверху: он встаёт под последнюю из них (под событие ночи, если оно идёт).
+	if (Character)
+	{
+		DrawNoise(Controller, MyLocation);
+	}
 
 	if (GameState->GetInterrogation().bActive)
 	{
@@ -308,18 +324,30 @@ void AObshagaHUD::DrawDanger(const AObshagaPlayerController* Controller)
 	const float Pulse = Controller->GetHeartPulse();
 	const float Strength = Level * (0.55f + 0.45f * Pulse);
 	const float MaxThickness = FMath::Min(Canvas->ClipX, Canvas->ClipY) * (0.16f + 0.10f * Level);
-	constexpr int32 NumBands = 28;
+	const float Width = FMath::RoundToFloat(Canvas->ClipX);
+	const float Height = FMath::RoundToFloat(Canvas->ClipY);
+	// Вложенные рамки по паре пикселей: у самого края темнее всего, к центру сходит на нет.
+	// Границы рамок — целые пиксели, и каждая рамка начинается ровно там, где кончилась прошлая: полупрозрачная
+	// краска нигде не ложится дважды. Раньше рамки налезали друг на друга на пиксель — на каждом стыке выходила
+	// тёмная полоса, а дробные границы дрожали в такт пульсу.
+	const int32 NumBands = FMath::Clamp(FMath::RoundToInt32(MaxThickness / DangerBandPixels), 1, DangerMaxBands);
+	float Inner = 0.f;
 	for (int32 Band = 0; Band < NumBands; ++Band)
 	{
-		// Вложенные рамки: у самого края темнее всего, к центру сходит на нет.
-		const float Inset = MaxThickness * Band / NumBands;
-		const float Thickness = MaxThickness / NumBands + 1.f;
+		const float Outer = Inner;
+		Inner = FMath::RoundToFloat(MaxThickness * (Band + 1) / NumBands);
+		const float Thickness = Inner - Outer;
+		if (Thickness <= 0.f)
+		{
+			continue;
+		}
 		const float Falloff = 1.f - static_cast<float>(Band) / NumBands;
 		const FLinearColor Color(0.18f, 0.f, 0.f, 0.5f * Strength * Falloff * Falloff);
-		DrawRect(Color, Inset, Inset, Canvas->ClipX - Inset * 2.f, Thickness);
-		DrawRect(Color, Inset, Canvas->ClipY - Inset - Thickness, Canvas->ClipX - Inset * 2.f, Thickness);
-		DrawRect(Color, Inset, Inset + Thickness, Thickness, Canvas->ClipY - (Inset + Thickness) * 2.f);
-		DrawRect(Color, Canvas->ClipX - Inset - Thickness, Inset + Thickness, Thickness, Canvas->ClipY - (Inset + Thickness) * 2.f);
+		// Сверху и снизу — во всю ширину рамки, слева и справа — только между ними, чтобы углы не красились дважды.
+		DrawRect(Color, Outer, Outer, Width - Outer * 2.f, Thickness);
+		DrawRect(Color, Outer, Height - Inner, Width - Outer * 2.f, Thickness);
+		DrawRect(Color, Outer, Inner, Thickness, Height - Inner * 2.f);
+		DrawRect(Color, Width - Inner, Inner, Thickness, Height - Inner * 2.f);
 	}
 }
 
@@ -487,12 +515,14 @@ void AObshagaHUD::DrawTopLine(const FString& Line, const FLinearColor& Color, fl
 	float Height = 0.f;
 	GetTextSize(Line, Width, Height, Font, Scale);
 	TopCenterRight = FMath::Max(TopCenterRight, (Canvas->ClipX + Width) * 0.5f);
+	TopLinesBottom = FMath::Max(TopLinesBottom, Canvas->ClipY * YFraction + Height);
 	DrawCentered(Line, Color, YFraction);
 }
 
 void AObshagaHUD::DrawTopStatus(const AObshagaGameState* GameState)
 {
 	TopCenterRight = 0.f;
+	TopLinesBottom = 0.f;
 	// Сверху по центру: в лобби — как начать, в раунде — фаза и таймер.
 	const bool bHost = GetNetMode() != NM_Client;
 	switch (GameState->GetRoundState())
@@ -583,6 +613,50 @@ void AObshagaHUD::DrawCharacterInfo(const AObshagaCharacter* Character)
 		DrawText(Room->DisplayName.ToString(), FLinearColor::White, 16.f * Scale, 12.f * Scale, Font, Scale);
 	}
 
+	// Снаружи не через ночной выход (спрыгнул с балкона): ни в одной зоне и не в укрытии. Сервер сам впустит такого
+	// через ночной выход (AObshagaGameMode::CheckStrandedPlayers), а здесь подсказываем, куда идти, и когда вернут.
+	const float Now = GetWorld()->GetTimeSeconds();
+	const bool bStreet = !Character->GetCurrentRoom() && !Character->IsHiding() && !Character->IsFrozen() && !Character->IsGhost();
+	if (!bStreet)
+	{
+		StreetSince = -1.f;
+	}
+	else if (StreetSince < 0.f)
+	{
+		StreetSince = Now;
+	}
+	const AObshagaGameState* GameState = GetWorld()->GetGameState<AObshagaGameState>();
+	if (bStreet && Now - StreetSince > StreetHintDelaySeconds && GameState && GameState->GetRoundState() != ERoundState::Finished)
+	{
+		TArray<FString> Lines = { LOCTEXT("Street", "Ты снаружи. Вход — ночной выход (зелёная дверь, 1 этаж)").ToString() };
+		// Срок берём из того же DA_RoundConfig, что у хоста: его держит класс режима игры, а класс известен и гостю.
+		// Отсчёт примерный: сервер замечает «снаружи» раз в секунду и чуть по-своему.
+		const AObshagaGameMode* ModeDefaults = GameState->GetDefaultGameMode<AObshagaGameMode>();
+		const float ReturnLeft = ModeDefaults ? ModeDefaults->GetRoundConfig()->StrandedReturnSeconds - (Now - StreetSince) : -StreetReturnSlackSeconds;
+		if (ReturnLeft > -StreetReturnSlackSeconds)
+		{
+			const int32 SecondsLeft = FMath::Max(1, FMath::CeilToInt32(ReturnLeft));
+			Lines.Add(FText::Format(LOCTEXT("StreetReturn", "Или жди: вернёшься сам через {0} с"), FText::AsNumber(SecondsLeft)).ToString());
+		}
+		// В лобби на этой высоте крупная надпись про старт раунда — там строки встают ниже.
+		const float HintY = Canvas->ClipY * (GameState->GetRoundState() == ERoundState::WaitingToStart ? 0.36f : 0.2f);
+		const float Step = 22.f * Scale;
+		float MaxWidth = 0.f;
+		float LineHeight = 0.f;
+		for (const FString& Line : Lines)
+		{
+			float Width = 0.f;
+			GetTextSize(Line, Width, LineHeight, Font, Scale);
+			MaxWidth = FMath::Max(MaxWidth, Width);
+		}
+		// Снаружи бывает и яркое небо, и ночь — подложка, чтобы строку было видно на любом фоне.
+		DrawRect(FLinearColor(0.f, 0.f, 0.f, 0.6f), (Canvas->ClipX - MaxWidth) * 0.5f - 8.f * Scale, HintY - 4.f * Scale, MaxWidth + 16.f * Scale, Step * (Lines.Num() - 1) + LineHeight + 8.f * Scale);
+		for (int32 Index = 0; Index < Lines.Num(); ++Index)
+		{
+			DrawCentered(Lines[Index], FLinearColor(0.6f, 0.8f, 1.f), (HintY + Step * Index) / Canvas->ClipY);
+		}
+	}
+
 	if (Character->IsGhost())
 	{
 		DrawCentered(LOCTEXT("Ghost", "ТЫ ВЫСЕЛЕН. Ходи и смотри, чем всё кончится").ToString(), FLinearColor(0.7f, 0.7f, 1.f), 0.2f);
@@ -654,7 +728,9 @@ void AObshagaHUD::DrawNoise(const AObshagaPlayerController* Controller, const FV
 		const int32 Meters = FMath::RoundToInt32(FVector::Dist(ListenerLocation, Loudest->Location) / 100.f);
 		const FText Strength = Loudest->Loudness > 0.6f ? LOCTEXT("NoiseLoud", "ГРОХОТ") : LOCTEXT("NoiseQuiet", "Шум");
 		const FText Line = FText::Format(LOCTEXT("NoiseFormat", "{0}: {1} м"), Strength, FText::AsNumber(Meters));
-		DrawCentered(Line.ToString(), FLinearColor(1.f, 0.45f, 0.1f), 0.1f);
+		// Под строками сверху: красная строка события ночи стоит на 0.085 и иначе наполовину закрывалась шумом.
+		const float Y = FMath::Max(Canvas->ClipY * 0.1f, TopLinesBottom + 4.f * Scale);
+		DrawCentered(Line.ToString(), FLinearColor(1.f, 0.45f, 0.1f), Y / Canvas->ClipY);
 	}
 }
 
@@ -1153,19 +1229,43 @@ void AObshagaHUD::DrawInterrogation(const AObshagaPlayerState* MyState, const AO
 
 	if (Info.Suspect == MyState)
 	{
-		DrawRect(FLinearColor(0.25f, 0.02f, 0.02f, 0.85f), PanelX, PanelY, PanelWidth, 190.f * Scale);
-		Y = DrawWrapped(FText::Format(LOCTEXT("InterrogationTitle", "ДОПРОС! Осталось {0} с"), FText::AsNumber(Seconds)).ToString(), FLinearColor::White, X, Y, TextWidth);
+		TArray<TPair<FString, FLinearColor>> Lines;
+		Lines.Emplace(FText::Format(LOCTEXT("InterrogationTitle", "ДОПРОС! Осталось {0} с"), FText::AsNumber(Seconds)).ToString(), FLinearColor::White);
 		if (Info.Choice == EInterrogationChoice::None)
 		{
-			Y = DrawWrapped(LOCTEXT("ChoiceConfess", "[1] Сознаться — страйк, маленький штраф").ToString(), FLinearColor::Yellow, X, Y, TextWidth);
-			Y = DrawWrapped(LOCTEXT("ChoiceLie", "[2] Соврать — если поверит, уйдёшь чистым").ToString(), FLinearColor::Yellow, X, Y, TextWidth);
-			Y = DrawWrapped(LOCTEXT("ChoiceSilent", "[3] Молчать — страйк, средний штраф").ToString(), FLinearColor::Yellow, X, Y, TextWidth);
+			Lines.Emplace(LOCTEXT("ChoiceConfess", "[1] Сознаться — страйк, маленький штраф").ToString(), FLinearColor::Yellow);
+			Lines.Emplace(LOCTEXT("ChoiceLie", "[2] Соврать — если поверит, уйдёшь чистым").ToString(), FLinearColor::Yellow);
+			Lines.Emplace(LOCTEXT("ChoiceSilent", "[3] Молчать — страйк, средний штраф").ToString(), FLinearColor::Yellow);
 		}
 		else
 		{
-			Y = DrawWrapped(LOCTEXT("ChoiceMade", "Ты соврал. Комендант думает...").ToString(), FLinearColor::Yellow, X, Y, TextWidth);
+			Lines.Emplace(LOCTEXT("ChoiceMade", "Ты соврал. Комендант думает...").ToString(), FLinearColor::Yellow);
 		}
-		DrawWrapped(FText::Format(LOCTEXT("AlibiCount", "Алиби подтвердили: {0}"), FText::AsNumber(Info.AlibiCount)).ToString(), FLinearColor(0.8f, 0.8f, 0.85f), X, Y, TextWidth);
+		Lines.Emplace(FText::Format(LOCTEXT("AlibiCount", "Алиби подтвердили: {0}"), FText::AsNumber(Info.AlibiCount)).ToString(), FLinearColor(0.8f, 0.8f, 0.85f));
+
+		// Посреди экрана пойманному сообщения не рисуются (там сцена допроса) — текущее стоит последней строкой панели.
+		// Так «За тебя вступились! Соври — шансы выше» и СМС во время допроса не пропадают незамеченными.
+		const AObshagaPlayerController* Controller = Cast<AObshagaPlayerController>(GetOwningPlayerController());
+		const bool bNotice = Controller && GetWorld()->GetTimeSeconds() - Controller->GetNoticeTime() < AObshagaPlayerController::NoticeSeconds;
+		const FString Notice = bNotice ? Controller->GetNotice().ToString() : FString();
+
+		// Одна раскладка и меряет высоту (bDraw = false), и рисует: подложка — по высоте строк, но не ниже прежней.
+		auto Layout = [&](bool bDraw) -> float
+		{
+			float LineY = Y;
+			for (const TPair<FString, FLinearColor>& Line : Lines)
+			{
+				LineY = DrawWrapped(Line.Key, Line.Value, X, LineY, TextWidth, 20.f, bDraw);
+			}
+			if (!Notice.IsEmpty())
+			{
+				LineY = DrawWrapped(Notice, FLinearColor(0.6f, 1.f, 0.6f), X, LineY + 6.f * Scale, TextWidth, 20.f, bDraw);
+			}
+			return LineY;
+		};
+		const float Bottom = Layout(false);
+		DrawRect(FLinearColor(0.25f, 0.02f, 0.02f, 0.85f), PanelX, PanelY, PanelWidth, FMath::Max(190.f * Scale, Bottom + Pad - PanelY));
+		Layout(true);
 		return;
 	}
 
@@ -1188,7 +1288,8 @@ void AObshagaHUD::DrawKomendantLabels(const FVector& MyLocation)
 	{
 		const AKomendantCharacter* Komendant = *It;
 
-		// Голос коменданта слышно и через стену: субтитр внизу экрана, пока он рядом.
+		// Голос коменданта слышно и через стену: субтитр в нижней части экрана, пока он рядом.
+		// Он стоит над подсказками клавиш: на прежнем месте (0.84) тёмная подложка закрывала [R] «вор — …» и [B].
 		const bool bSpeaking = GetWorld()->GetTimeSeconds() - Komendant->GetSpokenTime() < KomendantLineSeconds && !Komendant->GetSpokenLine().IsEmpty();
 		const float Distance = FVector::Dist(Komendant->GetActorLocation(), MyLocation);
 		if (bSpeaking && Distance < KomendantVoiceDistance)
@@ -1197,8 +1298,8 @@ void AObshagaHUD::DrawKomendantLabels(const FVector& MyLocation)
 			float SubWidth = 0.f;
 			float SubHeight = 0.f;
 			GetTextSize(Subtitle, SubWidth, SubHeight, Font, Scale);
-			DrawRect(FLinearColor(0.f, 0.f, 0.f, 0.55f), (Canvas->ClipX - SubWidth) * 0.5f - 8.f * Scale, Canvas->ClipY * 0.84f - 4.f * Scale, SubWidth + 16.f * Scale, SubHeight + 8.f * Scale);
-			DrawCentered(Subtitle, FLinearColor(1.f, 0.9f, 0.6f), 0.84f);
+			DrawRect(FLinearColor(0.f, 0.f, 0.f, 0.55f), (Canvas->ClipX - SubWidth) * 0.5f - 8.f * Scale, Canvas->ClipY * KomendantSubtitleY - 4.f * Scale, SubWidth + 16.f * Scale, SubHeight + 8.f * Scale);
+			DrawCentered(Subtitle, FLinearColor(1.f, 0.9f, 0.6f), KomendantSubtitleY);
 		}
 
 		// Подпись видна, только если коменданта видно: сквозь стены она его не выдаёт.

@@ -82,9 +82,11 @@ namespace
 	constexpr float CameraHideSelfDistance = 130.f;
 	constexpr float CameraHideHeadHeight = 45.f;
 
-	// Обучение: общий предел и сколько висит последняя подсказка.
+	// Обучение: общий предел (в секундах раунда) и сколько висит последняя подсказка.
 	constexpr float TutorialMaxSeconds = 90.f;
 	constexpr float TutorialLastStepSeconds = 8.f;
+	// Сообщение, провисевшее хотя бы столько, считается прочитанным: на границе допроса оно уступает место следующему.
+	constexpr float NoticeSeenSeconds = 1.f;
 	const TCHAR* TutorialConfigSection = TEXT("Obshaga");
 	const TCHAR* TutorialConfigKey = TEXT("bTutorialDone");
 	const TCHAR* QualityConfigKey = TEXT("bQualityChosen");
@@ -360,8 +362,9 @@ void AObshagaPlayerController::BeginPlay()
 
 	if (IsLocalController() && !bTutorialDone)
 	{
+		// Часы обучения пойдут с началом раунда (UpdateTutorial), а не с входа в лобби.
 		TutorialStep = 0;
-		TutorialStartTime = TutorialStepTime = GetWorld()->GetTimeSeconds();
+		TutorialSeconds = TutorialStepSeconds = 0.f;
 	}
 }
 
@@ -972,6 +975,11 @@ void AObshagaPlayerController::UpdateMusic(float DeltaTime)
 
 FText AObshagaPlayerController::GetTutorialText() const
 {
+	// В лобби телефон ещё пуст и коменданта не почувствовать — там обучение не показываем.
+	if (!IsTutorialLive())
+	{
+		return FText::GetEmpty();
+	}
 	switch (TutorialStep)
 	{
 	case 0:
@@ -989,21 +997,26 @@ FText AObshagaPlayerController::GetTutorialText() const
 	}
 }
 
-void AObshagaPlayerController::UpdateTutorial()
+bool AObshagaPlayerController::IsTutorialLive() const
 {
-	if (TutorialStep >= NumTutorialSteps)
+	const AObshagaGameState* GameState = GetWorld()->GetGameState<AObshagaGameState>();
+	return TutorialStep < NumTutorialSteps && GameState && GameState->GetRoundState() == ERoundState::InProgress && !bIntroCamera;
+}
+
+void AObshagaPlayerController::UpdateTutorial(float DeltaTime)
+{
+	// В лобби, на заставке и на итогах часы обучения стоят: иначе гость, ждущий друзей, терял его ещё до раунда.
+	const AObshagaCharacter* Me = GetObshagaCharacter();
+	if (!IsTutorialLive() || !Me)
 	{
 		return;
 	}
 
-	const float Now = GetWorld()->GetTimeSeconds();
-	const AObshagaCharacter* Me = GetObshagaCharacter();
-	if (!Me || Now - TutorialStartTime > TutorialMaxSeconds)
+	TutorialSeconds += DeltaTime;
+	TutorialStepSeconds += DeltaTime;
+	if (TutorialSeconds > TutorialMaxSeconds)
 	{
-		if (Me)
-		{
-			FinishTutorial();
-		}
+		FinishTutorial();
 		return;
 	}
 
@@ -1012,7 +1025,7 @@ void AObshagaPlayerController::UpdateTutorial()
 	switch (TutorialStep)
 	{
 	case 0:
-		bStepDone = Me->GetVelocity().SizeSquared2D() > FMath::Square(50.f) && Now - TutorialStepTime > 1.5f;
+		bStepDone = Me->GetVelocity().SizeSquared2D() > FMath::Square(50.f) && TutorialStepSeconds > 1.5f;
 		break;
 	case 1:
 		bStepDone = Me->GetCarryComponent()->IsCarrying();
@@ -1024,13 +1037,13 @@ void AObshagaPlayerController::UpdateTutorial()
 		bStepDone = bPhoneOpen;
 		break;
 	default:
-		bStepDone = Now - TutorialStepTime > TutorialLastStepSeconds;
+		bStepDone = TutorialStepSeconds > TutorialLastStepSeconds;
 		break;
 	}
 
 	if (bStepDone)
 	{
-		TutorialStepTime = Now;
+		TutorialStepSeconds = 0.f;
 		if (++TutorialStep >= NumTutorialSteps)
 		{
 			FinishTutorial();
@@ -1047,7 +1060,8 @@ void AObshagaPlayerController::FinishTutorial()
 
 void AObshagaPlayerController::OnSkipTutorial()
 {
-	if (TutorialStep < NumTutorialSteps)
+	// Пропустить можно только то, что видно: случайное H в лобби не должно навсегда выключить обучение.
+	if (IsTutorialLive())
 	{
 		FinishTutorial();
 	}
@@ -1400,6 +1414,24 @@ void AObshagaPlayerController::ClientShowNotice_Implementation(const FText& Text
 	NoticeQueue.Add(Text);
 }
 
+void AObshagaPlayerController::UpdateNoticesOnInterrogation()
+{
+	// Во время своего допроса сообщения идут как обычно, только видны строкой в панели допроса (AObshagaHUD::DrawInterrogation),
+	// поэтому подсказка «За тебя вступились!» и СМС не пропадают незамеченными.
+	// На границе допроса уже прочитанное сообщение уступает место следующему: в начале это обычно «Комендант идёт за тобой!»
+	// (уже неправда), в конце — строка из панели, за которой в очереди ждёт итог допроса.
+	const bool bInterrogated = IsLocalPlayerInterrogated();
+	if (bInterrogated == bNoticesInPanel)
+	{
+		return;
+	}
+	bNoticesInPanel = bInterrogated;
+	if (GetWorld()->GetTimeSeconds() - NoticeTime >= NoticeSeenSeconds)
+	{
+		NoticeTime = -100.f;
+	}
+}
+
 void AObshagaPlayerController::PlayerTick(float DeltaTime)
 {
 	Super::PlayerTick(DeltaTime);
@@ -1473,9 +1505,10 @@ void AObshagaPlayerController::PlayerTick(float DeltaTime)
 
 		UpdateDanger(DeltaTime);
 		UpdateCameraShake(DeltaTime);
-		UpdateTutorial();
+		UpdateTutorial(DeltaTime);
 		UpdateFootsteps();
 		UpdateMusic(DeltaTime);
+		UpdateNoticesOnInterrogation();
 	}
 
 	if (!NoticeQueue.IsEmpty() && GetWorld()->GetTimeSeconds() - NoticeTime >= NoticeSeconds)

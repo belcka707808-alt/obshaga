@@ -51,7 +51,7 @@ public:
 	/** Удар сердца сейчас: 0 — между ударами, 1 — пик удара. */
 	float GetHeartPulse() const;
 
-	/** Текст текущего шага обучения; пусто, если обучение не идёт. */
+	/** Текст текущего шага обучения; пусто, если обучение не идёт (пройдено, лобби, заставка, итоги). */
 	FText GetTutorialText() const;
 	int32 GetTutorialStep() const { return TutorialStep; }
 	static constexpr int32 NumTutorialSteps = 5;
@@ -173,8 +173,12 @@ private:
 
 	void UpdateDanger(float DeltaTime);
 	void UpdateCameraShake(float DeltaTime);
-	void UpdateTutorial();
+	void UpdateTutorial(float DeltaTime);
+	/** Обучение идёт прямо сейчас: не пройдено, раунд идёт и заставка не играет. В остальное время его часы стоят. */
+	bool IsTutorialLive() const;
 	void FinishTutorial();
+	/** Свой допрос начался или кончился: прочитанное сообщение уступает место следующему. */
+	void UpdateNoticesOnInterrogation();
 	void UpdateFootsteps();
 	void UpdateMusic(float DeltaTime);
 
@@ -276,10 +280,11 @@ private:
 	float ShakeTimeLeft = 0.f;
 	bool bWasInterrogated = false;
 
-	// Обучение первого запуска: номер шага (NumTutorialSteps — пройдено) и когда началось.
+	// Обучение первого запуска: номер шага (NumTutorialSteps — пройдено) и сколько секунд шли всё обучение и текущий шаг.
+	// Считается только время раунда: лобби и заставка в эти секунды не входят.
 	int32 TutorialStep = NumTutorialSteps;
-	float TutorialStartTime = 0.f;
-	float TutorialStepTime = 0.f;
+	float TutorialSeconds = 0.f;
+	float TutorialStepSeconds = 0.f;
 
 	/** Телефон открыт только у локального игрока; мир при этом не останавливается. */
 	bool bPhoneOpen = false;
@@ -288,4 +293,6 @@ private:
 	FText Notice;
 	float NoticeTime = -100.f;
 	TArray<FText> NoticeQueue;
+	/** Идёт свой допрос: сообщения видны не посреди экрана, а строкой в панели допроса. */
+	bool bNoticesInPanel = false;
 };

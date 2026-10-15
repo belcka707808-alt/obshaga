@@ -6,11 +6,20 @@
 #include "Obshaga.h"
 #include "ObshagaGameMode.h"
 #include "ObshagaItemData.h"
+#include "ObshagaPlayerController.h"
 #include "ObshagaPlayerState.h"
 #include "ObshagaRoundConfig.h"
 #include "EngineUtils.h"
 #include "GameFramework/Pawn.h"
 #include "Net/UnrealNetwork.h"
+
+#define LOCTEXT_NAMESPACE "TaskComponent"
+
+namespace
+{
+	// Не чаще раза в столько секунд — сообщение про одно задание: вещь носят туда-сюда через порог, и пометка мигает.
+	constexpr float LiveNoticeCooldownSeconds = 5.f;
+}
 
 UTaskComponent::UTaskComponent()
 {
@@ -162,6 +171,7 @@ void UTaskComponent::AssignTask(FName TaskId, const FTaskRow& Row, bool bMain)
 	State.Reward = Row.GetReward();
 	State.bMain = bMain;
 	Rows.Add(Row);
+	LiveNotices.AddDefaulted();
 
 	UE_LOG(LogObshaga, Verbose, TEXT("Task %s (%s) assigned to %s"), *TaskId.ToString(), bMain ? TEXT("main") : TEXT("side"), *GetOwnerState()->GetPlayerName());
 }
@@ -172,6 +182,7 @@ void UTaskComponent::ClearTasks()
 	{
 		Tasks.Reset();
 		Rows.Reset();
+		LiveNotices.Reset();
 	}
 }
 
@@ -187,7 +198,51 @@ void UTaskComponent::UpdateLiveStatus()
 		if (Tasks[Index].Status == ETaskStatus::InProgress)
 		{
 			Tasks[Index].bSatisfiedNow = EvaluateCondition(Rows[Index]);
+			NotifyLiveChange(Index);
 		}
+	}
+}
+
+void UTaskComponent::NotifyLiveChange(int32 Index)
+{
+	if (!LiveNotices.IsValidIndex(Index) || !Rows.IsValidIndex(Index))
+	{
+		return;
+	}
+
+	FTaskLiveNotice& Live = LiveNotices[Index];
+	const FTaskState& State = Tasks[Index];
+	// Первая проверка после выдачи — только точка отсчёта: «Сохрани телевизор» выполнено с первой секунды, и хвалить не за что.
+	if (!Live.bKnown)
+	{
+		Live.bKnown = true;
+		Live.bAnnounced = State.bSatisfiedNow;
+		return;
+	}
+
+	// Игрок уже знает это состояние или про задание недавно было сообщение — молчим. Если пометка так и осталась
+	// другой, сообщение уйдёт, когда пройдёт пауза; если успела мигнуть обратно — не уйдёт вовсе.
+	// «Не попадись на глаза» выполнено с самого начала и может только сорваться — о нём не сообщаем.
+	const float Now = GetWorld()->GetTimeSeconds();
+	if (State.bSatisfiedNow == Live.bAnnounced || Now - Live.Time < LiveNoticeCooldownSeconds
+		|| Rows[Index].SuccessCondition == ETaskCondition::NeverSpottedWholeRound)
+	{
+		return;
+	}
+
+	Live.bAnnounced = State.bSatisfiedNow;
+	Live.Time = Now;
+	// Только владельцу: сообщение уходит его контроллеру, остальные о чужих заданиях ничего не узнают. У ботов контроллер другой — им не шлём.
+	const AObshagaPlayerState* OwnerState = GetOwnerState();
+	AObshagaPlayerController* Controller = OwnerState ? Cast<AObshagaPlayerController>(OwnerState->GetOwner()) : nullptr;
+	UE_LOG(LogObshaga, Verbose, TEXT("Task %s of %s: satisfied now %d%s"), *State.TaskId.ToString(), OwnerState ? *OwnerState->GetPlayerName() : TEXT("?"),
+		State.bSatisfiedNow ? 1 : 0, Controller ? TEXT(", owner notified") : TEXT(""));
+	if (Controller)
+	{
+		// Без значков вроде галочки: шрифт игры их не рисует (см. ServerSetDisplayName), вышел бы пустой квадрат.
+		Controller->ClientShowNotice(State.bSatisfiedNow
+			? FText::Format(LOCTEXT("LiveDone", "Есть! «{0}»: сейчас выполнено — продержись до конца"), State.Title)
+			: FText::Format(LOCTEXT("LiveLost", "«{0}»: больше не выполнено!"), State.Title));
 	}
 }
 
@@ -437,3 +492,5 @@ bool UTaskComponent::EvaluateCondition(const FTaskRow& Row) const
 		return false;
 	}
 }
+
+#undef LOCTEXT_NAMESPACE
