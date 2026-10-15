@@ -3,6 +3,7 @@
 #include "HidingSpot.h"
 #include "Interactable.h"
 #include "ItemActor.h"
+#include "Obshaga.h"
 #include "ObshagaCharacter.h"
 #include "ObshagaCharacterConfig.h"
 #include "Engine/OverlapResult.h"
@@ -194,6 +195,7 @@ void UInteractionComponent::ServerInteract_Implementation(AActor* Target, bool b
 	const bool bAllowed = CurrentSpot ? (Target == CurrentSpot) : (IsInRange(Target, ServerRangeSlack) && HasLineOfSight(Target));
 	if (!bAllowed)
 	{
+		UE_LOG(LogObshaga, Verbose, TEXT("%s: interaction with %s refused (in range %d, sight %d)"), *Character->GetName(), *GetNameSafe(Target), IsInRange(Target, ServerRangeSlack) ? 1 : 0, HasLineOfSight(Target) ? 1 : 0);
 		return;
 	}
 

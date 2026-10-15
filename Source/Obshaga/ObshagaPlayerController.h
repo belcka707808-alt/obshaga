@@ -96,7 +96,7 @@ protected:
 	UFUNCTION(Server, Reliable)
 	void ServerAccuse(AObshagaCharacter* Suspect);
 
-	/** Только для проверок (не в Shipping и только с ключом запуска -ObshagaDebugKeys): 0 — «поймай меня», 1 — «дай телевизор». */
+	/** Только для проверок (не в Shipping и только с ключом запуска -ObshagaDebugKeys): 0 — «поймай меня», 1 — «дай телевизор», 2 — записка, 3 — Палыч к боту, 4/5 — встать на улице (у двери / вдали). */
 	UFUNCTION(Server, Reliable)
 	void ServerDebug(uint8 What);
 

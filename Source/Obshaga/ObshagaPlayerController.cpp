@@ -2,6 +2,7 @@
 
 #include "CarryComponent.h"
 #include "DoorActor.h"
+#include "NightExitDoor.h"
 #include "GameFramework/HUD.h"
 #include "InteractionComponent.h"
 #include "KomendantAIController.h"
@@ -428,6 +429,26 @@ void AObshagaPlayerController::ServerDebug_Implementation(uint8 What)
 	{
 		return;
 	}
+	if (What == 4 || What == 5)
+	{
+		// 4 — встать на улице лицом к ночному выходу, 5 — встать на улице подальше от двери (проверка «застрял снаружи»).
+		for (TActorIterator<ANightExitDoor> It(GetWorld()); It; ++It)
+		{
+			const FVector Street = It->GetActorLocation() - It->GetActorForwardVector() * (What == 4 ? 200.f : 600.f) + It->GetActorRightVector() * (What == 4 ? 0.f : 400.f) + FVector(0.f, 0.f, 20.f);
+			Me->TeleportTo(Street, It->GetActorForwardVector().Rotation());
+			SetControlRotation(It->GetActorForwardVector().Rotation());
+			UE_LOG(LogObshaga, Log, TEXT("Debug: %s put outside at %s (exit %s at %s, forward %s)"), *Me->GetName(), *Street.ToCompactString(), *It->GetName(), *It->GetActorLocation().ToCompactString(), *It->GetActorForwardVector().ToCompactString());
+			for (TActorIterator<ADoorActor> Door(GetWorld()); Door; ++Door)
+			{
+				if (FVector::Dist(Door->GetActorLocation(), It->GetActorLocation()) < 600.f)
+				{
+					UE_LOG(LogObshaga, Log, TEXT("Debug: door %s near the exit at %s, rotation %s"), *Door->GetName(), *Door->GetActorLocation().ToCompactString(), *Door->GetActorRotation().ToCompactString());
+				}
+			}
+			break;
+		}
+		return;
+	}
 	if (What == 3)
 	{
 		// Палыч гонится за ближайшим ботом.
@@ -669,9 +690,9 @@ bool AObshagaPlayerController::InputKey(const FInputKeyEventArgs& Params)
 
 #if !UE_BUILD_SHIPPING
 	// Проверочные клавиши: K — комендант сразу ловит меня, L — тяжёлый предмет мне в руки.
-	if (Params.Event == IE_Pressed && (Params.Key == EKeys::K || Params.Key == EKeys::L || Params.Key == EKeys::N || Params.Key == EKeys::U) && FParse::Param(FCommandLine::Get(), TEXT("ObshagaDebugKeys")))
+	if (Params.Event == IE_Pressed && (Params.Key == EKeys::K || Params.Key == EKeys::L || Params.Key == EKeys::N || Params.Key == EKeys::U || Params.Key == EKeys::O || Params.Key == EKeys::P) && FParse::Param(FCommandLine::Get(), TEXT("ObshagaDebugKeys")))
 	{
-		ServerDebug(Params.Key == EKeys::K ? 0 : (Params.Key == EKeys::L ? 1 : (Params.Key == EKeys::N ? 2 : 3)));
+		ServerDebug(Params.Key == EKeys::K ? 0 : (Params.Key == EKeys::L ? 1 : (Params.Key == EKeys::N ? 2 : (Params.Key == EKeys::U ? 3 : (Params.Key == EKeys::O ? 4 : 5)))));
 		return true;
 	}
 	// J — смотреть по очереди на других жильцов (ботов), ещё раз после последнего — снова на себя.
