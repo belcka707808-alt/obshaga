@@ -28,6 +28,8 @@
 namespace
 {
 	constexpr float BotThinkSeconds = 0.4f;
+	// Осторожный бот идёт домой за столько секунд до отбоя.
+	constexpr float BotCurfewHomeSeconds = 45.f;
 	// Точка пути считается пройденной, если до неё ближе этого (по горизонтали) и примерно на той же высоте.
 	constexpr float BotPointArriveDistance = 70.f;
 	constexpr float BotSameFloorHeight = 150.f;
@@ -590,7 +592,9 @@ bool AObshagaBotController::PlanTask()
 	// «Не попадись на глаза»: после отбоя любой выход в коридор уже подозрителен — осторожный бот бросает остальные
 	// дела и сидит у себя до утра (прогулку домой сделает PlanWander).
 	const AObshagaGameState* GameState = GetWorld()->GetGameState<AObshagaGameState>();
-	if (GameState && GameState->GetPhase() != ERoundPhase::Evening && Tasks->FindRowByCondition(ETaskCondition::NeverSpottedWholeRound))
+	// Домой — заранее, за BotCurfewHomeSeconds до отбоя: идти к себе уже ночью по коридору — тоже «подозрительно».
+	const bool bNearCurfew = GameState && (GameState->GetPhase() != ERoundPhase::Evening || GameState->GetPhaseRemainingSeconds() < BotCurfewHomeSeconds);
+	if (bNearCurfew && Tasks->FindRowByCondition(ETaskCondition::NeverSpottedWholeRound))
 	{
 		return false;
 	}
@@ -788,7 +792,7 @@ void AObshagaBotController::PlanWander()
 	const UObshagaRoundConfig* Config = GetRoundConfig();
 	// «Не попадись на глаза»: такой бот по общаге не гуляет, а сидит у себя в комнате.
 	const AObshagaGameState* WanderState = GetWorld()->GetGameState<AObshagaGameState>();
-	const bool bCurfew = WanderState && WanderState->GetPhase() != ERoundPhase::Evening;
+	const bool bCurfew = WanderState && (WanderState->GetPhase() != ERoundPhase::Evening || WanderState->GetPhaseRemainingSeconds() < BotCurfewHomeSeconds);
 	if (GetMyState()->GetTaskComponent()->FindRowByCondition(ETaskCondition::NeverSpottedWholeRound) && (bCurfew || FMath::FRand() < 0.8f))
 	{
 		const ARoomVolume* Home = ARoomVolume::FindRoomById(this, GetMyState()->GetHomeRoomId());
