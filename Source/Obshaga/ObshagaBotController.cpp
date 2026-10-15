@@ -1114,6 +1114,11 @@ AKomendantWaypoint* AObshagaBotController::FindNearestWaypoint(const FVector& Lo
 		{
 			Score += 10000.f;
 		}
+		// Тонкий луч проходит мимо цветка или коробки, а плечо жильца в них упирается.
+		else if (Score < BestScore && !HasClearWay(Location, Waypoint->GetActorLocation()))
+		{
+			Score += 3000.f;
+		}
 		if (Score < BestScore)
 		{
 			BestScore = Score;
