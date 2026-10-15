@@ -86,6 +86,8 @@ private:
 	bool PlanTask();
 	bool PlanTaskRow(const FTaskRow& Row);
 	void PlanWander();
+	/** «Не попадись на глаза» и уже почти отбой или позже: бот сидит у себя и никуда не ходит. */
+	bool IsCarefulAtHomeTime() const;
 	bool TryFleeOrHide(const AKomendantCharacter* Komendant);
 	void HandleInterrogation();
 	void Arrive();

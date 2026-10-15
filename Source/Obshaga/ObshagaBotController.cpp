@@ -304,8 +304,7 @@ void AObshagaBotController::Think()
 	case EBotState::Hidden:
 	{
 		// Сидит, пока не выйдет время и пока Палыч рядом.
-		const bool bDanger = (Komendant && FVector::Dist(Komendant->GetActorLocation(), Me->GetActorLocation()) < BotStayHiddenDistance)
-			|| (GameState->GetPhase() == ERoundPhase::Morning && MyState->GetTaskComponent()->FindRowByCondition(ETaskCondition::NeverSpottedWholeRound));
+		const bool bDanger = Komendant && FVector::Dist(Komendant->GetActorLocation(), Me->GetActorLocation()) < BotStayHiddenDistance;
 		if (!Me->IsHiding())
 		{
 			SetState(EBotState::Idle);
@@ -363,19 +362,9 @@ void AObshagaBotController::Think()
 	{
 		return;
 	}
-	// «Не попадись на глаза»: утром Палыч обходит все комнаты — осторожный бот заранее прячется у себя в шкаф.
-	if (GameState->GetPhase() == ERoundPhase::Morning && MyState->GetTaskComponent()->FindRowByCondition(ETaskCondition::NeverSpottedWholeRound)
-		&& !Me->GetCarryComponent()->IsCarrying())
-	{
-		AHidingSpot* Spot = FindSpotInRoom(MyState->GetHomeRoomId(), true);
-		if (Spot && WalkTo(Spot->GetActorLocation(), EBotGoal::HideSelf, 160.f))
-		{
-			TargetSpot = Spot;
-			return;
-		}
-	}
 	// Записка рядом — любопытно, что там (без читателей задание «пустить слух» не выполнить никому).
-	if (!Me->GetCarryComponent()->IsCarrying())
+	// Осторожный бот после отбоя из комнаты за ней не выходит.
+	if (!Me->GetCarryComponent()->IsCarrying() && !IsCarefulAtHomeTime())
 	{
 		for (TActorIterator<AItemActor> It(GetWorld()); It; ++It)
 		{
@@ -504,6 +493,16 @@ bool AObshagaBotController::TryFleeOrHide(const AKomendantCharacter* Komendant)
 	const UObshagaRoundConfig* Config = GetRoundConfig();
 	const AObshagaPlayerState* MyState = GetMyState();
 	const bool bCareful = MyState->GetTaskComponent()->FindRowByCondition(ETaskCondition::NeverSpottedWholeRound) != nullptr;
+	// Осторожный бот после отбоя у себя в комнате не подозрителен — а выбежать от Палыча в коридор как раз подозрительно.
+	// Утром Палыч проверяет и шкафы, так что прятаться у себя тоже нельзя: сидящего в шкафу он ловит.
+	if (IsCarefulAtHomeTime() && !Me->GetCarryComponent()->IsCarrying())
+	{
+		const ARoomVolume* Room = ARoomVolume::FindRoomAt(this, Me->GetActorLocation());
+		if (Room && Room->RoomId == MyState->GetHomeRoomId())
+		{
+			return false;
+		}
+	}
 	const float FleeDistance = Config->BotFleeDistance * (bCareful ? BotCarefulFleeScale : 1.f);
 	const FVector Here = Me->GetActorLocation();
 	const FVector KomendantAt = Komendant->GetActorLocation();
@@ -591,10 +590,7 @@ bool AObshagaBotController::PlanTask()
 	const UTaskComponent* Tasks = GetMyState()->GetTaskComponent();
 	// «Не попадись на глаза»: после отбоя любой выход в коридор уже подозрителен — осторожный бот бросает остальные
 	// дела и сидит у себя до утра (прогулку домой сделает PlanWander).
-	const AObshagaGameState* GameState = GetWorld()->GetGameState<AObshagaGameState>();
-	// Домой — заранее, за BotCurfewHomeSeconds до отбоя: идти к себе уже ночью по коридору — тоже «подозрительно».
-	const bool bNearCurfew = GameState && (GameState->GetPhase() != ERoundPhase::Evening || GameState->GetPhaseRemainingSeconds() < BotCurfewHomeSeconds);
-	if (bNearCurfew && Tasks->FindRowByCondition(ETaskCondition::NeverSpottedWholeRound))
+	if (IsCarefulAtHomeTime())
 	{
 		return false;
 	}
@@ -787,13 +783,19 @@ bool AObshagaBotController::PlanTaskRow(const FTaskRow& Row)
 	}
 }
 
+bool AObshagaBotController::IsCarefulAtHomeTime() const
+{
+	// Домой — заранее, за BotCurfewHomeSeconds до отбоя: идти к себе уже ночью по коридору — тоже «подозрительно».
+	const AObshagaGameState* GameState = GetWorld()->GetGameState<AObshagaGameState>();
+	const bool bNearCurfew = GameState && (GameState->GetPhase() != ERoundPhase::Evening || GameState->GetPhaseRemainingSeconds() < BotCurfewHomeSeconds);
+	return bNearCurfew && GetMyState()->GetTaskComponent()->FindRowByCondition(ETaskCondition::NeverSpottedWholeRound) != nullptr;
+}
+
 void AObshagaBotController::PlanWander()
 {
 	const UObshagaRoundConfig* Config = GetRoundConfig();
 	// «Не попадись на глаза»: такой бот по общаге не гуляет, а сидит у себя в комнате.
-	const AObshagaGameState* WanderState = GetWorld()->GetGameState<AObshagaGameState>();
-	const bool bCurfew = WanderState && (WanderState->GetPhase() != ERoundPhase::Evening || WanderState->GetPhaseRemainingSeconds() < BotCurfewHomeSeconds);
-	if (GetMyState()->GetTaskComponent()->FindRowByCondition(ETaskCondition::NeverSpottedWholeRound) && (bCurfew || FMath::FRand() < 0.8f))
+	if (IsCarefulAtHomeTime() || (GetMyState()->GetTaskComponent()->FindRowByCondition(ETaskCondition::NeverSpottedWholeRound) && FMath::FRand() < 0.8f))
 	{
 		const ARoomVolume* Home = ARoomVolume::FindRoomById(this, GetMyState()->GetHomeRoomId());
 		const ARoomVolume* Here = ARoomVolume::FindRoomAt(this, Me->GetActorLocation());
