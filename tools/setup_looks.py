@@ -22,7 +22,8 @@ ANIMS = {
     "pick_up": "pick-up",
     "throw": "interact-right",
     "fall": "fall",
-    "caught": "sit",
+    # Пойман — стоя качает головой «это не я!». Не "sit": стула под пойманным нет, он сидел бы в воздухе.
+    "caught": "emote-no",
 }
 GESTURES = ["emote-yes", "emote-no", "interact-left", "interact-right"]
 

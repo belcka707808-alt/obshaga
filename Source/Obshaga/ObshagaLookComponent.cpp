@@ -16,7 +16,10 @@
 
 namespace
 {
-	constexpr float SpeedSmoothing = 6.f;
+	// Сглаживание скорости для выбора клипа и темпа шагов. Комендант идёт рывками от точки к точке — ему нужно сильное,
+	// иначе шаг мигал бы со стойкой. Жильцу — слабое: с сильным ноги ещё полсекунды шагали бы на месте после остановки.
+	constexpr float KomendantSpeedSmoothing = 6.f;
+	constexpr float ResidentSpeedSmoothing = 20.f;
 	// Сколько разовый клип (взял, жест) ждёт, пока персонаж остановится.
 	constexpr float OneShotWaitSeconds = 1.f;
 	// Пределы ускорения и замедления клипов ходьбы и бега. Нижний — ниже шага с телевизором (165 из 300 см/с), иначе ноги скользят.
@@ -106,7 +109,7 @@ UAnimSequenceBase* UObshagaLookComponent::PickAnimation(bool& bOutLoop)
 	const ACharacter* Character = CastChecked<ACharacter>(GetOwner());
 	const AObshagaCharacter* Resident = Cast<AObshagaCharacter>(Character);
 	const UObshagaLookConfig* Config = UObshagaLookConfig::Get();
-	// Скорость сглажена: комендант идёт рывками от точки к точке, и без этого шаг мигал бы со стойкой.
+	// Скорость сглажена (см. TickComponent): комендант идёт рывками от точки к точке, и без этого шаг мигал бы со стойкой.
 	const float Speed = SmoothedSpeed;
 	bOutLoop = true;
 
@@ -142,6 +145,12 @@ UAnimSequenceBase* UObshagaLookComponent::PickAnimation(bool& bOutLoop)
 		{
 			OneShot = nullptr;
 		}
+		// Вприсядку разовые клипы не играем: они сняты стоя, и персонаж на секунду вставал бы во весь рост.
+		// Взял предмет — руки сразу держат его поверх приседа (см. TickComponent).
+		if (OneShot && Character->IsCrouched() && Config->Crouch)
+		{
+			OneShot = nullptr;
+		}
 		// Жест на ходу не играем: ноги должны идти. Смотрим на настоящую скорость, а не сглаженную,
 		// иначе клип опаздывал бы на полсекунды после остановки и обрезался.
 		if (OneShot && GetWorld()->GetTimeSeconds() < OneShotUntil && Character->GetVelocity().Size2D() < Config->MoveSpeedThreshold)
@@ -160,9 +169,11 @@ UAnimSequenceBase* UObshagaLookComponent::PickAnimation(bool& bOutLoop)
 	{
 		return Config->Fall;
 	}
+	// Присед в паке — неподвижная поза, отдельной ходьбы вприсядку нет. Стоя на месте — поза приседа,
+	// на ходу — обычные шаги в темпе настоящей скорости (см. TickComponent), иначе персонаж ехал бы по полу без шагов.
 	if (Character->IsCrouched() && Config->Crouch)
 	{
-		return Config->Crouch;
+		return (Speed > Config->MoveSpeedThreshold && Config->Walk) ? Config->Walk : Config->Crouch;
 	}
 	// Предмет в руках клип не меняет: ноги идут как обычно, а руки поверх них держат предмет (см. TickComponent).
 	if (Speed > Config->RunSpeedThreshold && Config->Sprint)
@@ -186,7 +197,8 @@ void UObshagaLookComponent::TickComponent(float DeltaTime, ELevelTick TickType, 
 		return;
 	}
 
-	SmoothedSpeed = FMath::FInterpTo(SmoothedSpeed, GetOwner()->GetVelocity().Size2D(), DeltaTime, SpeedSmoothing);
+	const float Smoothing = Cast<AKomendantCharacter>(GetOwner()) ? KomendantSpeedSmoothing : ResidentSpeedSmoothing;
+	SmoothedSpeed = FMath::FInterpTo(SmoothedSpeed, GetOwner()->GetVelocity().Size2D(), DeltaTime, Smoothing);
 
 	bool bLoop = true;
 	UAnimSequenceBase* Wanted = PickAnimation(bLoop);
@@ -216,7 +228,9 @@ void UObshagaLookComponent::TickComponent(float DeltaTime, ELevelTick TickType, 
 			UE_LOG(LogObshaga, Verbose, TEXT("[%s] %s holds item: %d"), *GetNameSafe(GetWorld()), *GetOwner()->GetName(), bHolding ? 1 : 0);
 		}
 	}
-	if (Wanted && Wanted != Current)
+	// Тот же клип, но теперь по кругу (жест «нет» сменился допросом с тем же клипом) — тоже передаём аниматору,
+	// иначе разовый клип застыл бы на последнем кадре.
+	if (Wanted && (Wanted != Current || bLoop != bCurrentLoops))
 	{
 		USkeletalMeshComponent* Mesh = CastChecked<ACharacter>(GetOwner())->GetMesh();
 		UObshagaAnimInstance* Animator = Cast<UObshagaAnimInstance>(Mesh->GetAnimInstance());
@@ -227,6 +241,7 @@ void UObshagaLookComponent::TickComponent(float DeltaTime, ELevelTick TickType, 
 			return;
 		}
 		Current = Wanted;
+		bCurrentLoops = bLoop;
 		Animator->Play(Sequence, bLoop, UObshagaLookConfig::Get()->BlendSeconds);
 		UE_LOG(LogObshaga, Verbose, TEXT("[%s] %s anim: %s"), *GetNameSafe(GetWorld()), *GetOwner()->GetName(), *Wanted->GetName());
 	}

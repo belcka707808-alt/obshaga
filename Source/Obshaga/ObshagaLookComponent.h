@@ -133,6 +133,9 @@ private:
 	UPROPERTY(Transient)
 	TObjectPtr<UAnimSequenceBase> Current;
 
+	/** Текущий клип идёт по кругу (false — разовый). */
+	bool bCurrentLoops = true;
+
 	/** Разовая анимация (взял, бросил, жест) играет до этого времени. */
 	UPROPERTY(Transient)
 	TObjectPtr<UAnimSequenceBase> OneShot;

@@ -21,8 +21,15 @@ namespace
 
 void UObshagaAnimInstance::Play(UAnimSequence* Sequence, bool bLoop, float BlendSeconds)
 {
-	if (!Sequence || Sequence == Current)
+	if (!Sequence)
 	{
+		return;
+	}
+	// Тот же клип, сменилось только «по кругу или один раз» (жест «нет», а следом допрос с тем же клипом):
+	// клип идёт дальше с того же места, без перехода.
+	if (Sequence == Current)
+	{
+		bCurrentLoops = bLoop;
 		return;
 	}
 
