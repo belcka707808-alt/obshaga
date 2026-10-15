@@ -6,6 +6,7 @@
 #include "NoiseStatics.h"
 #include "Obshaga.h"
 #include "ObshagaCharacter.h"
+#include "ObshagaGameMode.h"
 #include "ObshagaItemData.h"
 #include "ObshagaPlayerController.h"
 #include "ObshagaVisuals.h"
@@ -14,7 +15,9 @@
 #include "GameFramework/PlayerState.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/StaticMesh.h"
+#include "Engine/World.h"
 #include "Net/UnrealNetwork.h"
+#include "TimerManager.h"
 #include "UObject/ConstructorHelpers.h"
 
 #define LOCTEXT_NAMESPACE "ItemActor"
@@ -256,6 +259,37 @@ FName AItemActor::GetHomeRoomId() const
 {
 	const ARoomVolume* Room = ARoomVolume::FindRoomAt(this, InitialTransform.GetLocation() + FVector(0.f, 0.f, 50.f));
 	return Room ? Room->RoomId : NAME_None;
+}
+
+bool AItemActor::IsAtInitialPlace(float Tolerance) const
+{
+	return FVector::DistSquared(GetActorLocation(), InitialTransform.GetLocation()) <= FMath::Square(Tolerance);
+}
+
+void AItemActor::FellOutOfWorld(const UDamageType& DamageType)
+{
+	// Движок уничтожает всё, что упало ниже карты, и задания на этот предмет пропали бы до конца сессии.
+	// Решает только сервер; в руках и в тайнике предмет не падает (физика у него выключена), такое не трогаем.
+	if (!HasAuthority() || Placement.State != EItemState::World)
+	{
+		return;
+	}
+	// Возвращаем кадром позже, а не посреди переноса физики в мир; до тех пор предмет не падает дальше.
+	Mesh->SetSimulatePhysics(false);
+	GetWorldTimerManager().SetTimerForNextTick(this, &AItemActor::ReturnFromBelowWorld);
+	UE_LOG(LogObshaga, Verbose, TEXT("%s fell out of the world at %s"), *GetName(), *GetActorLocation().ToCompactString());
+}
+
+void AItemActor::ReturnFromBelowWorld()
+{
+	if (AObshagaGameMode* GameMode = GetWorld()->GetAuthGameMode<AObshagaGameMode>())
+	{
+		GameMode->ReturnLostItem(this);
+	}
+	else if (Placement.State == EItemState::World)
+	{
+		ResetToInitial();
+	}
 }
 
 FName AItemActor::GetCurrentRoomId() const

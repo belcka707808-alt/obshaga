@@ -6,9 +6,12 @@
 #include "Obshaga.h"
 #include "ObshagaCharacter.h"
 #include "ObshagaCharacterConfig.h"
+#include "ObshagaPlayerController.h"
 #include "Engine/OverlapResult.h"
 #include "Engine/World.h"
 #include "GameFramework/Controller.h"
+
+#define LOCTEXT_NAMESPACE "InteractionComponent"
 
 namespace
 {
@@ -16,6 +19,8 @@ namespace
 	constexpr float FeetLookDownZ = -0.4f;
 	constexpr float FeetRadius = 80.f;
 	constexpr float FeetForwardOffset = 40.f;
+	// Вторая точка, откуда «видно» объект: макушка, чуть ниже верха капсулы (у стоящего — центр + 85 см).
+	constexpr float HeadBelowCapsuleTop = 5.f;
 }
 
 UInteractionComponent::UInteractionComponent()
@@ -94,9 +99,11 @@ AActor* UInteractionComponent::FindFocusedActor() const
 		}
 	};
 
+	// Камера стоит выше и позади глаз и видит то, чего не видят глаза. Поэтому и объект прямо под прицелом проверяем
+	// так же, как сервер: иначе подсказка «[E] Взять» обещала бы то, что сервер не разрешит.
 	if (bHit)
 	{
-		Consider(Hit.GetActor(), false);
+		Consider(Hit.GetActor(), true);
 	}
 
 	const FVector AimPoint = bHit ? Hit.ImpactPoint : TraceEnd;
@@ -140,11 +147,27 @@ bool UInteractionComponent::HasLineOfSight(const AActor* Target) const
 
 	FCollisionQueryParams Params(SCENE_QUERY_STAT(InteractionSight), false, Character);
 	Params.AddIgnoredActor(Target);
-	// Целимся в ближайшую к глазам точку объекта: у открытой двери центр может оказаться за косяком.
+	// Смотрим из глаз и с макушки на три точки объекта: ближайшую к глазам (у открытой двери центр может оказаться
+	// за косяком), центр и середину верха. Вещь на шкафу видна с макушки поверх его края, вещь за кроватью или
+	// стойкой — сверху. Хватает одного свободного луча; сквозь стену не проходит ни один.
 	const FVector EyeLocation = Character->GetPawnViewLocation();
-	const FVector TargetPoint = Target->GetComponentsBoundingBox().GetClosestPointTo(EyeLocation);
-	FHitResult Hit;
-	return !GetWorld()->LineTraceSingleByChannel(Hit, EyeLocation, TargetPoint, ECC_Visibility, Params);
+	const FVector HeadLocation = Character->GetActorLocation() + FVector(0.f, 0.f, Character->GetSimpleCollisionHalfHeight() - HeadBelowCapsuleTop);
+	const FBox Bounds = Target->GetComponentsBoundingBox();
+	const FVector Center = Bounds.GetCenter();
+	const FVector Origins[] = { EyeLocation, HeadLocation };
+	const FVector TargetPoints[] = { Bounds.GetClosestPointTo(EyeLocation), Center, FVector(Center.X, Center.Y, Bounds.Max.Z) };
+	for (const FVector& Origin : Origins)
+	{
+		for (const FVector& TargetPoint : TargetPoints)
+		{
+			FHitResult Hit;
+			if (!GetWorld()->LineTraceSingleByChannel(Hit, Origin, TargetPoint, ECC_Visibility, Params))
+			{
+				return true;
+			}
+		}
+	}
+	return false;
 }
 
 bool UInteractionComponent::IsInRange(const AActor* Target, float Slack) const
@@ -195,7 +218,14 @@ void UInteractionComponent::ServerInteract_Implementation(AActor* Target, bool b
 	const bool bAllowed = CurrentSpot ? (Target == CurrentSpot) : (IsInRange(Target, ServerRangeSlack) && HasLineOfSight(Target));
 	if (!bAllowed)
 	{
-		UE_LOG(LogObshaga, Verbose, TEXT("%s: interaction with %s refused (in range %d, sight %d)"), *Character->GetName(), *GetNameSafe(Target), IsInRange(Target, ServerRangeSlack) ? 1 : 0, HasLineOfSight(Target) ? 1 : 0);
+		const bool bInRange = IsInRange(Target, ServerRangeSlack);
+		UE_LOG(LogObshaga, Verbose, TEXT("%s: interaction with %s refused (in range %d, sight %d)"), *Character->GetName(), *GetNameSafe(Target), bInRange ? 1 : 0, HasLineOfSight(Target) ? 1 : 0);
+		// Вещь рядом, но рукой до неё не достать (на шкафу, за кроватью): говорим об этом, а не молчим.
+		AObshagaPlayerController* Controller = Cast<AObshagaPlayerController>(Character->GetController());
+		if (!CurrentSpot && bInRange && Controller && Cast<AItemActor>(Target))
+		{
+			Controller->ClientShowNotice(LOCTEXT("OutOfReach", "Не дотянуться"));
+		}
 		return;
 	}
 
@@ -208,3 +238,5 @@ void UInteractionComponent::ServerInteract_Implementation(AActor* Target, bool b
 		Interactable->Interact(Character);
 	}
 }
+
+#undef LOCTEXT_NAMESPACE

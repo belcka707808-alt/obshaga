@@ -56,6 +56,13 @@ namespace
 	constexpr float MaxJambThickness = 60.f;
 	constexpr float FloorProbeUp = 120.f;
 	constexpr float FloorProbeDown = 60.f;
+	// Крышка для вещей: насколько она выходит за края зоны (чтобы накрыть и верх стен) и её толщина
+	// (толстая, чтобы быстрая вещь не проскочила её за один шаг физики).
+	constexpr float LidMargin = 30.f;
+	constexpr float LidThickness = 40.f;
+	// Перекрытие над зоной ищем лучом вверх: от этой высоты над полом и до высоты стен с этим запасом.
+	constexpr float CeilingProbeFrom = 120.f;
+	constexpr float CeilingProbeAbove = 80.f;
 
 	/** Одно место у стены шириной в шаг краски. */
 	struct FWallSlot
@@ -125,6 +132,9 @@ ARoomVolume::ARoomVolume()
 void ARoomVolume::BeginPlay()
 {
 	Super::BeginPlay();
+
+	// Крышка — не оформление: вещи считают физику и у хоста, и у гостей, поэтому она нужна везде и при любой графике.
+	AddItemLid();
 
 	// Оформление зоны: комнаты одного типа берут цвета по очереди (по порядку имён), чтобы не быть одинаковыми.
 	const FRoomStyle* Style = UObshagaDecorConfig::Get()->FindStyle(RoomType);
@@ -255,6 +265,48 @@ float ARoomVolume::FindFloorZ() const
 		Params.AddIgnoredActor(Hit.GetActor());
 	}
 	return Bounds.Min.Z;
+}
+
+void ARoomVolume::AddItemLid()
+{
+	// Над вторым этажом крыши нет (чтобы камера не упиралась), а стены — не выше этажа: брошенная вверх вещь
+	// улетала через «потолок» к соседям или на улицу. Где над зоной нет перекрытия, кладём крышку на верх стен.
+	// Она блокирует только физические тела (профиль PhysicsActor у вещей — тип PhysicsBody): люди, камера,
+	// лучи видимости и зрение Палыча проходят сквозь неё. Лестница занимает два этажа — крышка над верхним.
+	const FBox Bounds = Box->Bounds.GetBox();
+	const FVector Size = Bounds.GetSize();
+	const FVector Center = Bounds.GetCenter();
+	const float TopFloor = Size.Z > TwoStoreyHeight ? Bounds.Max.Z - MaxWallHeight : FindFloorZ();
+
+	// Перекрытие ищем тем же лучом, что и для потолка, но не только в середине: если оно есть хоть над одной точкой
+	// (зона первого этажа у проёма лестницы), крышку не кладём — лишняя крышка закрыла бы вещам лестничный пролёт.
+	const FVector2D Shares[] = { FVector2D(0.f, 0.f), FVector2D(-0.25f, -0.25f), FVector2D(0.25f, -0.25f), FVector2D(-0.25f, 0.25f), FVector2D(0.25f, 0.25f) };
+	for (const FVector2D& Share : Shares)
+	{
+		const FVector Point(Center.X + Size.X * Share.X, Center.Y + Size.Y * Share.Y, TopFloor);
+		FVector Unused;
+		if (TraceWall(GetWorld(), Point + FVector(0.f, 0.f, CeilingProbeFrom), Point + FVector(0.f, 0.f, MaxWallHeight + CeilingProbeAbove), FVector(0.f, 0.f, -1.f), Unused))
+		{
+			return;
+		}
+	}
+
+	UBoxComponent* Lid = NewObject<UBoxComponent>(this, TEXT("ItemLid"));
+	Lid->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+	Lid->SetCollisionObjectType(ECC_WorldStatic);
+	Lid->SetCollisionResponseToAllChannels(ECR_Ignore);
+	Lid->SetCollisionResponseToChannel(ECC_PhysicsBody, ECR_Block);
+	Lid->SetGenerateOverlapEvents(false);
+	Lid->SetCanEverAffectNavigation(false);
+	Lid->SetHiddenInGame(true);
+	Lid->SetUsingAbsoluteLocation(true);
+	Lid->SetUsingAbsoluteRotation(true);
+	Lid->SetUsingAbsoluteScale(true);
+	Lid->SetupAttachment(Box);
+	Lid->SetBoxExtent(FVector(Size.X * 0.5f + LidMargin, Size.Y * 0.5f + LidMargin, LidThickness * 0.5f));
+	Lid->RegisterComponent();
+	Lid->SetWorldLocation(FVector(Center.X, Center.Y, TopFloor + MaxWallHeight + LidThickness * 0.5f));
+	UE_LOG(LogObshaga, Verbose, TEXT("Room %s: item lid at %.0f"), *RoomId.ToString(), TopFloor + MaxWallHeight);
 }
 
 void ARoomVolume::UpdateGlow()
@@ -854,7 +906,7 @@ void ARoomVolume::Decorate(const FRoomStyle& Style, int32 Ordinal)
 	{
 		FVector Unused;
 		const FVector Center(Bounds.GetCenter().X, Bounds.GetCenter().Y, Floor);
-		const bool bHasCeiling = TraceWall(World, Center + FVector(0.f, 0.f, 120.f), Center + FVector(0.f, 0.f, MaxWallHeight + 80.f), FVector(0.f, 0.f, -1.f), Unused);
+		const bool bHasCeiling = TraceWall(World, Center + FVector(0.f, 0.f, CeilingProbeFrom), Center + FVector(0.f, 0.f, MaxWallHeight + CeilingProbeAbove), FVector(0.f, 0.f, -1.f), Unused);
 		if (!bHasCeiling)
 		{
 			AddBlock(Center + FVector(0.f, 0.f, WallTop + 2.f), FRotator::ZeroRotator, FVector(Size.X, Size.Y, 4.f), Config->CeilingColor, -1.f);

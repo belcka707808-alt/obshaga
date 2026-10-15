@@ -7,7 +7,9 @@
 #include "ObshagaGameMode.h"
 #include "ObshagaGameState.h"
 #include "ObshagaPlayerController.h"
+#include "ObshagaPlayerState.h"
 #include "ObshagaRoundConfig.h"
+#include "TaskComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
 
 #define LOCTEXT_NAMESPACE "NightExitDoor"
@@ -110,6 +112,13 @@ void ANightExitDoor::LetIn(AObshagaCharacter* Character, const FText& Notice)
 	Character->ForceNetUpdate();
 	RememberReturned(Character);
 	NotifyWalker(Character, Notice);
+	// Ночная вылазка засчитывается только через саму дверь (выйти и вернуться); прыжок с балкона — нет.
+	// Говорим об этом сразу и только тому, у кого такое задание, а не на итогах, где оно окажется проваленным.
+	const AObshagaPlayerState* State = Character->GetPlayerState<AObshagaPlayerState>();
+	if (IsNight() && !Character->IsGhost() && State && State->GetTaskComponent()->FindRowByCondition(ETaskCondition::LeftBuildingAndReturnedUnseen))
+	{
+		NotifyWalker(Character, LOCTEXT("NotASortie", "Прыжок с балкона — не вылазка: на улицу надо выходить через ночной выход"));
+	}
 	UE_LOG(LogObshaga, Verbose, TEXT("%s let in from the street through %s"), *Character->GetName(), *GetName());
 }
 

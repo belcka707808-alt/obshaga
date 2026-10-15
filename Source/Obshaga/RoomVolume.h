@@ -62,6 +62,11 @@ protected:
 	/** Ночью краска светится слабее: комнаты темнеют вместе с улицей. */
 	void UpdateGlow();
 	float FindFloorZ() const;
+	/**
+	 * Невидимая крышка на высоте стен там, где над зоной нет перекрытия (второй этаж): брошенная вверх вещь
+	 * отскакивает от неё, а не улетает за стены. Её чувствуют только вещи; есть на каждой машине при любой графике.
+	 */
+	void AddItemLid();
 
 	UPROPERTY(Transient)
 	TArray<TObjectPtr<class UMaterialInstanceDynamic>> GlowMaterials;

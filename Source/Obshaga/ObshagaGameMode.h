@@ -5,6 +5,7 @@
 #include "ObshagaStory.h"
 #include "ObshagaGameMode.generated.h"
 
+class AItemActor;
 class AObshagaCharacter;
 class AObshagaPlayerState;
 class UObshagaRoundConfig;
@@ -51,6 +52,9 @@ public:
 
 	/** Манера Палыча, заданная ночью недели: 0 — строгий, 1 — рассеянный, 2 — мстительный; -1 — любая. */
 	int32 GetWeekKomendantStyle() const;
+
+	/** Вещь потерялась (лежит снаружи общаги или упала ниже карты): Палыч приносит её на место и говорит всем. */
+	void ReturnLostItem(AItemActor* Item);
 
 	/** Для телеметрии: кто-то упёрся и был перенесён на точку маршрута. */
 	void ReportStuck(bool bKomendant) { ++(bKomendant ? NumKomendantStuck : NumBotStuck); }
@@ -176,7 +180,10 @@ private:
 	/** Кто оказался снаружи общаги не через ночной выход (спрыгнул с балкона) и с какого времени. */
 	TMap<TWeakObjectPtr<AObshagaCharacter>, float> OutsideSince;
 	FTimerHandle StrandedTimer;
-	/** Раз в секунду: кто слишком долго снаружи и не вернулся сам, того впускают через ночной выход. */
+	/** Раз в секунду: кто слишком долго снаружи и не вернулся сам, того впускают через ночной выход; потерянные вещи Палыч приносит. */
 	void CheckStrandedPlayers();
-	bool IsOutsideBuilding(const AObshagaCharacter* Character) const;
+	/** Снаружи ли общаги жилец или вещь (не в зоне и не у её края без стены). */
+	bool IsOutsideBuilding(const AActor* Actor) const;
+	/** Вещи, лежащие снаружи общаги, и с какого времени. */
+	TMap<TWeakObjectPtr<AItemActor>, float> ItemOutsideSince;
 };

@@ -48,6 +48,8 @@ namespace
 {
 	// Соединение, молчащее дольше этого, считаем оборванным, если тот же игрок уже заходит снова.
 	constexpr double StaleConnectionSeconds = 5.0;
+	// Вещь не дальше этого от места, где лежала в начале игры, — «на своём месте», а не потерялась.
+	constexpr float LostItemHomeTolerance = 50.f;
 }
 
 AObshagaGameMode::AObshagaGameMode()
@@ -97,18 +99,25 @@ void AObshagaGameMode::BeginPlay()
 	GetWorldTimerManager().SetTimer(StrandedTimer, this, &AObshagaGameMode::CheckStrandedPlayers, 1.f, true);
 }
 
-bool AObshagaGameMode::IsOutsideBuilding(const AObshagaCharacter* Character) const
+bool AObshagaGameMode::IsOutsideBuilding(const AActor* Actor) const
 {
-	// Снаружи — центр персонажа ни в одной зоне, а до ближних зон его высоты не дойти без стены.
+	// Снаружи — центр персонажа (или вещи) ни в одной зоне, а до ближних зон его высоты не дойти без стены.
 	// Близкая зона без стены между ними — это стык зон или дверной проём внутри общаги, а не улица.
 	// Капсулу не берём: прижавшись к наружной стене с улицы, она задевает зону за стеной.
-	const FVector Location = Character->GetActorLocation();
+	// Невидимая крышка над вторым этажом тоже «стена»: вещь, упавшая на неё сверху, лежит снаружи.
+	const FVector Location = Actor->GetActorLocation();
 	if (ARoomVolume::FindRoomAt(this, Location))
 	{
 		return false;
 	}
 	const float Margin = GetRoundConfig()->StrandedMargin;
-	const FCollisionQueryParams Params(SCENE_QUERY_STAT(StrandedCheck), false, Character);
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(StrandedCheck), false, Actor);
+	// Коробки зон тоже WorldStatic, а запрос по типу объектов не смотрит на отклики: без этого луч упирался бы в саму
+	// зону, и стык зон или дверной проём считался бы улицей. Крышка зоны — другой компонент, её луч по-прежнему видит.
+	for (TActorIterator<ARoomVolume> It(GetWorld()); It; ++It)
+	{
+		Params.AddIgnoredComponent(It->GetBox());
+	}
 	const FCollisionObjectQueryParams Walls(ECC_WorldStatic);
 	for (TActorIterator<ARoomVolume> It(GetWorld()); It; ++It)
 	{
@@ -173,6 +182,44 @@ void AObshagaGameMode::CheckStrandedPlayers()
 			It.RemoveCurrent();
 		}
 	}
+
+	// Вещь, улетевшая на улицу (за перила балкона, через стену) или застрявшая под картой, иначе пролежала бы там
+	// до конца раунда, и задания на неё стали бы невыполнимы. Полежала снаружи — Палыч приносит её на место.
+	// Что в руках и в тайнике, не трогаем; вещь, что так и лежит на своём месте, — тоже.
+	const float LostSeconds = GetRoundConfig()->ItemLostSeconds;
+	for (TActorIterator<AItemActor> It(GetWorld()); It; ++It)
+	{
+		AItemActor* Item = *It;
+		if (Item->GetItemState() != EItemState::World || Item->IsAtInitialPlace(LostItemHomeTolerance) || !IsOutsideBuilding(Item))
+		{
+			ItemOutsideSince.Remove(Item);
+			continue;
+		}
+		const float Since = ItemOutsideSince.FindOrAdd(Item, Now);
+		if (Now - Since >= LostSeconds)
+		{
+			ReturnLostItem(Item);
+		}
+	}
+	for (auto It = ItemOutsideSince.CreateIterator(); It; ++It)
+	{
+		if (!It.Key().IsValid())
+		{
+			It.RemoveCurrent();
+		}
+	}
+}
+
+void AObshagaGameMode::ReturnLostItem(AItemActor* Item)
+{
+	if (!Item || Item->GetItemState() != EItemState::World)
+	{
+		return;
+	}
+	ItemOutsideSince.Remove(Item);
+	UE_LOG(LogObshaga, Verbose, TEXT("Komendant brought lost %s back from %s"), *Item->GetName(), *Item->GetActorLocation().ToCompactString());
+	Item->ResetToInitial();
+	NotifyAll(FText::Format(LOCTEXT("ItemLost", "Палыч подобрал на улице: {0}"), Item->GetDisplayName()));
 }
 
 TArray<AObshagaPlayerState*> AObshagaGameMode::GetObshagaPlayers() const
@@ -340,6 +387,14 @@ void AObshagaGameMode::HandleStartingNewPlayer_Implementation(APlayerController*
 		// Появляется у себя в комнате (ChoosePlayerStart), с прежними заданиями и очками.
 		Super::HandleStartingNewPlayer_Implementation(NewPlayer);
 		const AObshagaPlayerState* Returned = NewPlayer->GetPlayerState<AObshagaPlayerState>();
+		// Выселенный и после перезахода выселен: новый персонаж сразу призрак-наблюдатель, как при выселении.
+		AObshagaCharacter* ReturnedCharacter = Cast<AObshagaCharacter>(NewPlayer->GetPawn());
+		if (Returned && Returned->IsEvicted() && ReturnedCharacter)
+		{
+			ReturnedCharacter->SetGhost(true);
+			NotifyPlayer(Returned, LOCTEXT("WelcomeBackEvicted", "Ты снова в игре, но выселен: смотри за остальными"));
+			return;
+		}
 		NotifyPlayer(Returned, LOCTEXT("WelcomeBack", "Ты снова в игре: задания и очки на месте"));
 		return;
 	}

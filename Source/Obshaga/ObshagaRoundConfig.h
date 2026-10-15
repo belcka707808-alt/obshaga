@@ -210,6 +210,13 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Round", meta = (ClampMin = "0", Units = "cm"))
 	float StrandedMargin = 100.f;
 
+	/**
+	 * Вещь, пролежавшую снаружи общаги дольше этого (улетела за перила балкона, через стену, застряла под картой),
+	 * Палыч приносит на её место и говорит об этом всем: иначе задания на неё не выполнить до конца раунда.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Round", meta = (ClampMin = "1", Units = "s"))
+	float ItemLostSeconds = 45.f;
+
 	/** Подозрение вору, которого верно назвали коменданту. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tasks", meta = (ClampMin = "0"))
 	float AccusationSuspicion = 40.f;

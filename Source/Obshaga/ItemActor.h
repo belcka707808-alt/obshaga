@@ -47,6 +47,8 @@ public:
 
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 	virtual void OnConstruction(const FTransform& Transform) override;
+	/** Упал ниже карты: движок уничтожил бы предмет, а сервер возвращает его на место. */
+	virtual void FellOutOfWorld(const class UDamageType& DamageType) override;
 
 	//~ IInteractable
 	virtual FText GetInteractionPrompt(const AObshagaCharacter* By) const override;
@@ -77,6 +79,8 @@ public:
 	void ResetToInitial();
 	/** Комната, где предмет лежал в начале раунда (его «место»). */
 	FName GetHomeRoomId() const;
+	/** Сервер: предмет лежит там же, где в начале игры (не дальше Tolerance). */
+	bool IsAtInitialPlace(float Tolerance) const;
 
 	/** Сервер: id комнаты, где предмет сейчас (лежит, спрятан или его несут). */
 	FName GetCurrentRoomId() const;
@@ -94,6 +98,8 @@ protected:
 
 	void ApplyPlacement();
 	void ApplyItemData();
+	/** Сервер, кадр спустя после падения ниже карты: Палыч приносит предмет на место. */
+	void ReturnFromBelowWorld();
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Item")
 	TObjectPtr<UStaticMeshComponent> Mesh;
