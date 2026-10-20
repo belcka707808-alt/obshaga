@@ -201,7 +201,20 @@ void AItemActor::SetCarriedBy(AObshagaCharacter* Carrier)
 	ForceNetUpdate();
 }
 
+float AItemActor::GetCarryYaw() const
+{
+	// Плоский предмет (телевизор) держим и кладём длинной стороной поперёк взгляда: вдоль взгляда он виден с торца —
+	// тонкой палкой. CarryYaw из паспорта добавляется сверху.
+	const UObshagaItemData* Data = GetItemData();
+	return (Data->BoxSize.X > Data->BoxSize.Y ? 90.f : 0.f) + Data->CarryYaw;
+}
+
 void AItemActor::ReleaseToWorld(const FVector& Location, const FVector& Velocity)
+{
+	ReleaseToWorld(Location, Velocity, GetActorRotation());
+}
+
+void AItemActor::ReleaseToWorld(const FVector& Location, const FVector& Velocity, const FRotator& Rotation)
 {
 	check(HasAuthority());
 
@@ -209,7 +222,7 @@ void AItemActor::ReleaseToWorld(const FVector& Location, const FVector& Velocity
 	Placement.Holder = nullptr;
 	ApplyPlacement();
 
-	SetActorLocation(Location, false, nullptr, ETeleportType::TeleportPhysics);
+	SetActorLocationAndRotation(Location, Rotation, false, nullptr, ETeleportType::TeleportPhysics);
 	Mesh->SetPhysicsLinearVelocity(Velocity);
 	ForceNetUpdate();
 }
@@ -316,9 +329,20 @@ FName AItemActor::GetCurrentRoomId() const
 	return Room ? Room->RoomId : NAME_None;
 }
 
-void AItemActor::OnRep_Placement()
+void AItemActor::OnRep_Placement(const FItemPlacement& OldPlacement)
 {
 	ApplyPlacement();
+
+	// Положили или бросили. Сервер выпустил предмет не там, где он был в руках (телевизор — с головы на пол перед собой),
+	// а эта машина отцепила его там, где видела. Без переноса физика сети с секунду тянула бы его к серверу по полу.
+	// Где он у сервера, пришло в этом же обновлении — ставим сразу туда.
+	if (OldPlacement.State == EItemState::Carried && Placement.State == EItemState::World)
+	{
+		const FRepMovement& Movement = GetReplicatedMovement();
+		SetActorLocationAndRotation(Movement.Location, Movement.Rotation, false, nullptr, ETeleportType::TeleportPhysics);
+		Mesh->SetPhysicsLinearVelocity(Movement.LinearVelocity);
+		UE_LOG(LogObshaga, Verbose, TEXT("[%s] %s released, moved to the server spot %s"), *GetNameSafe(GetWorld()), *GetName(), *Movement.Location.ToCompactString());
+	}
 }
 
 void AItemActor::ApplyPlacement()
@@ -340,7 +364,13 @@ void AItemActor::ApplyPlacement()
 		SetActorHiddenInGame(false);
 		if (const AObshagaCharacter* Carrier = Cast<AObshagaCharacter>(Placement.Holder))
 		{
-			AttachToComponent(Carrier->GetCarryPoint(), SnapRules);
+			// Тяжёлое (телевизор) — на макушке: перед грудью его с камеры сзади целиком закрывает большая голова жильца.
+			// Низ предмета ложится на точку на голове; в руках предмет висит серединой в точке перед грудью.
+			// Каждая машина считает это сама из одного паспорта, поэтому у всех предмет на одном месте.
+			const bool bOnHead = IsHeavy();
+			AttachToComponent(Carrier->GetCarryPoint(bOnHead), SnapRules);
+			SetActorRelativeLocation(FVector(0.f, 0.f, bOnHead ? GetItemData()->BoxSize.Z * 0.5f : 0.f));
+			SetActorRelativeRotation(FRotator(0.f, GetCarryYaw(), 0.f));
 		}
 		break;
 

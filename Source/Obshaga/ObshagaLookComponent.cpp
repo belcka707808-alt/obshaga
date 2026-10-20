@@ -219,8 +219,10 @@ void UObshagaLookComponent::TickComponent(float DeltaTime, ELevelTick TickType, 
 		Animator->SetPlayRate(FMath::Clamp(Rate, MinStepRate, MaxStepRate));
 
 		// Несёт предмет: руки держат его поверх любого клипа, кроме разовых (взял, бросил, жест — там руки заняты).
+		// Тяжёлое едет на макушке (AItemActor::ApplyPlacement) — руки свободны и машут как обычно, а не держат пустоту перед грудью.
 		const AObshagaCharacter* Resident = Cast<AObshagaCharacter>(GetOwner());
-		UAnimSequence* Hold = (Resident && Resident->GetCarryComponent()->IsCarrying() && bLoop) ? Cast<UAnimSequence>(LookConfig->Carry) : nullptr;
+		const UCarryComponent* Carry = Resident ? Resident->GetCarryComponent() : nullptr;
+		UAnimSequence* Hold = (Carry && Carry->IsCarrying() && !Carry->IsCarryingHeavy() && bLoop) ? Cast<UAnimSequence>(LookConfig->Carry) : nullptr;
 		Animator->SetOverlay(Hold, LookConfig->CarryBones, LookConfig->BlendSeconds);
 		if ((Hold != nullptr) != bHolding)
 		{

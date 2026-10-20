@@ -3,6 +3,7 @@
 #   UnrealEditor-Cmd.exe <Obshaga.uproject> -run=pythonscript -script="C:/полный/путь/tools/set_balance.py имя=значение ..."
 #   Имя без точки — поле DA_RoundConfig (как в C++, например CarrySuspicionPerSecond=18).
 #   Имя с точкой — поле личности: Strict.SightRadius=1500 (Strict, Absent, Vindictive).
+#   Имя с приставкой Character. — поле DA_CharacterConfig: Character.JumpZVelocity=450.
 # Без аргументов только печатает текущие значения.
 import sys
 
@@ -10,6 +11,7 @@ import unreal
 
 CONFIG = "/Game/Obshaga/Data/DA_RoundConfig"
 PERSONALITY = "/Game/Obshaga/AI/DA_KomendantPersonality_%s"
+CHARACTER = "/Game/Obshaga/Data/DA_CharacterConfig"
 
 
 def snake(name):
@@ -36,7 +38,11 @@ for argument in sys.argv[1:]:
     if "=" not in argument:
         continue
     name, value = argument.split("=", 1)
-    if "." in name:
+    if name.startswith("Character."):
+        # Поле DA_CharacterConfig: Character.JumpZVelocity=450.
+        path, field = CHARACTER, name.split(".", 1)[1]
+        asset = unreal.EditorAssetLibrary.load_asset(path)
+    elif "." in name:
         who, field = name.split(".", 1)
         path = PERSONALITY % who
         asset = unreal.EditorAssetLibrary.load_asset(path)

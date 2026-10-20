@@ -29,6 +29,13 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item", meta = (Units = "deg"))
 	float ModelYaw = 0.f;
 
+	/**
+	 * Поворот предмета в руках и на полу сверх автоматического. Плоский предмет и так держится и кладётся длинной
+	 * стороной поперёк взгляда (вдоль взгляда он виден с торца — тонкой палкой). 180 — показать другую сторону (экран/спинку).
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Carry", meta = (Units = "deg"))
+	float CarryYaw = 0.f;
+
 	/** Цвет куба-заглушки или модели. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item")
 	FLinearColor Color = FLinearColor(0.35f, 0.35f, 0.4f);

@@ -63,13 +63,18 @@ public:
 	const UObshagaItemData* GetItemData() const;
 	FText GetDisplayName() const;
 	bool IsHeavy() const;
+	/** Поворот предмета относительно того, кто его несёт или кладёт: длинной стороной поперёк взгляда, плюс CarryYaw. */
+	float GetCarryYaw() const;
 	EItemState GetItemState() const { return Placement.State; }
 	/** Кто несёт предмет; nullptr, если он не в руках. */
 	AActor* GetHolder() const { return Placement.Holder; }
 
 	// Только сервер. Вызывают UCarryComponent и AHidingSpot.
 	void SetCarriedBy(AObshagaCharacter* Carrier);
+	/** Предмет ложится с тем поворотом, с каким его держали (изъятое Палычем — на стол вахты). */
 	void ReleaseToWorld(const FVector& Location, const FVector& Velocity);
+	/** То же, но предмет ставится с этим поворотом (положили, бросили). */
+	void ReleaseToWorld(const FVector& Location, const FVector& Velocity, const FRotator& Rotation);
 	void SetHiddenIn(AHidingSpot* Spot, AObshagaCharacter* By);
 
 	/** Сервер: предмет забрал комендант. Его стук о стол на вахте — не шум игрока, который нёс его последним. */
@@ -91,7 +96,7 @@ protected:
 	virtual void BeginPlay() override;
 
 	UFUNCTION()
-	void OnRep_Placement();
+	void OnRep_Placement(const FItemPlacement& OldPlacement);
 
 	UFUNCTION()
 	void OnMeshHit(UPrimitiveComponent* HitComponent, AActor* OtherActor, UPrimitiveComponent* OtherComp, FVector NormalImpulse, const FHitResult& Hit);

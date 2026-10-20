@@ -35,8 +35,8 @@ public:
 
 	UInteractionComponent* GetInteractionComponent() const { return InteractionComponent; }
 	UCarryComponent* GetCarryComponent() const { return CarryComponent; }
-	/** Точка перед персонажем, к которой цепляется предмет в руках. */
-	USceneComponent* GetCarryPoint() const { return CarryPoint; }
+	/** Точка, к которой цепляется предмет в руках: перед грудью, а тяжёлое (bOnHead) — на макушке. */
+	USceneComponent* GetCarryPoint(bool bOnHead = false) const { return bOnHead ? HeadCarryPoint : CarryPoint; }
 
 	void SetSprinting(bool bNewSprinting);
 	bool IsSprinting() const { return bIsSprinting; }
@@ -71,6 +71,9 @@ public:
 
 	/** Сдвиг камеры для тряски (только у локального игрока). */
 	void SetCameraShakeOffset(const FVector& Offset);
+
+	/** Своя камера: прижался спиной к стене — камера встаёт над головой, а не въезжает в неё (только картинка, по сети не ходит). */
+	virtual void CalcCamera(float DeltaTime, struct FMinimalViewInfo& OutResult) override;
 
 	// Только сервер. Вызывает AHidingSpot.
 	void EnterHidingSpot(AHidingSpot* Spot);
@@ -133,6 +136,11 @@ protected:
 	void UpdateMovementSpeed();
 	/** После приседа и вставания движок ставит меш на высоту манекена — возвращаем высоту надетой модели. */
 	void FixLookMeshHeight(float CrouchAdjust);
+	/** Ставит точки переноски по DA_CharacterConfig; в приседе поднимает их на CrouchCarryLift. */
+	void PlaceCarryPoints(bool bCrouched);
+	/** Своя машина: с тяжёлым на голове камера смотрит поверх него, без него — как обычно. */
+	void UpdateCarryCamera();
+	virtual bool CanJumpInternal_Implementation() const override;
 	void ApplyHiding();
 	/** Своя машина: в шкафу или кабинке камера смотрит наружу из-за дверцы, на выходе рука камеры прежняя. */
 	void UpdateHidingCamera();
@@ -156,6 +164,10 @@ protected:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Carry")
 	TObjectPtr<USceneComponent> CarryPoint;
+
+	/** Макушка: сюда кладут тяжёлое (телевизор), чтобы его видели и сам игрок, и все вокруг. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Carry")
+	TObjectPtr<USceneComponent> HeadCarryPoint;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Config")
 	TObjectPtr<UObshagaCharacterConfig> Config;

@@ -171,9 +171,14 @@ void UTaskComponent::AssignTask(FName TaskId, const FTaskRow& Row, bool bMain)
 	State.Reward = Row.GetReward();
 	State.bMain = bMain;
 	Rows.Add(Row);
-	LiveNotices.AddDefaulted();
+	// Точка отсчёта для сообщений «сейчас выполнено / больше не выполнено» — состояние в миг выдачи: «Сохрани телевизор»
+	// выполнено с первой секунды, и хвалить не за что. Раньше её брала первая проверка через секунду, и телевизор,
+	// унесённый в эту секунду, сам становился точкой отсчёта — сообщения не было вовсе.
+	State.bSatisfiedNow = EvaluateCondition(Row);
+	LiveNotices.AddDefaulted_GetRef().bAnnounced = State.bSatisfiedNow;
 
-	UE_LOG(LogObshaga, Verbose, TEXT("Task %s (%s) assigned to %s"), *TaskId.ToString(), bMain ? TEXT("main") : TEXT("side"), *GetOwnerState()->GetPlayerName());
+	UE_LOG(LogObshaga, Verbose, TEXT("Task %s (%s) assigned to %s, satisfied now %d"), *TaskId.ToString(), bMain ? TEXT("main") : TEXT("side"),
+		*GetOwnerState()->GetPlayerName(), State.bSatisfiedNow ? 1 : 0);
 }
 
 void UTaskComponent::ClearTasks()
@@ -212,13 +217,6 @@ void UTaskComponent::NotifyLiveChange(int32 Index)
 
 	FTaskLiveNotice& Live = LiveNotices[Index];
 	const FTaskState& State = Tasks[Index];
-	// Первая проверка после выдачи — только точка отсчёта: «Сохрани телевизор» выполнено с первой секунды, и хвалить не за что.
-	if (!Live.bKnown)
-	{
-		Live.bKnown = true;
-		Live.bAnnounced = State.bSatisfiedNow;
-		return;
-	}
 
 	// Игрок уже знает это состояние или про задание недавно было сообщение — молчим. Если пометка так и осталась
 	// другой, сообщение уйдёт, когда пройдёт пауза; если успела мигнуть обратно — не уйдёт вовсе.

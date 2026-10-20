@@ -79,8 +79,6 @@ namespace
 	// Камера «через плечо коменданта»: насколько позади него, сбоку и выше его пояса.
 	constexpr float ShoulderBack = 100.f;
 	constexpr float ShoulderUp = 150.f;
-	constexpr float CameraHideSelfDistance = 130.f;
-	constexpr float CameraHideHeadHeight = 45.f;
 
 	// Обучение: общий предел (в секундах раунда) и сколько висит последняя подсказка.
 	constexpr float TutorialMaxSeconds = 90.f;
@@ -1399,6 +1397,7 @@ void AObshagaPlayerController::ClientShowNotice_Implementation(const FText& Text
 		Notice = Text;
 		NoticeTime = GetWorld()->GetTimeSeconds();
 		UObshagaAudioConfig::Play2D(this, UObshagaAudioConfig::Get()->Notice);
+		UE_LOG(LogObshaga, Verbose, TEXT("Notice shown to %s: %s"), PlayerState ? *PlayerState->GetPlayerName() : TEXT("?"), *Text.ToString());
 		return;
 	}
 
@@ -1409,9 +1408,13 @@ void AObshagaPlayerController::ClientShowNotice_Implementation(const FText& Text
 	}
 	if (NoticeQueue.Num() >= MaxQueuedNotices)
 	{
+		UE_LOG(LogObshaga, Verbose, TEXT("Notice dropped, queue full: %s"), *NoticeQueue[0].ToString());
 		NoticeQueue.RemoveAt(0);
 	}
 	NoticeQueue.Add(Text);
+	// Видно, почему сообщение появилось не сразу: сколько их впереди (по NoticeSeconds каждое).
+	UE_LOG(LogObshaga, Verbose, TEXT("Notice queued for %s (%d ahead): %s"), PlayerState ? *PlayerState->GetPlayerName() : TEXT("?"),
+		NoticeQueue.Num() - 1 + (bShowing ? 1 : 0), *Text.ToString());
 }
 
 void AObshagaPlayerController::UpdateNoticesOnInterrogation()
@@ -1438,18 +1441,38 @@ void AObshagaPlayerController::PlayerTick(float DeltaTime)
 
 	if (IsLocalController())
 	{
-		// Прижался спиной к стене — камера въезжает в собственную голову и весь экран закрывает затылок.
-		// Пока камера так близко, свою фигурку игрок не видит (остальные видят её как обычно).
-		if (ACharacter* Me = GetCharacter())
+		// Спиной к стене камера встаёт над головой (AObshagaCharacter::CalcCamera). Если подняться не дал низкий потолок
+		// и камера оказалась внутри своей модели, свою фигурку игрок не видит — иначе экран закрыла бы голова изнутри
+		// (остальные видят её как обычно). Раньше фигурка пряталась уже за 130 см и пропадала у любой стены.
+		AObshagaCharacter* Me = GetObshagaCharacter();
+		const bool bOwnCamera = PlayerCameraManager && !bInterrogationCamera;
+		const FVector CameraLocation = PlayerCameraManager ? PlayerCameraManager->GetCameraLocation() : FVector::ZeroVector;
+		if (Me)
 		{
-			// Меряем до головы, а не до пояса: именно она закрывает экран.
-			const FVector Head = Me->GetActorLocation() + FVector(0.f, 0.f, CameraHideHeadHeight);
-			const bool bTooClose = PlayerCameraManager && FVector::DistSquared(PlayerCameraManager->GetCameraLocation(), Head) < FMath::Square(CameraHideSelfDistance);
-			const bool bHideSelf = bTooClose && !bInterrogationCamera;
-			if (Me->GetMesh()->bOwnerNoSee != bHideSelf)
+			USkeletalMeshComponent* Body = Me->GetMesh();
+			const bool bHideSelf = bOwnCamera && Body->Bounds.GetBox().ExpandBy(Me->GetConfig()->CameraHideSelfMargin).IsInsideOrOn(CameraLocation);
+			if (Body->bOwnerNoSee != bHideSelf)
 			{
-				Me->GetMesh()->SetOwnerNoSee(bHideSelf);
+				Body->SetOwnerNoSee(bHideSelf);
 			}
+		}
+		// Телевизор едет на голове, и спиной к стене камера оказывается прямо за ним — экран закрыла бы его задняя стенка.
+		// Пока камера к тому, что несёшь, так близко, эту вещь у себя не рисуем (флаг компонента, по сети он не ходит).
+		AItemActor* Carried = Me ? Me->GetCarryComponent()->GetCarriedItem() : nullptr;
+		const bool bHideCarried = Carried && bOwnCamera
+			&& Carried->GetRootComponent()->Bounds.GetBox().ComputeSquaredDistanceToPoint(CameraLocation) < FMath::Square(Me->GetConfig()->CameraHideCarriedDistance);
+		AItemActor* HideItem = bHideCarried ? Carried : nullptr;
+		if (CameraHiddenItem.Get() != HideItem)
+		{
+			if (AItemActor* Shown = CameraHiddenItem.Get())
+			{
+				Shown->GetRootComponent()->SetHiddenInGame(false, true);
+			}
+			if (HideItem)
+			{
+				HideItem->GetRootComponent()->SetHiddenInGame(true, true);
+			}
+			CameraHiddenItem = HideItem;
 		}
 
 		UpdateIntro();
@@ -1517,5 +1540,6 @@ void AObshagaPlayerController::PlayerTick(float DeltaTime)
 		NoticeQueue.RemoveAt(0);
 		NoticeTime = GetWorld()->GetTimeSeconds();
 		UObshagaAudioConfig::Play2D(this, UObshagaAudioConfig::Get()->Notice);
+		UE_LOG(LogObshaga, Verbose, TEXT("Notice shown to %s: %s"), PlayerState ? *PlayerState->GetPlayerName() : TEXT("?"), *Notice.ToString());
 	}
 }

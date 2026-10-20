@@ -51,4 +51,9 @@ private:
 	void SetCarriedItem(AItemActor* NewItem);
 	/** Точка перед персонажем, где предмет не окажется внутри стены. */
 	FVector FindReleaseLocation(const FVector& Direction, float Distance, float Height) const;
+	/**
+	 * Как ставить предмет: широкой стороной к камере. Если поперёк он не помещается (стена, косяк) или под ним
+	 * пандус лестницы, где он опрокинулся бы, — длинной стороной вдоль взгляда, как раньше.
+	 */
+	FRotator FindReleaseRotation(const AItemActor* Item, const FVector& Location) const;
 };

@@ -126,6 +126,9 @@ private:
 	TObjectPtr<class ACameraActor> InterrogationCamera;
 	bool bInterrogationCamera = false;
 
+	/** Вещь в своих руках, которую сейчас не рисуем: камера упёрлась в неё вплотную (см. PlayerTick). Только своя машина. */
+	TWeakObjectPtr<class AItemActor> CameraHiddenItem;
+
 	/**
 	 * Обход для проверки вида (ключ запуска -ObshagaTour, не в Shipping): камера сама встаёт с обеих сторон каждой
 	 * открытой двери и в двух углах каждой зоны и сохраняет снимки в Saved/Tour.

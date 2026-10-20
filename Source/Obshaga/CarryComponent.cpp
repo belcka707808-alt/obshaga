@@ -9,6 +9,13 @@
 #include "Engine/World.h"
 #include "Net/UnrealNetwork.h"
 
+namespace
+{
+	// Кладём предмет: как глубоко под точкой ищем пол и какой пол считаем ровным (не пандус лестницы).
+	constexpr float MaxFloorCheckDepth = 200.f;
+	constexpr float FlatFloorNormalZ = 0.95f;
+}
+
 UCarryComponent::UCarryComponent()
 {
 	PrimaryComponentTick.bCanEverTick = false;
@@ -101,9 +108,12 @@ void UCarryComponent::Drop()
 	AItemActor* Item = CarriedItem;
 	const UObshagaCharacterConfig* Cfg = Character->GetConfig();
 	const FVector Location = FindReleaseLocation(Character->GetActorForwardVector(), Cfg->DropDistance, 0.f);
+	// Ставим ровно и широкой стороной к камере положившего (от взгляда, а не от тела): шагнул вбок и положил —
+	// иначе телевизор встал бы к нему торцом, тонкой палкой.
+	const FRotator Rotation = FindReleaseRotation(Item, Location);
 	SetCarriedItem(nullptr);
-	Item->ReleaseToWorld(Location, FVector::ZeroVector);
-	UE_LOG(LogObshaga, Verbose, TEXT("%s dropped %s"), *Character->GetName(), *Item->GetName());
+	Item->ReleaseToWorld(Location, FVector::ZeroVector, Rotation);
+	UE_LOG(LogObshaga, Verbose, TEXT("%s dropped %s at %s, yaw %.0f"), *Character->GetName(), *Item->GetName(), *Location.ToCompactString(), Rotation.Yaw);
 	UGameEventSubsystem::PublishFrom(Character, EGameEventType::ItemDropped, Item);
 }
 
@@ -127,8 +137,10 @@ void UCarryComponent::Throw()
 	const FVector Location = FindReleaseLocation(FlatAim, Cfg->DropDistance, Cfg->ThrowHeight);
 
 	const bool bHeavy = Item->GetItemData()->bHeavy;
+	// Летит широкой стороной вперёд: плоское падает плашмя или встаёт лицом к бросившему, но не торцом.
+	const FRotator Rotation = FindReleaseRotation(Item, Location);
 	SetCarriedItem(nullptr);
-	Item->ReleaseToWorld(Location, Velocity);
+	Item->ReleaseToWorld(Location, Velocity, Rotation);
 	if (bHeavy)
 	{
 		// Швырнул телевизор — сам не удержался на ногах.
@@ -164,4 +176,23 @@ FVector UCarryComponent::FindReleaseLocation(const FVector& Direction, float Dis
 		return Hit.Location;
 	}
 	return End;
+}
+
+FRotator UCarryComponent::FindReleaseRotation(const AItemActor* Item, const FVector& Location) const
+{
+	const AObshagaCharacter* Character = GetCharacter();
+	FRotator Rotation(0.f, Character->GetBaseAimRotation().Yaw + Item->GetCarryYaw(), 0.f);
+
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(ItemReleaseFit), false, Character);
+	Params.AddIgnoredActor(Item);
+	FHitResult Floor;
+	const bool bSlope = GetWorld()->LineTraceSingleByChannel(Floor, Location, Location - FVector(0.f, 0.f, MaxFloorCheckDepth), ECC_Visibility, Params)
+		&& Floor.ImpactNormal.Z < FlatFloorNormalZ;
+	const FCollisionShape Box = FCollisionShape::MakeBox(Item->GetItemData()->BoxSize * 0.5f);
+	if (bSlope || GetWorld()->OverlapBlockingTestByChannel(Location, Rotation.Quaternion(), ECC_PhysicsBody, Box, Params))
+	{
+		// На пандусе лестницы поперёк склона телевизор опрокинулся бы и с грохотом покатился вниз, у стены — встал бы в неё.
+		Rotation.Yaw += 90.f;
+	}
+	return Rotation;
 }

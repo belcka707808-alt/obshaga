@@ -6,7 +6,9 @@
 #include "GameEventSubsystem.h"
 #include "HidingSpot.h"
 #include "InteractionComponent.h"
+#include "ItemActor.h"
 #include "NightExitDoor.h"
+#include "ObshagaItemData.h"
 #include "ObshagaLookComponent.h"
 #include "ObshagaStory.h"
 #include "ObshagaPlayerState.h"
@@ -60,9 +62,12 @@ AObshagaCharacter::AObshagaCharacter()
 	CarryComponent = CreateDefaultSubobject<UCarryComponent>(TEXT("CarryComponent"));
 	LookComponent = CreateDefaultSubobject<UObshagaLookComponent>(TEXT("LookComponent"));
 
+	// Где именно стоят точки переноски, задаёт DA_CharacterConfig (см. PlaceCarryPoints).
 	CarryPoint = CreateDefaultSubobject<USceneComponent>(TEXT("CarryPoint"));
 	CarryPoint->SetupAttachment(RootComponent);
-	CarryPoint->SetRelativeLocation(FVector(65.f, 0.f, 10.f));
+
+	HeadCarryPoint = CreateDefaultSubobject<USceneComponent>(TEXT("HeadCarryPoint"));
+	HeadCarryPoint->SetupAttachment(RootComponent);
 }
 
 void AObshagaCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -92,8 +97,15 @@ void AObshagaCharacter::PostInitializeComponents()
 		PostProcess.AutoExposureMinBrightness = Cfg->FixedExposureBrightness;
 		PostProcess.AutoExposureMaxBrightness = Cfg->FixedExposureBrightness;
 	}
-	GetCharacterMovement()->MaxWalkSpeedCrouched = Cfg->CrouchSpeed;
+	UCharacterMovementComponent* Movement = GetCharacterMovement();
+	Movement->MaxWalkSpeedCrouched = Cfg->CrouchSpeed;
+	// Прыжок — из того же ассета, на сервере и у игрока одинаково: иначе предсказание движения спорило бы с сервером.
+	// Пишем поверх значений компонента в BP_ObshagaCharacter, чтобы прыжок правился в одном месте.
+	Movement->JumpZVelocity = Cfg->JumpZVelocity;
+	Movement->AirControl = Cfg->AirControl;
+	Movement->GravityScale = Cfg->GravityScale;
 	UpdateMovementSpeed();
+	PlaceCarryPoints(false);
 }
 
 void AObshagaCharacter::BeginPlay()
@@ -218,11 +230,34 @@ void AObshagaCharacter::OnCarriedItemChanged()
 		bIsSprinting = false;
 	}
 	UpdateMovementSpeed();
+	UpdateCarryCamera();
 
 	if (!bHeavy)
 	{
 		ResumeSprintIfHeld();
 	}
+}
+
+void AObshagaCharacter::UpdateCarryCamera()
+{
+	if (!IsLocalHuman())
+	{
+		return;
+	}
+	// Тяжёлое едет на макушке, а ось камеры (CameraBoom) — чуть выше макушки, то есть внутри телевизора: он закрыл бы
+	// середину экрана при любом повороте. Пока несёшь, камера смотрит поверх него. SocketOffset, а не перенос оси:
+	// щуп камеры по-прежнему идёт от головы и не цепляет притолоки дверей. Только своя машина, по сети не ходит.
+	const AItemActor* Item = CarryComponent->GetCarriedItem();
+	CameraBoom->SocketOffset.Z = Item && Item->IsHeavy()
+		? FMath::Max(HeadCarryPoint->GetRelativeLocation().Z - CameraBoom->GetRelativeLocation().Z + Item->GetItemData()->BoxSize.Z + GetConfig()->CarryCameraMargin, 0.f)
+		: 0.f;
+}
+
+bool AObshagaCharacter::CanJumpInternal_Implementation() const
+{
+	// С телевизором на голове не прыгают («тяжёлое — медленнее»), да и он пробил бы потолок первого этажа.
+	// Предмет в руках реплицируется, так что сервер и предсказание игрока решают одинаково.
+	return Super::CanJumpInternal_Implementation() && !CarryComponent->IsCarryingHeavy();
 }
 
 bool AObshagaCharacter::IsLocalHuman() const
@@ -323,6 +358,39 @@ int32 AObshagaCharacter::GetActiveEmote() const
 void AObshagaCharacter::SetCameraShakeOffset(const FVector& Offset)
 {
 	FollowCamera->SetRelativeLocation(Offset);
+}
+
+void AObshagaCharacter::CalcCamera(float DeltaTime, FMinimalViewInfo& OutResult)
+{
+	Super::CalcCamera(DeltaTime, OutResult);
+
+	// Спиной к стене рука камеры сжимается, и камера, чья ось чуть выше макушки, въезжала в собственную голову.
+	// Чем короче рука, тем выше над головой встаёт камера: видно макушку и комнату, а не голову изнутри.
+	// Считается только на машине того, кто смотрит этой камерой; по сети ничего не ходит.
+	// В укрытии камера стоит у дверцы (или за дверью ночного выхода), у призрака тела нет — там не трогаем.
+	const UObshagaCharacterConfig* Cfg = GetConfig();
+	const float CloseArm = FMath::Min(Cfg->CloseCameraArm, CameraBoom->TargetArmLength);
+	if (bPeekCamera || IsHiding() || IsGhost() || CloseArm <= 0.f || Cfg->CloseCameraLift <= 0.f)
+	{
+		return;
+	}
+	const float Arm = FVector::Dist(CameraBoom->GetComponentLocation(), CameraBoom->GetSocketLocation(USpringArmComponent::SocketName));
+	float Lift = Cfg->CloseCameraLift * (1.f - FMath::Clamp(Arm / CloseArm, 0.f, 1.f));
+	if (Lift < 1.f)
+	{
+		return;
+	}
+
+	// Не выше потолка. Шар вдвое меньше щупа руки камеры: тот уже касается стены и сразу «застрял» бы в ней.
+	const float Radius = CameraBoom->ProbeSize * 0.5f;
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(CloseCameraLift), false, this);
+	FHitResult Hit;
+	if (GetWorld()->SweepSingleByChannel(Hit, OutResult.Location, OutResult.Location + FVector(0.f, 0.f, Lift), FQuat::Identity, CameraBoom->ProbeChannel,
+		FCollisionShape::MakeSphere(Radius), Params))
+	{
+		Lift = FMath::Max(Hit.Distance - Radius, 0.f);
+	}
+	OutResult.Location.Z += Lift;
 }
 
 void AObshagaCharacter::EnterHidingSpot(AHidingSpot* Spot)
@@ -523,6 +591,7 @@ void AObshagaCharacter::OnStartCrouch(float HalfHeightAdjust, float ScaledHalfHe
 {
 	Super::OnStartCrouch(HalfHeightAdjust, ScaledHalfHeightAdjust);
 	FixLookMeshHeight(HalfHeightAdjust);
+	PlaceCarryPoints(true);
 
 	if (bIsSprinting && (HasAuthority() || IsLocallyControlled()))
 	{
@@ -534,6 +603,21 @@ void AObshagaCharacter::OnEndCrouch(float HalfHeightAdjust, float ScaledHalfHeig
 {
 	Super::OnEndCrouch(HalfHeightAdjust, ScaledHalfHeightAdjust);
 	FixLookMeshHeight(0.f);
+	PlaceCarryPoints(false);
+}
+
+void AObshagaCharacter::PlaceCarryPoints(bool bCrouched)
+{
+	const UObshagaCharacterConfig* Cfg = GetConfig();
+	// В приседе капсула ниже, а модель стоит на полу там же (FixLookMeshHeight): поднимаем точки, иначе предмет висел
+	// бы под руками, а телевизор тонул в голове. Присед реплицируется, так что точки стоят одинаково на всех машинах.
+	const FVector Lift(0.f, 0.f, bCrouched ? Cfg->CrouchCarryLift : 0.f);
+	CarryPoint->SetRelativeLocation(Cfg->HandsCarryOffset + Lift);
+	// Модель жильца стоит ногами на низу капсулы и вытянута до ResidentHeight (UObshagaLookComponent::ApplyLook):
+	// макушка на этой высоте над низом капсулы.
+	const float HeadTopZ = UObshagaLookConfig::Get()->ResidentHeight - GetDefaultHalfHeight();
+	HeadCarryPoint->SetRelativeLocation(FVector(0.f, 0.f, HeadTopZ) + Cfg->HeadCarryOffset + Lift);
+	UpdateCarryCamera();
 }
 
 void AObshagaCharacter::FixLookMeshHeight(float CrouchAdjust)
