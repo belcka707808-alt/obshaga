@@ -1097,7 +1097,10 @@ void AObshagaPlayerController::OnLook(const FInputActionValue& Value)
 
 void AObshagaPlayerController::OnJumpStarted()
 {
-	if (AObshagaCharacter* ObshagaCharacter = GetObshagaCharacter())
+	// С телевизором не прыгают (CanJumpInternal). Не жмём прыжок и здесь: иначе флаг прыжка ушёл бы на сервер с движением,
+	// и если телевизор только что положен (G ещё в пути), сервер прыгнул бы, а игрок — нет, и его дёрнуло бы вверх.
+	AObshagaCharacter* ObshagaCharacter = GetObshagaCharacter();
+	if (ObshagaCharacter && !ObshagaCharacter->GetCarryComponent()->IsCarryingHeavy())
 	{
 		ObshagaCharacter->Jump();
 	}
