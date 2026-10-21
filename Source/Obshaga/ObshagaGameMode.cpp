@@ -50,6 +50,12 @@ namespace
 	constexpr double StaleConnectionSeconds = 5.0;
 	// Вещь не дальше этого от места, где лежала в начале игры, — «на своём месте», а не потерялась.
 	constexpr float LostItemHomeTolerance = 50.f;
+
+	/** Имя игрока для журнала; None — никого. */
+	FString LogPlayerName(const APlayerState* State)
+	{
+		return State ? State->GetPlayerName() : FString(TEXT("None"));
+	}
 }
 
 AObshagaGameMode::AObshagaGameMode()
@@ -97,6 +103,193 @@ void AObshagaGameMode::BeginPlay()
 	}
 
 	GetWorldTimerManager().SetTimer(StrandedTimer, this, &AObshagaGameMode::CheckStrandedPlayers, 1.f, true);
+
+	// Для автопроверки (tools/verify_round.py): таблица комнат — какие запретны после отбоя и где есть тайники
+	// (по ней проверяются рост подозрения ночью и слова в СМС).
+	for (TActorIterator<ARoomVolume> It(GetWorld()); It; ++It)
+	{
+		int32 NumSpots = 0;
+		for (TActorIterator<AHidingSpot> Spot(GetWorld()); Spot; ++Spot)
+		{
+			NumSpots += ARoomVolume::FindRoomAt(this, Spot->GetActorLocation() + FVector(0.f, 0.f, 50.f)) == *It ? 1 : 0;
+		}
+		UE_LOG(LogObshaga, Verbose, TEXT("Room table: %s «%s»: type %s, forbidden after curfew %d, hiding spots %d"), *It->RoomId.ToString(),
+			*It->DisplayName.ToString(), *UEnum::GetValueAsString(It->RoomType), It->bForbiddenAfterCurfew ? 1 : 0, NumSpots);
+	}
+
+#if !UE_BUILD_SHIPPING
+	// Для проверок без человека: -AutoRounds=N — раунд начинается сам (как Enter хоста), реванш тоже, после N-го раунда игра закрывается.
+	if (FParse::Value(FCommandLine::Get(), TEXT("AutoRounds="), AutoRounds) && AutoRounds > 0)
+	{
+		UE_LOG(LogObshaga, Log, TEXT("Auto rounds: %d, first starts in 5 s"), AutoRounds);
+		GetWorldTimerManager().SetTimer(AutoRoundTimer, this, &AObshagaGameMode::AutoNextRound, 5.f, false);
+	}
+#endif
+}
+
+void AObshagaGameMode::AutoNextRound()
+{
+#if !UE_BUILD_SHIPPING
+	const AObshagaGameState* State = GetGameState<AObshagaGameState>();
+	if (!State || State->GetRoundState() == ERoundState::InProgress)
+	{
+		return;
+	}
+	if (AutoRoundsPlayed >= AutoRounds)
+	{
+		// В редакторе (PIE) не закрываем: закрылся бы сам редактор.
+		UE_LOG(LogObshaga, Log, TEXT("Auto rounds: all %d played, quitting"), AutoRounds);
+		if (!GIsEditor)
+		{
+			FPlatformMisc::RequestExit(false);
+		}
+		return;
+	}
+	// Как Enter хоста: заставка, потом раунд. Хоста нет (выделенный сервер) — сразу раунд.
+	APlayerController* Host = GetWorld()->GetFirstPlayerController();
+	if (Host && Host->IsLocalController())
+	{
+		RequestStart(Host);
+	}
+	else
+	{
+		StartRound();
+	}
+#endif
+}
+
+void AObshagaGameMode::StartTestTimers()
+{
+	ClearTestTimers();
+#if !UE_BUILD_SHIPPING
+	// -TestCatchHostAt=20,45,70: на этих секундах раунда Палыч ловит хоста, как по клавише K. Хост не отвечает —
+	// допрос кончается молчанием по таймауту, а третья поимка выселяет его в призраки.
+	FString CatchTimes;
+	if (FParse::Value(FCommandLine::Get(), TEXT("TestCatchHostAt="), CatchTimes, false))
+	{
+		TArray<FString> Times;
+		CatchTimes.ParseIntoArray(Times, TEXT(","));
+		for (const FString& Time : Times)
+		{
+			const float Seconds = FCString::Atof(*Time);
+			if (Seconds > 0.f)
+			{
+				GetWorldTimerManager().SetTimer(TestTimers.AddDefaulted_GetRef(), this, &AObshagaGameMode::TestCatchHost, Seconds, false);
+			}
+		}
+	}
+	// -TestChaseAt=N: на N-й секунде Палыч сам начинает погоню за ботом — без переноса, дальше всё как в игре.
+	float ChaseAt = 0.f;
+	if (FParse::Value(FCommandLine::Get(), TEXT("TestChaseAt="), ChaseAt) && ChaseAt > 0.f)
+	{
+		GetWorldTimerManager().SetTimer(TestTimers.AddDefaulted_GetRef(), this, &AObshagaGameMode::TestChase, ChaseAt, false);
+	}
+#endif
+}
+
+void AObshagaGameMode::ClearTestTimers()
+{
+	for (FTimerHandle& Handle : TestTimers)
+	{
+		GetWorldTimerManager().ClearTimer(Handle);
+	}
+	TestTimers.Reset();
+	TestRetries = 0;
+}
+
+void AObshagaGameMode::TestCatchHost()
+{
+#if !UE_BUILD_SHIPPING
+	const AObshagaGameState* State = GetGameState<AObshagaGameState>();
+	APlayerController* Host = GetWorld()->GetFirstPlayerController();
+	AObshagaCharacter* Me = Host && Host->IsLocalController() ? Cast<AObshagaCharacter>(Host->GetPawn()) : nullptr;
+	if (!State || State->GetRoundState() != ERoundState::InProgress || !Me || Me->IsGhost())
+	{
+		UE_LOG(LogObshaga, Log, TEXT("Debug: test catch skipped (no host in the round or host is a ghost)"));
+		return;
+	}
+	AKomendantCharacter* Komendant = nullptr;
+	AKomendantAIController* Brain = nullptr;
+	for (TActorIterator<AKomendantCharacter> It(GetWorld()); It && !Brain; ++It)
+	{
+		Komendant = *It;
+		Brain = Cast<AKomendantAIController>(It->GetController());
+	}
+	// Идёт допрос, Палыч уже гонится или хост в укрытии — пробуем снова через пару секунд.
+	const TCHAR* Busy = !Brain ? TEXT("no komendant") : (State->GetInterrogation().bActive ? TEXT("interrogation")
+		: (Brain->GetState() == EKomendantState::Chase ? TEXT("chase") : ((Me->IsHiding() || Me->IsFrozen()) ? TEXT("host hiding or frozen") : nullptr)));
+	if (Busy)
+	{
+		if (Brain && ++TestRetries <= 30)
+		{
+			UE_LOG(LogObshaga, Log, TEXT("Debug: test catch postponed: %s"), Busy);
+			GetWorldTimerManager().SetTimer(TestTimers.AddDefaulted_GetRef(), this, &AObshagaGameMode::TestCatchHost, 2.f, false);
+		}
+		return;
+	}
+	// Как клавиша K: Палыч встаёт перед хостом и начинает обычную погоню — ловит он сам, допрос идёт как в игре.
+	const FVector Front = Me->GetActorLocation() + Me->GetActorForwardVector() * 120.f;
+	Komendant->SetActorLocationAndRotation(Front, (-Me->GetActorForwardVector()).Rotation(), false, nullptr, ETeleportType::TeleportPhysics);
+	Brain->DebugChase(Me);
+	UE_LOG(LogObshaga, Log, TEXT("Debug: test catch of %s, t=%.1f"), *LogPlayerName(Host->PlayerState), GetRoundSeconds());
+#endif
+}
+
+void AObshagaGameMode::TestChase()
+{
+#if !UE_BUILD_SHIPPING
+	const AObshagaGameState* State = GetGameState<AObshagaGameState>();
+	if (!State || State->GetRoundState() != ERoundState::InProgress)
+	{
+		return;
+	}
+	AKomendantCharacter* Komendant = nullptr;
+	AKomendantAIController* Brain = nullptr;
+	for (TActorIterator<AKomendantCharacter> It(GetWorld()); It && !Brain; ++It)
+	{
+		Komendant = *It;
+		Brain = Cast<AKomendantAIController>(It->GetController());
+	}
+	const bool bBusy = !Brain || State->GetInterrogation().bActive || Brain->GetState() == EKomendantState::Chase || Brain->GetState() == EKomendantState::Interrogate;
+
+	// Кого гнать: бота с вещью в руках (лучше того, кого Палыч видит), иначе самого дальнего бота на его этаже, которого он видит.
+	AObshagaCharacter* Target = nullptr;
+	int32 BestRank = -1;
+	float BestDistance = 0.f;
+	for (TActorIterator<AObshagaCharacter> It(GetWorld()); It && !bBusy; ++It)
+	{
+		const AObshagaPlayerState* BotState = It->GetPlayerState<AObshagaPlayerState>();
+		if (!BotState || !BotState->IsABot() || BotState->IsEvicted() || It->IsHiding() || It->IsFrozen() || It->IsGhost())
+		{
+			continue;
+		}
+		const float Distance = FVector::Dist(It->GetActorLocation(), Komendant->GetActorLocation());
+		const bool bSameFloor = FMath::Abs(It->GetActorLocation().Z - Komendant->GetActorLocation().Z) < 150.f;
+		const bool bVisible = bSameFloor && Distance < 1500.f && Brain->LineOfSightTo(*It);
+		const bool bCarrying = It->GetCarryComponent()->IsCarrying();
+		const int32 Rank = bCarrying ? (bVisible ? 3 : 2) : (bVisible ? 1 : -1);
+		// Среди несущих — ближайший, среди остальных — дальний (погоня должна быть длинной).
+		if (Rank > BestRank || (Rank == BestRank && Rank >= 0 && (bCarrying ? Distance < BestDistance : Distance > BestDistance)))
+		{
+			BestRank = Rank;
+			BestDistance = Distance;
+			Target = Rank >= 0 ? *It : nullptr;
+		}
+	}
+	if (!Target)
+	{
+		if (++TestRetries <= 30)
+		{
+			UE_LOG(LogObshaga, Log, TEXT("Debug: test chase postponed: %s"), bBusy ? TEXT("komendant busy") : TEXT("no bot to chase"));
+			GetWorldTimerManager().SetTimer(TestTimers.AddDefaulted_GetRef(), this, &AObshagaGameMode::TestChase, 2.f, false);
+		}
+		return;
+	}
+	const AItemActor* Item = Target->GetCarryComponent()->GetCarriedItem();
+	UE_LOG(LogObshaga, Log, TEXT("Debug: test chase of %s (item %s) from %.0f cm, t=%.1f"), *LogPlayerName(Target->GetPlayerState()),
+		Item ? *Item->GetItemData()->ItemId.ToString() : TEXT("-"), BestDistance, GetRoundSeconds());
+	Brain->DebugChase(Target);
+#endif
 }
 
 bool AObshagaGameMode::IsOutsideBuilding(const AActor* Actor) const
@@ -243,6 +436,11 @@ void AObshagaGameMode::NotifyPlayer(const APlayerState* PlayerState, const FText
 	if (AObshagaPlayerController* Controller = PlayerState ? Cast<AObshagaPlayerController>(PlayerState->GetOwner()) : nullptr)
 	{
 		Controller->ClientShowNotice(Text);
+	}
+	else if (PlayerState)
+	{
+		// У бота экрана нет — пишем в журнал, чтобы проверки видели сообщение.
+		UE_LOG(LogObshaga, Verbose, TEXT("Notice for %s (no screen): %s"), *PlayerState->GetPlayerName(), *Text.ToString());
 	}
 }
 
@@ -649,8 +847,9 @@ void AObshagaGameMode::AssignHomeRoom(AController* Controller)
 	{
 		const ARoomVolume* Room = ARoomVolume::FindRoomAt(this, Pawn->GetActorLocation());
 		PlayerState->SetHomeRoomId(Room ? Room->RoomId : NAME_None);
-		UE_LOG(LogObshaga, Verbose, TEXT("%s lives in %s (spawned at %s)"), *PlayerState->GetPlayerName(), *PlayerState->GetHomeRoomId().ToString(),
-			*Pawn->GetActorLocation().ToCompactString());
+		// Имя пешки — для автопроверки: многие строки журнала (тайники, двери, шум) пишут её, а не имя игрока.
+		UE_LOG(LogObshaga, Verbose, TEXT("%s lives in %s (pawn %s, spawned at %s)"), *PlayerState->GetPlayerName(), *PlayerState->GetHomeRoomId().ToString(),
+			*GetNameSafe(Pawn), *Pawn->GetActorLocation().ToCompactString());
 	}
 }
 
@@ -834,6 +1033,48 @@ void AObshagaGameMode::StartRound()
 		PlayerState->ResetForRound();
 	}
 
+	// Для автопроверки: после сброса мира всё должно быть на местах, а у жильцов — ни страйков, ни подозрения (все числа — нули).
+	{
+		int32 OffHome = 0;
+		int32 Hidden = 0;
+		int32 Carried = 0;
+		int32 Broken = 0;
+		int32 OpenDoors = 0;
+		int32 Ghosts = 0;
+		int32 Evicted = 0;
+		int32 WithStrikes = 0;
+		int32 Suspicious = 0;
+		for (TActorIterator<AItemActor> It(GetWorld()); It; ++It)
+		{
+			OffHome += It->IsAtInitialPlace(LostItemHomeTolerance) ? 0 : 1;
+			Hidden += It->GetItemState() == EItemState::Hidden ? 1 : 0;
+			Carried += It->GetItemState() == EItemState::Carried ? 1 : 0;
+		}
+		for (TActorIterator<ADeviceActor> It(GetWorld()); It; ++It)
+		{
+			Broken += It->IsBroken() ? 1 : 0;
+		}
+		for (TActorIterator<ADoorActor> It(GetWorld()); It; ++It)
+		{
+			OpenDoors += It->IsOpen() ? 1 : 0;
+		}
+		for (TActorIterator<AObshagaCharacter> It(GetWorld()); It; ++It)
+		{
+			Ghosts += It->IsGhost() ? 1 : 0;
+		}
+		RoundStartScore.Reset();
+		RoundRatBonus.Reset();
+		for (AObshagaPlayerState* PlayerState : Players)
+		{
+			Evicted += PlayerState->IsEvicted() ? 1 : 0;
+			WithStrikes += PlayerState->GetSuspicionComponent()->GetStrikes() > 0 ? 1 : 0;
+			Suspicious += PlayerState->GetSuspicionComponent()->GetSuspicion() > 0.f ? 1 : 0;
+			RoundStartScore.Add(TWeakObjectPtr<APlayerState>(PlayerState), FMath::RoundToInt32(PlayerState->GetScore()));
+		}
+		UE_LOG(LogObshaga, Verbose, TEXT("Round reset check: items off home %d, hidden %d, carried %d, broken devices %d, open doors %d, ghosts %d, evicted %d, strikes %d, suspicion %d"),
+			OffHome, Hidden, Carried, Broken, OpenDoors, Ghosts, Evicted, WithStrikes, Suspicious);
+	}
+
 	TaskDirector->Reset();
 	RoundStartWorldTime = GetWorld()->GetTimeSeconds();
 	NumKomendantStuck = 0;
@@ -885,6 +1126,9 @@ void AObshagaGameMode::StartRound()
 			const FText Intel = FText::Format(LOCTEXT("RatIntel", "{0} должен: «{1}»"),
 				FText::FromString(Victim->GetPlayerName()), Victim->GetTaskComponent()->GetMainTask()->Title);
 			Rat->SetRatIntel(Intel, Victim);
+			// Журнал — только на сервере (хосте); по сети это не уходит.
+			UE_LOG(LogObshaga, Verbose, TEXT("Rat %s knows %s: %s"), *Rat->GetPlayerName(), *Victim->GetPlayerName(),
+				*Victim->GetTaskComponent()->GetMainTask()->TaskId.ToString());
 		}
 	}
 
@@ -917,7 +1161,14 @@ void AObshagaGameMode::StartRound()
 
 	// Новичкам сразу говорим, откуда ждать опасность.
 	NotifyAll(LOCTEXT("KomendantWhere", "Комендант на вахте, 1 этаж. Скоро пойдёт в обход — не попадайся"));
-	UE_LOG(LogObshaga, Log, TEXT("Round started: %.0f s, %d players"), Config->GetTotalSeconds(), Players.Num());
+	// Для автопроверки: числа из DA_RoundConfig, по которым она сверяет штрафы, шансы и окна (в C++ значения по умолчанию другие).
+	UE_LOG(LogObshaga, Log, TEXT("Round config: confess=%d silent=%d lie=%d lieBase=%.2f alibiBonus=%.2f contrabandLie=%.2f afterStrike=%.0f evictStrikes=%d evictPenalty=%d interrogation=%.1f ratBonus=%d ratWindow=%.0f curfewRate=%.1f sms=%d grudge=%.0f unseen=%.1f curfewOutside=%.1f minNoise=%.2f inspect=%.1f alibiRadius=%.0f immunity=%.1f catch=%.0f chronicle=%d"),
+		Config->ConfessPenalty, Config->SilentPenalty, Config->FailedLiePenalty, Config->LieBaseChance, Config->AlibiBonus, Config->ContrabandLiePenalty,
+		Config->SuspicionAfterStrike, Config->EvictionStrikes, Config->EvictionPenalty, Config->InterrogationSeconds, Config->RatTipBonus, Config->RatTipWindowSeconds,
+		Config->CurfewSuspicionPerSecond, Config->SmsCount, Config->GrudgeSuspicion, Config->UnseenWindowSeconds, Config->CurfewOutsideSeconds, Config->KomendantMinNoise,
+		Config->InspectSeconds, Config->AlibiRadius, Config->ImmunitySeconds, Config->KomendantCatchDistance, Config->MaxChronicleLines);
+	UE_LOG(LogObshaga, Log, TEXT("Round started: %.0f s, %d players, world time %.1f"), Config->GetTotalSeconds(), Players.Num(), RoundStartWorldTime);
+	StartTestTimers();
 	// Следующий раунд выберет следующую ночь.
 	bNightPrepared = false;
 }
@@ -1190,8 +1441,13 @@ void AObshagaGameMode::SendSms()
 	const TArray<AObshagaPlayerState*> Players = GetObshagaPlayers();
 	for (AObshagaPlayerState* PlayerState : Players)
 	{
-		PlayerState->AddSms(MakeSmsFor(PlayerState, Players));
+		FString Source;
+		const FText Sms = MakeSmsFor(PlayerState, Players, &Source);
+		PlayerState->AddSms(Sms);
 		NotifyPlayer(PlayerState, LOCTEXT("NewSms", "Новое СМС — открой телефон [Tab]"));
+		// Для автопроверки: правдивое ли СМС и по какому событию. Журнал есть только на сервере, по сети это не уходит.
+		UE_LOG(LogObshaga, Verbose, TEXT("SMS %d to %s (%s) t=%.1f: %s [%s]"), SmsSent + 1, *PlayerState->GetPlayerName(),
+			*StaticEnum<EPlayerRole>()->GetNameStringByValue(static_cast<int64>(PlayerState->GetTrueRole())), GetRoundSeconds(), *Sms.ToString(), *Source);
 	}
 
 	if (++SmsSent >= GetRoundConfig()->SmsCount)
@@ -1200,8 +1456,11 @@ void AObshagaGameMode::SendSms()
 	}
 }
 
-FText AObshagaGameMode::MakeSmsFor(const AObshagaPlayerState* Reader, const TArray<AObshagaPlayerState*>& Players) const
+FText AObshagaGameMode::MakeSmsFor(const AObshagaPlayerState* Reader, const TArray<AObshagaPlayerState*>& Players, FString* OutSource) const
 {
+	FString Unused;
+	FString& Source = OutSource ? *OutSource : Unused;
+	Source = TEXT("quiet");
 	const FText Quiet = LOCTEXT("SmsQuiet", "Сегодня в общаге подозрительно тихо...");
 	const FText Verbs[] = {
 		LOCTEXT("SmsCarried", "что-то тащил"),
@@ -1252,12 +1511,14 @@ FText AObshagaGameMode::MakeSmsFor(const AObshagaPlayerState* Reader, const TArr
 			return Quiet;
 		}
 		const TPair<int32, const ARoomVolume*>& Lie = Lies[FMath::RandRange(0, Lies.Num() - 1)];
+		Source = FString::Printf(TEXT("lie verb %d room %s"), Lie.Key, *Lie.Value->RoomId.ToString());
 		return Compose(Others[FMath::RandRange(0, Others.Num() - 1)], Lie.Key, Lie.Value);
 	}
 
 	// Остальным — правда: случайное настоящее событие с участием другого игрока.
 	const UGameEventSubsystem* Bus = UGameEventSubsystem::Get(this);
 	TArray<FText> Rumors;
+	TArray<FString> Sources;
 	for (const FGameEvent& Event : Bus->GetEventLog())
 	{
 		const AObshagaPlayerState* Who = Cast<AObshagaPlayerState>(Event.Instigator);
@@ -1267,6 +1528,7 @@ FText AObshagaGameMode::MakeSmsFor(const AObshagaPlayerState* Reader, const TArr
 			continue;
 		}
 
+		const int32 NumBefore = Rumors.Num();
 		switch (Event.Type)
 		{
 		case EGameEventType::ItemPickedUp:
@@ -1288,8 +1550,19 @@ FText AObshagaGameMode::MakeSmsFor(const AObshagaPlayerState* Reader, const TArr
 		default:
 			break;
 		}
+		if (Rumors.Num() > NumBefore)
+		{
+			Sources.Add(FString::Printf(TEXT("event %s by %s room %s t=%.1f"), *StaticEnum<EGameEventType>()->GetNameStringByValue(static_cast<int64>(Event.Type)),
+				*Who->GetPlayerName(), *Event.RoomId.ToString(), Event.Time - RoundStartWorldTime));
+		}
 	}
-	return Rumors.IsEmpty() ? Quiet : Rumors[FMath::RandRange(0, Rumors.Num() - 1)];
+	if (Rumors.IsEmpty())
+	{
+		return Quiet;
+	}
+	const int32 Picked = FMath::RandRange(0, Rumors.Num() - 1);
+	Source = Sources[Picked];
+	return Rumors[Picked];
 }
 
 void AObshagaGameMode::TipOff(AObshagaPlayerState* Rat)
@@ -1298,6 +1571,12 @@ void AObshagaGameMode::TipOff(AObshagaPlayerState* Rat)
 	if (!Rat || !State || State->GetRoundState() != ERoundState::InProgress
 		|| Rat->GetTrueRole() != EPlayerRole::Rat || Rat->HasUsedTip() || Rat->IsEvicted())
 	{
+		if (Rat)
+		{
+			UE_LOG(LogObshaga, Verbose, TEXT("Tip by %s on %s refused: not allowed (round %d, rat %d, used %d, evicted %d)"), *Rat->GetPlayerName(),
+				*LogPlayerName(Rat->GetRatTarget()), State && State->GetRoundState() == ERoundState::InProgress ? 1 : 0,
+				Rat->GetTrueRole() == EPlayerRole::Rat ? 1 : 0, Rat->HasUsedTip() ? 1 : 0, Rat->IsEvicted() ? 1 : 0);
+		}
 		return;
 	}
 
@@ -1305,6 +1584,7 @@ void AObshagaGameMode::TipOff(AObshagaPlayerState* Rat)
 	AObshagaCharacter* TargetCharacter = Target ? Cast<AObshagaCharacter>(Target->GetPawn()) : nullptr;
 	if (!TargetCharacter)
 	{
+		UE_LOG(LogObshaga, Verbose, TEXT("Tip by %s on %s refused: no pawn"), *Rat->GetPlayerName(), *LogPlayerName(Target));
 		return;
 	}
 
@@ -1312,6 +1592,7 @@ void AObshagaGameMode::TipOff(AObshagaPlayerState* Rat)
 	const AObshagaPlayerState* TargetState = Cast<AObshagaPlayerState>(Target);
 	if (TargetCharacter->IsGhost() || (TargetState && TargetState->IsEvicted()))
 	{
+		UE_LOG(LogObshaga, Verbose, TEXT("Tip by %s on %s refused: evicted"), *Rat->GetPlayerName(), *Target->GetPlayerName());
 		NotifyPlayer(Rat, LOCTEXT("TipEvicted", "Его уже выселили — стучать не на кого"));
 		return;
 	}
@@ -1324,6 +1605,7 @@ void AObshagaGameMode::TipOff(AObshagaPlayerState* Rat)
 	}
 	if (!bTaken)
 	{
+		UE_LOG(LogObshaga, Verbose, TEXT("Tip by %s on %s refused: busy"), *Rat->GetPlayerName(), *Target->GetPlayerName());
 		NotifyPlayer(Rat, LOCTEXT("TipBusy", "Комендант занят — стукни позже"));
 		return;
 	}
@@ -1332,6 +1614,8 @@ void AObshagaGameMode::TipOff(AObshagaPlayerState* Rat)
 	TipRat = Rat;
 	TipTarget = Target;
 	TipExpireTime = GetWorld()->GetTimeSeconds() + GetRoundConfig()->RatTipWindowSeconds;
+	UE_LOG(LogObshaga, Verbose, TEXT("Tip by %s on %s accepted: room %s, window %.0f s, t=%.1f"), *Rat->GetPlayerName(), *Target->GetPlayerName(),
+		TargetCharacter->GetCurrentRoom() ? *TargetCharacter->GetCurrentRoom()->RoomId.ToString() : TEXT("None"), GetRoundConfig()->RatTipWindowSeconds, GetRoundSeconds());
 
 	if (UGameEventSubsystem* Bus = UGameEventSubsystem::Get(this))
 	{
@@ -1389,8 +1673,10 @@ void AObshagaGameMode::Accuse(AObshagaPlayerState* Accuser, AObshagaCharacter* S
 	Accuser->SetTaskAbilities(false, Accuser->CanTipRoom());
 	// У задания «найди автора слуха» доказательство — записка, которую подкинул обвиняемый.
 	AItemActor* StolenItem = UTaskComponent::IsRumorRow(this, *Row) ? UTaskComponent::FindRumorNote(this, SuspectState) : UTaskComponent::FindStolenItem(this, SuspectState, *Row);
-	UE_LOG(LogObshaga, Verbose, TEXT("Accuse by %s of %s: %s (rumor task: %d, proof: %s)"), *Accuser->GetPlayerName(), *SuspectState->GetPlayerName(),
-		StolenItem ? TEXT("right") : TEXT("wrong"), UTaskComponent::IsRumorRow(this, *Row), *GetNameSafe(StolenItem));
+	const APawn* ProofHolder = StolenItem ? Cast<APawn>(StolenItem->GetHolder()) : nullptr;
+	UE_LOG(LogObshaga, Verbose, TEXT("Accuse by %s of %s: %s (rumor task: %d, proof: %s, holder %s, item room %s)"), *Accuser->GetPlayerName(), *SuspectState->GetPlayerName(),
+		StolenItem ? TEXT("right") : TEXT("wrong"), UTaskComponent::IsRumorRow(this, *Row), *GetNameSafe(StolenItem),
+		ProofHolder ? *LogPlayerName(ProofHolder->GetPlayerState()) : TEXT("None"), StolenItem ? *StolenItem->GetCurrentRoomId().ToString() : TEXT("None"));
 	UGameEventSubsystem::PublishFrom(AccuserCharacter, EGameEventType::Accusation, StolenItem, Suspect);
 
 	if (StolenItem)
@@ -1415,15 +1701,18 @@ void AObshagaGameMode::TipOffRoom(AObshagaPlayerState* By)
 	AObshagaCharacter* Character = By ? Cast<AObshagaCharacter>(By->GetPawn()) : nullptr;
 	if (!State || State->GetRoundState() != ERoundState::InProgress || !Character || !By->CanTipRoom() || By->IsEvicted() || Character->IsGhost())
 	{
+		UE_LOG(LogObshaga, Verbose, TEXT("Room tip by %s rejected: not allowed (can tip %d)"), By ? *By->GetPlayerName() : TEXT("-"), By && By->CanTipRoom() ? 1 : 0);
 		return;
 	}
 	if (Character->IsHiding())
 	{
+		UE_LOG(LogObshaga, Verbose, TEXT("Room tip by %s rejected: hiding"), *By->GetPlayerName());
 		NotifyPlayer(By, LOCTEXT("RoomTipHiding", "Сначала вылези из укрытия"));
 		return;
 	}
 	if (Character->IsFrozen())
 	{
+		UE_LOG(LogObshaga, Verbose, TEXT("Room tip by %s rejected: interrogated"), *By->GetPlayerName());
 		NotifyPlayer(By, LOCTEXT("RoomTipFrozen", "Не на допросе же стучать"));
 		return;
 	}
@@ -1431,14 +1720,17 @@ void AObshagaGameMode::TipOffRoom(AObshagaPlayerState* By)
 	const ARoomVolume* Room = Character->GetCurrentRoom();
 	if (!Room || Room->RoomType != ERoomType::Bedroom)
 	{
+		UE_LOG(LogObshaga, Verbose, TEXT("Room tip by %s rejected: not a bedroom (%s)"), *By->GetPlayerName(), Room ? *Room->RoomId.ToString() : TEXT("None"));
 		NotifyPlayer(By, LOCTEXT("RoomTipNotBedroom", "Стучать можно только на жилую комнату — зайди в неё"));
 		return;
 	}
 	if (Room->RoomId == By->GetHomeRoomId())
 	{
+		UE_LOG(LogObshaga, Verbose, TEXT("Room tip by %s rejected: own room"), *By->GetPlayerName());
 		NotifyPlayer(By, LOCTEXT("RoomTipOwn", "На свою комнату стучать незачем"));
 		return;
 	}
+	UE_LOG(LogObshaga, Verbose, TEXT("Room tip by %s: room %s, t=%.1f"), *By->GetPlayerName(), *Room->RoomId.ToString(), GetRoundSeconds());
 
 	// Настучать можно один раз за раунд.
 	By->SetTaskAbilities(By->CanAccuse(), false);
@@ -1452,6 +1744,7 @@ void AObshagaGameMode::TipOffRoom(AObshagaPlayerState* By)
 
 void AObshagaGameMode::Evict(AObshagaPlayerState* PlayerState, AObshagaCharacter* Character)
 {
+	const int32 ScoreBefore = FMath::RoundToInt32(PlayerState->GetScore());
 	PlayerState->SetEvicted(true);
 	PlayerState->SetScore(PlayerState->GetScore() - GetRoundConfig()->EvictionPenalty);
 	if (Character)
@@ -1465,7 +1758,8 @@ void AObshagaGameMode::Evict(AObshagaPlayerState* PlayerState, AObshagaCharacter
 		UGameEventSubsystem::PublishFrom(Character, EGameEventType::PlayerEvicted);
 	}
 	NotifyAll(FText::Format(LOCTEXT("Evicted", "{0} выселен из общаги!"), FText::FromString(PlayerState->GetPlayerName())));
-	UE_LOG(LogObshaga, Verbose, TEXT("%s evicted"), *PlayerState->GetPlayerName());
+	UE_LOG(LogObshaga, Verbose, TEXT("%s evicted: strikes %d, score %d -> %d, bot %d, t=%.1f"), *PlayerState->GetPlayerName(), PlayerState->GetSuspicionComponent()->GetStrikes(),
+		ScoreBefore, FMath::RoundToInt32(PlayerState->GetScore()), PlayerState->IsABot() ? 1 : 0, GetRoundSeconds());
 }
 
 bool AObshagaGameMode::StartInterrogation(AObshagaCharacter* Suspect, const FVector& EvidenceLocation)
@@ -1514,14 +1808,22 @@ bool AObshagaGameMode::StartInterrogation(AObshagaCharacter* Suspect, const FVec
 
 	GetWorldTimerManager().SetTimer(InterrogationTimer, this, &AObshagaGameMode::ResolveInterrogation, Duration, false);
 	UGameEventSubsystem::PublishFrom(Suspect, EGameEventType::PlayerCaught, CaughtWith);
-	UE_LOG(LogObshaga, Verbose, TEXT("Interrogation started: %s (contraband=%d)"), *PlayerState->GetPlayerName(), bSuspectHadContraband ? 1 : 0);
+	UE_LOG(LogObshaga, Verbose, TEXT("Interrogation started: %s (contraband=%d), item=%s (%s), t=%.1f"), *PlayerState->GetPlayerName(), bSuspectHadContraband ? 1 : 0,
+		*GetNameSafe(CaughtWith), CaughtWith ? *CaughtWith->GetItemData()->ItemId.ToString() : TEXT("-"), GetRoundSeconds());
 	KomendantSay(EKomendantLine::Caught);
 
 	// Поймали того, на кого недавно стучала Крыса, — ей бонус.
 	AObshagaPlayerState* Rat = TipRat.Get();
+	const float SinceTip = GetWorld()->GetTimeSeconds() - (TipExpireTime - GetRoundConfig()->RatTipWindowSeconds);
+	if (Rat && TipTarget == PlayerState && GetWorld()->GetTimeSeconds() > TipExpireTime)
+	{
+		UE_LOG(LogObshaga, Verbose, TEXT("Rat tip expired: %s on %s (%.0f s after the tip)"), *Rat->GetPlayerName(), *PlayerState->GetPlayerName(), SinceTip);
+	}
 	if (Rat && TipTarget == PlayerState && GetWorld()->GetTimeSeconds() <= TipExpireTime)
 	{
 		// Очки видны всем, поэтому бонус начисляется только на итогах: скачок посреди раунда выдал бы Крысу.
+		UE_LOG(LogObshaga, Verbose, TEXT("Rat bonus pending: %s +%d (caught %s %.0f s after the tip)"), *Rat->GetPlayerName(), GetRoundConfig()->RatTipBonus,
+			*PlayerState->GetPlayerName(), SinceTip);
 		Rat->AddPendingRatBonus(GetRoundConfig()->RatTipBonus);
 		NotifyPlayer(Rat, FText::Format(LOCTEXT("TipWorked", "Стук сработал: +{0} очков на итогах"), FText::AsNumber(GetRoundConfig()->RatTipBonus)));
 		if (UGameEventSubsystem* Bus = UGameEventSubsystem::Get(this))
@@ -1561,13 +1863,22 @@ void AObshagaGameMode::ConfirmAlibi(AObshagaCharacter* By)
 	AObshagaGameState* State = GetGameState<AObshagaGameState>();
 	FInterrogationInfo Info = State->GetInterrogation();
 	const AObshagaCharacter* Suspect = InterrogatedCharacter.Get();
+	const float Distance = (Suspect && By) ? FVector::Dist(By->GetActorLocation(), Suspect->GetActorLocation()) : 0.f;
 	if (!Info.bActive || !Suspect || !By || By == Suspect || By->IsHiding() || By->IsGhost() || AlibiBy.Contains(By)
-		|| FVector::Dist(By->GetActorLocation(), Suspect->GetActorLocation()) > GetRoundConfig()->AlibiRadius)
+		|| Distance > GetRoundConfig()->AlibiRadius)
 	{
+		// Для автопроверки: почему не засчитали (бот проверяет радиус сам — расхождение с сервером видно сразу).
+		if (Info.bActive && Suspect && By)
+		{
+			const FString Reason = By == Suspect ? TEXT("self") : (By->IsHiding() ? TEXT("hiding") : (By->IsGhost() ? TEXT("ghost")
+				: (AlibiBy.Contains(By) ? TEXT("repeat") : FString::Printf(TEXT("too far (%.0f > %.0f cm)"), Distance, GetRoundConfig()->AlibiRadius))));
+			UE_LOG(LogObshaga, Verbose, TEXT("Alibi for %s by %s rejected: %s"), *LogPlayerName(Info.Suspect), *LogPlayerName(By->GetPlayerState()), *Reason);
+		}
 		return;
 	}
 
 	AlibiBy.Add(By);
+	UE_LOG(LogObshaga, Verbose, TEXT("Alibi for %s by %s accepted: %.0f cm, total %d"), *LogPlayerName(Info.Suspect), *LogPlayerName(By->GetPlayerState()), Distance, AlibiBy.Num());
 	Info.AlibiCount = static_cast<uint8>(AlibiBy.Num());
 	State->SetInterrogation(Info);
 
@@ -1604,6 +1915,9 @@ void AObshagaGameMode::ResolveInterrogation()
 	int32 Penalty = 0;
 	EGameEventType EventType = EGameEventType::InterrogationSilent;
 	FText Result;
+	// Шанс и бросок лжи — для журнала автопроверки; -1, если не врал.
+	float LieChance = -1.f;
+	float LieRoll = -1.f;
 	switch (Choice)
 	{
 	case EInterrogationChoice::Confess:
@@ -1619,7 +1933,9 @@ void AObshagaGameMode::ResolveInterrogation()
 		{
 			Chance -= Config->ContrabandLiePenalty;
 		}
-		if (FMath::FRand() < FMath::Clamp(Chance, 0.05f, 0.95f))
+		LieChance = FMath::Clamp(Chance, 0.05f, 0.95f);
+		LieRoll = FMath::FRand();
+		if (LieRoll < LieChance)
 		{
 			bStrike = false;
 			EventType = EGameEventType::InterrogationLieSucceeded;
@@ -1652,8 +1968,10 @@ void AObshagaGameMode::ResolveInterrogation()
 		PlayerState->SetScore(PlayerState->GetScore() - Penalty);
 		NotifyPlayer(PlayerState, FText::Format(Result, FText::AsNumber(Penalty)));
 		bEvict = Suspicion->GetStrikes() >= Config->EvictionStrikes && !PlayerState->IsEvicted();
-		UE_LOG(LogObshaga, Verbose, TEXT("Interrogation of %s resolved: %s, strike=%d, penalty=%d, alibi=%d"),
-			*PlayerState->GetPlayerName(), *UEnum::GetValueAsString(Choice), bStrike ? 1 : 0, Penalty, AlibiBy.Num());
+		// answered=0 — пойманный не ответил за отведённое время (это засчитано как молчание).
+		UE_LOG(LogObshaga, Verbose, TEXT("Interrogation of %s resolved: %s, strike=%d, penalty=%d, alibi=%d, answered=%d, chance=%.2f, roll=%.2f, contraband=%d, strikes=%d, score=%.0f, t=%.1f"),
+			*PlayerState->GetPlayerName(), *UEnum::GetValueAsString(Choice), bStrike ? 1 : 0, Penalty, AlibiBy.Num(), Info.Choice != EInterrogationChoice::None ? 1 : 0,
+			LieChance, LieRoll, bSuspectHadContraband ? 1 : 0, Suspicion->GetStrikes(), PlayerState->GetScore(), GetRoundSeconds());
 	}
 
 	if (Suspect)
@@ -1713,6 +2031,10 @@ void AObshagaGameMode::EndRound()
 	GetWorldTimerManager().ClearTimer(NightEventTimer);
 	GetWorldTimerManager().ClearTimer(NightEventEndTimer);
 	GetWorldTimerManager().ClearTimer(FireAlarmTimer);
+	ClearTestTimers();
+
+	// Для автопроверки: где что лежит в миг подсчёта заданий.
+	LogEndOfRoundState();
 
 	// Подводим итоги и раскрываем всем, кто кем был и что делал.
 	const TArray<AObshagaPlayerState*> Players = GetObshagaPlayers();
@@ -1720,8 +2042,17 @@ void AObshagaGameMode::EndRound()
 	TArray<FRevealedPlayer> RevealedPlayers;
 	for (AObshagaPlayerState* PlayerState : Players)
 	{
-		const int32 Earned = PlayerState->GetTaskComponent()->FinalizeTasks() + PlayerState->TakePendingRatBonus();
+		const int32 ScoreBefore = FMath::RoundToInt32(PlayerState->GetScore());
+		const int32 TaskReward = PlayerState->GetTaskComponent()->FinalizeTasks();
+		const int32 RatBonus = PlayerState->TakePendingRatBonus();
+		const int32 Earned = TaskReward + RatBonus;
 		PlayerState->SetScore(PlayerState->GetScore() + Earned);
+		// Для автопроверки: очки раунда по частям. Штрафы — всё, что снято за раунд (допросы, выселение).
+		const int32* StartScore = RoundStartScore.Find(TWeakObjectPtr<APlayerState>(PlayerState));
+		const int32 Start = StartScore ? *StartScore : ScoreBefore;
+		RoundRatBonus.Add(TWeakObjectPtr<APlayerState>(PlayerState), RatBonus);
+		UE_LOG(LogObshaga, Verbose, TEXT("Final score %s: start %d, tasks +%d, rat bonus +%d, penalties -%d, final %d"), *PlayerState->GetPlayerName(),
+			Start, TaskReward, RatBonus, Start - ScoreBefore, FMath::RoundToInt32(PlayerState->GetScore()));
 		PlayerState->AddNightToWeek(PlayerState->GetSuspicionComponent()->GetStrikes());
 		PlayerState->ForceNetUpdate();
 
@@ -1745,15 +2076,28 @@ void AObshagaGameMode::EndRound()
 		Revealed.WeekStrikes = PlayerState->GetWeekStrikes();
 	}
 	AssignTitles(RevealedPlayers, Players);
-	WriteTelemetry(Players);
-
+	// Газета и хроника — до телеметрии, чтобы в файл попало ровно то, что увидят на экране итогов.
 	BuildNewspaper(Players);
+	const TArray<FText> Chronicle = BuildChronicle();
+	for (const FRevealedPlayer& Revealed : RevealedPlayers)
+	{
+		UE_LOG(LogObshaga, Verbose, TEXT("Result %s: role %s, title «%s», score %d, strikes %d, evicted %d, bot %d"), *Revealed.PlayerName,
+			*StaticEnum<EPlayerRole>()->GetNameStringByValue(static_cast<int64>(Revealed.Role)), *Revealed.Title.ToString(), Revealed.Score, Revealed.Strikes,
+			Revealed.bEvicted ? 1 : 0, Revealed.bBot ? 1 : 0);
+	}
+	for (const FText& Line : Chronicle)
+	{
+		UE_LOG(LogObshaga, Verbose, TEXT("Chronicle %s"), *Line.ToString());
+	}
+	UE_LOG(LogObshaga, Verbose, TEXT("Headline %s"), *State->GetHeadline().ToString());
+	WriteTelemetry(Players, RevealedPlayers, Chronicle);
+
 	if (WeekNight == ObshagaStory::NumWeekNights - 1)
 	{
 		State->SetWeekTitles(BuildWeekTitles(Players));
 	}
 
-	State->FinishRound(RevealedTasks, RevealedPlayers, BuildChronicle());
+	State->FinishRound(RevealedTasks, RevealedPlayers, Chronicle);
 	if (UGameEventSubsystem* Bus = UGameEventSubsystem::Get(this))
 	{
 		FGameEvent Event;
@@ -1761,6 +2105,42 @@ void AObshagaGameMode::EndRound()
 		Bus->Publish(Event);
 	}
 	UE_LOG(LogObshaga, Log, TEXT("Round ended"));
+
+#if !UE_BUILD_SHIPPING
+	// -AutoRounds=N: следующий раунд (или выход) — через несколько секунд, чтобы экран итогов успел нарисоваться.
+	if (AutoRounds > 0)
+	{
+		++AutoRoundsPlayed;
+		UE_LOG(LogObshaga, Log, TEXT("Auto rounds: round %d of %d over"), AutoRoundsPlayed, AutoRounds);
+		GetWorldTimerManager().SetTimer(AutoRoundTimer, this, &AObshagaGameMode::AutoNextRound, 10.f, false);
+	}
+#endif
+}
+
+void AObshagaGameMode::LogEndOfRoundState() const
+{
+	// Строки «End item/device» — снимок мира, по которому сервер сейчас посчитает задания: автопроверка пересчитывает их сама.
+	TMap<const AItemActor*, const AHidingSpot*> SpotOf;
+	for (TActorIterator<AHidingSpot> It(GetWorld()); It; ++It)
+	{
+		if (const AItemActor* Hidden = It->GetHiddenItem())
+		{
+			SpotOf.Add(Hidden, *It);
+		}
+	}
+	for (TActorIterator<AItemActor> It(GetWorld()); It; ++It)
+	{
+		const APawn* Holder = Cast<APawn>(It->GetHolder());
+		UE_LOG(LogObshaga, Verbose, TEXT("End item %s (%s): state %s room %s home %s hiddenBy %s holder %s spot %s contraband %d readable %d"), *It->GetName(),
+			*It->GetItemData()->ItemId.ToString(), *UEnum::GetValueAsString(It->GetItemState()), *It->GetCurrentRoomId().ToString(), *It->GetHomeRoomId().ToString(),
+			*LogPlayerName(It->GetLastHiddenBy()), Holder ? *LogPlayerName(Holder->GetPlayerState()) : TEXT("None"), *GetNameSafe(SpotOf.FindRef(*It)),
+			It->GetItemData()->bContraband ? 1 : 0, It->GetItemData()->bReadable ? 1 : 0);
+	}
+	for (TActorIterator<ADeviceActor> It(GetWorld()); It; ++It)
+	{
+		UE_LOG(LogObshaga, Verbose, TEXT("End device %s room %s: broken %d brokenBy %s repairedBy %s brokenAt %.1f"), *It->GetName(), *It->GetRoomId().ToString(),
+			It->IsBroken() ? 1 : 0, *LogPlayerName(It->GetBrokenBy()), *LogPlayerName(It->GetRepairedBy()), It->IsBroken() ? It->GetBrokenTime() - RoundStartWorldTime : -1.f);
+	}
 }
 
 void AObshagaGameMode::BuildNewspaper(const TArray<AObshagaPlayerState*>& Players) const
@@ -2400,7 +2780,7 @@ TArray<FText> AObshagaGameMode::BuildWeekTitles(const TArray<AObshagaPlayerState
 	return Titles;
 }
 
-void AObshagaGameMode::WriteTelemetry(const TArray<AObshagaPlayerState*>& Players) const
+void AObshagaGameMode::WriteTelemetry(const TArray<AObshagaPlayerState*>& Players, const TArray<FRevealedPlayer>& Revealed, const TArray<FText>& Chronicle) const
 {
 	const UGameEventSubsystem* Bus = UGameEventSubsystem::Get(this);
 	if (!Bus)
@@ -2419,6 +2799,20 @@ void AObshagaGameMode::WriteTelemetry(const TArray<AObshagaPlayerState*>& Player
 	Root->SetNumberField(TEXT("weekId"), WeekId);
 	Root->SetNumberField(TEXT("komendantStuck"), NumKomendantStuck);
 	Root->SetNumberField(TEXT("botStuck"), NumBotStuck);
+	// Манера Палыча: 0 — строгий, 1 — рассеянный, 2 — мстительный; у мстительного — кого он помнил с прошлого раунда.
+	Root->SetNumberField(TEXT("komendantStyle"), GetKomendantStyle());
+	if (GetKomendantStyle() == 2)
+	{
+		TArray<TSharedPtr<FJsonValue>> GrudgeJson;
+		for (const TWeakObjectPtr<APlayerState>& Caught : CaughtLastRound)
+		{
+			if (const APlayerState* CaughtState = Caught.Get())
+			{
+				GrudgeJson.Add(MakeShared<FJsonValueString>(CaughtState->GetPlayerName()));
+			}
+		}
+		Root->SetArrayField(TEXT("grudge"), GrudgeJson);
+	}
 	if (FpsSamples > 0)
 	{
 		Root->SetNumberField(TEXT("fpsMin"), FMath::RoundToInt32(FpsMin));
@@ -2436,6 +2830,13 @@ void AObshagaGameMode::WriteTelemetry(const TArray<AObshagaPlayerState*>& Player
 		PlayerJson->SetNumberField(TEXT("strikes"), PlayerState->GetSuspicionComponent()->GetStrikes());
 		PlayerJson->SetBoolField(TEXT("evicted"), PlayerState->IsEvicted());
 		PlayerJson->SetBoolField(TEXT("bot"), PlayerState->IsABot());
+		// Очки на начало раунда и бонус Крысы: score − scoreBefore = награды заданий + бонус − штрафы.
+		const TWeakObjectPtr<APlayerState> Key(const_cast<AObshagaPlayerState*>(PlayerState));
+		const int32* StartScore = RoundStartScore.Find(Key);
+		PlayerJson->SetNumberField(TEXT("scoreBefore"), StartScore ? *StartScore : FMath::RoundToInt32(PlayerState->GetScore()));
+		PlayerJson->SetNumberField(TEXT("ratBonus"), RoundRatBonus.FindRef(Key));
+		const FRevealedPlayer* Shown = Revealed.FindByPredicate([PlayerState](const FRevealedPlayer& Player) { return Player.PlayerName == PlayerState->GetPlayerName(); });
+		PlayerJson->SetStringField(TEXT("title"), Shown ? Shown->Title.ToString() : FString());
 
 		TArray<TSharedPtr<FJsonValue>> TasksJson;
 		for (const FTaskState& Task : PlayerState->GetTaskComponent()->GetTasks())
@@ -2460,7 +2861,8 @@ void AObshagaGameMode::WriteTelemetry(const TArray<AObshagaPlayerState*>& Player
 		NumCaught += Event.Type == EGameEventType::PlayerCaught ? 1 : 0;
 
 		const TSharedRef<FJsonObject> EventJson = MakeShared<FJsonObject>();
-		EventJson->SetNumberField(TEXT("t"), FMath::RoundToInt32(Event.Time - RoundStartWorldTime));
+		// С десятыми долями: окна «незаметно ±10 с» на целых секундах неоднозначны.
+		EventJson->SetNumberField(TEXT("t"), FMath::RoundToInt32((Event.Time - RoundStartWorldTime) * 10.f) / 10.0);
 		EventJson->SetStringField(TEXT("type"), EnumName(StaticEnum<EGameEventType>(), static_cast<int64>(Event.Type)));
 		if (Event.Instigator)
 		{
@@ -2473,6 +2875,8 @@ void AObshagaGameMode::WriteTelemetry(const TArray<AObshagaPlayerState*>& Player
 		if (Event.Item)
 		{
 			EventJson->SetStringField(TEXT("item"), Event.Item->GetItemData()->ItemId.ToString());
+			// Имя актёра: записок и прочих одинаковых вещей может быть несколько.
+			EventJson->SetStringField(TEXT("itemActor"), Event.Item->GetName());
 		}
 		if (!Event.RoomId.IsNone())
 		{
@@ -2482,6 +2886,18 @@ void AObshagaGameMode::WriteTelemetry(const TArray<AObshagaPlayerState*>& Player
 	}
 	Root->SetNumberField(TEXT("numCaught"), NumCaught);
 	Root->SetArrayField(TEXT("events"), EventsJson);
+
+	// То, что видно на экране итогов: хроника и заголовок стенгазеты.
+	TArray<TSharedPtr<FJsonValue>> ChronicleJson;
+	for (const FText& Line : Chronicle)
+	{
+		ChronicleJson.Add(MakeShared<FJsonValueString>(Line.ToString()));
+	}
+	Root->SetArrayField(TEXT("chronicle"), ChronicleJson);
+	if (const AObshagaGameState* State = GetGameState<AObshagaGameState>())
+	{
+		Root->SetStringField(TEXT("headline"), State->GetHeadline().ToString());
+	}
 
 	FString Text;
 	const TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&Text);

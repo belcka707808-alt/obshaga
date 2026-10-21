@@ -198,6 +198,10 @@ void ANightExitDoor::EjectHiddenPlayer()
 	// Вылазка засчитывается, только если гулял достаточно долго.
 	const AObshagaGameMode* GameMode = GetWorld()->GetAuthGameMode<AObshagaGameMode>();
 	const float Needed = GameMode ? GameMode->GetRoundConfig()->CurfewOutsideSeconds : 0.f;
+	// Для автопроверки задания «ночная вылазка»: сколько гулял и засчитано ли.
+	UE_LOG(LogObshaga, Verbose, TEXT("Sortie of %s (%s): outside %.1f s of %.1f, counted %d"),
+		Player->GetPlayerState() ? *Player->GetPlayerState()->GetPlayerName() : TEXT("None"), *Player->GetName(),
+		GetWorld()->GetTimeSeconds() - LeftTime, Needed, GetWorld()->GetTimeSeconds() - LeftTime >= Needed ? 1 : 0);
 	if (GetWorld()->GetTimeSeconds() - LeftTime >= Needed)
 	{
 		UGameEventSubsystem::PublishFrom(Player, EGameEventType::ReturnedToBuilding);

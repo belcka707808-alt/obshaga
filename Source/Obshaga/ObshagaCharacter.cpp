@@ -473,11 +473,14 @@ void AObshagaCharacter::SetGhost(bool bNewGhost)
 	bIsGhost = bNewGhost;
 	ApplyHiding();
 	ForceNetUpdate();
+	// Для автопроверки выселения: выселенный человек становится наблюдателем.
+	UE_LOG(LogObshaga, Verbose, TEXT("%s ghost %d (%s)"), GetPlayerState() ? *GetPlayerState()->GetPlayerName() : TEXT("None"), bIsGhost ? 1 : 0, *GetName());
 }
 
 void AObshagaCharacter::OnRep_IsGhost()
 {
 	ApplyHiding();
+	UE_LOG(LogObshaga, Verbose, TEXT("%s ghost %d (%s) on client"), GetPlayerState() ? *GetPlayerState()->GetPlayerName() : TEXT("None"), bIsGhost ? 1 : 0, *GetName());
 }
 
 void AObshagaCharacter::OnRep_IsFrozen()

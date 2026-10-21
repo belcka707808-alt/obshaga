@@ -8,6 +8,7 @@
 #include "KomendantCharacter.h"
 #include "KomendantPersonality.h"
 #include "KomendantWaypoint.h"
+#include "NightExitDoor.h"
 #include "Obshaga.h"
 #include "ObshagaCharacter.h"
 #include "ObshagaGameMode.h"
@@ -26,6 +27,8 @@
 #include "Perception/AISenseConfig_Sight.h"
 #include "Perception/AISense_Hearing.h"
 #include "Perception/AISense_Sight.h"
+#include "Misc/CommandLine.h"
+#include "Misc/Parse.h"
 
 #define LOCTEXT_NAMESPACE "Komendant"
 
@@ -59,6 +62,24 @@ namespace
 		{
 			Controller->ClientShowNotice(Text);
 		}
+		else if (TargetState)
+		{
+			// У бота экрана нет — пишем в журнал, чтобы проверки видели сообщение.
+			UE_LOG(LogObshaga, Verbose, TEXT("Notice for %s (no screen): %s"), *TargetState->GetPlayerName(), *Text.ToString());
+		}
+	}
+
+	/** Имя игрока для журнала; None — никого. */
+	FString KomendantLogName(const APlayerState* State)
+	{
+		return State ? State->GetPlayerName() : FString(TEXT("None"));
+	}
+
+	/** ItemId предмета для журнала (как в телеметрии); «-» — предмета нет. */
+	FString KomendantItemId(const AItemActor* Item)
+	{
+		const UObshagaItemData* Data = Item ? Item->GetItemData() : nullptr;
+		return Data ? Data->ItemId.ToString() : FString(TEXT("-"));
 	}
 }
 
@@ -122,7 +143,10 @@ void AKomendantAIController::ApplyPersonality()
 	Perception->ConfigureSense(*SightConfig);
 	Perception->ConfigureSense(*HearingConfig);
 
-UE_LOG(LogObshaga, Log, TEXT("Komendant personality: %s (night=%d)"), *Personality->GetName(), bNight ? 1 : 0);
+	// Числа личности — для автопроверки: терпение нужно проверке побега, grudge — проверке мстительного.
+	UE_LOG(LogObshaga, Log, TEXT("Komendant personality: %s (night=%d), patience=%.1f, chase=%.0f, sight=%.0f/%.0f, bluff=%.2f, inspect=%.2f, grudge=%d, suspicionMult=%.2f"),
+		*Personality->GetName(), bNight ? 1 : 0, Personality->PatienceSeconds, Personality->ChaseSpeed, SightRadius, SightConfig->PeripheralVisionAngleDegrees,
+		Personality->BluffChance, Personality->InspectChance, Personality->bHoldsGrudge ? 1 : 0, Personality->SuspicionMultiplier);
 }
 
 void AKomendantAIController::ResetForRound()
@@ -154,6 +178,8 @@ void AKomendantAIController::ResetForRound()
 
 	// Мстительный помнит, кого ловил в прошлом раунде: они с самого начала под подозрением.
 	const AObshagaGameMode* GameMode = GetWorld()->GetAuthGameMode<AObshagaGameMode>();
+	UE_LOG(LogObshaga, Verbose, TEXT("Komendant grudge: personality %s, holds grudge %d, caught last round %d"), *Personality->GetName(),
+		Personality->bHoldsGrudge ? 1 : 0, GameMode ? GameMode->GetCaughtLastRound().Num() : 0);
 	if (GameMode && Personality->bHoldsGrudge)
 	{
 		for (const TWeakObjectPtr<APlayerState>& Caught : GameMode->GetCaughtLastRound())
@@ -162,9 +188,18 @@ void AKomendantAIController::ResetForRound()
 			{
 				TargetState->GetSuspicionComponent()->SetSuspicion(GetRoundConfig()->GrudgeSuspicion);
 				RoomHeat.FindOrAdd(TargetState->GetHomeRoomId()) += 20.f;
+				UE_LOG(LogObshaga, Verbose, TEXT("Komendant grudge on %s: suspicion %.0f, room %s heat %.0f"), *TargetState->GetPlayerName(),
+					TargetState->GetSuspicionComponent()->GetSuspicion(), *TargetState->GetHomeRoomId().ToString(), RoomHeat.FindRef(TargetState->GetHomeRoomId()));
 			}
 		}
 	}
+
+	bDebugStuckDone = false;
+	DebugStuckUntil = 0.f;
+#if !UE_BUILD_SHIPPING
+	// Для проверок: -TestKomendantStuck=N — раз за раунд на N-й секунде Палыч «упирается» посреди обхода (см. TickPatrol).
+	FParse::Value(FCommandLine::Get(), TEXT("TestKomendantStuck="), DebugStuckAtSeconds);
+#endif
 }
 
 bool AKomendantAIController::CanTakeTip() const
@@ -564,7 +599,8 @@ void AKomendantAIController::UpdateVision(float DeltaSeconds)
 		// Ночью подозрительно уже то, что ты не у себя и не в туалете.
 		const ARoomVolume* Room = Player->GetCurrentRoom();
 		const AObshagaGameState* GameState = GetWorld()->GetGameState<AObshagaGameState>();
-		if (GameState->GetPhase() == ERoundPhase::Night && Room && Room->bForbiddenAfterCurfew)
+		const bool bCurfew = GameState->GetPhase() == ERoundPhase::Night && Room && Room->bForbiddenAfterCurfew;
+		if (bCurfew)
 		{
 			Rate += Config->CurfewSuspicionPerSecond;
 		}
@@ -580,6 +616,13 @@ void AKomendantAIController::UpdateVision(float DeltaSeconds)
 			{
 				LastSuspicious = Now;
 				UGameEventSubsystem::PublishFrom(Player, EGameEventType::PlayerSpottedSuspicious);
+				// Для автопроверки: за что растёт подозрение — ноша, отбой в запретной зоне или и то и другое.
+				const AItemActor* Carried = Player->GetCarryComponent()->GetCarriedItem();
+				const UObshagaItemData* CarriedData = Carried ? Carried->GetItemData() : nullptr;
+				UE_LOG(LogObshaga, Verbose, TEXT("Komendant sees %s suspicious in %s: carry=%s curfew=%d rate=%.1f suspicion=%.0f, t=%.1f"), *TargetState->GetPlayerName(),
+					Room ? *Room->RoomId.ToString() : TEXT("None"),
+					!CarriedData ? TEXT("none") : (CarriedData->bContraband ? TEXT("contraband") : (CarriedData->bHeavy ? TEXT("heavy") : TEXT("normal"))),
+					bCurfew ? 1 : 0, Rate * Personality->SuspicionMultiplier, Suspicion->GetSuspicion(), GetRoundSeconds());
 			}
 		}
 
@@ -628,9 +671,15 @@ void AKomendantAIController::OnPerceptionUpdated(AActor* Actor, FAIStimulus Stim
 	}
 
 	const ARoomVolume* NoiseRoom = ARoomVolume::FindRoomAt(this, Stimulus.StimulusLocation);
+	// Для автопроверки: чей шум он услышал и пошёл ли смотреть (задание «ложная тревога», титул «Паникёр»).
+	const AObshagaCharacter* NoiseMaker = Cast<AObshagaCharacter>(Actor);
+	const FString HeardWho = NoiseMaker ? KomendantLogName(NoiseMaker->GetPlayerState()) : GetNameSafe(Actor);
+	const float HeardDistance = Komendant ? FVector::Dist(Stimulus.StimulusLocation, Komendant->GetActorLocation()) : 0.f;
 	// День рождения: в комнате именинника шуметь можно — комендант знает, что там празднуют.
 	if (NoiseRoom && IsNightEvent(ENightEvent::Birthday) && NoiseRoom->RoomId == GetRoundConfig()->BirthdayRoomId)
 	{
+		UE_LOG(LogObshaga, Verbose, TEXT("Komendant heard %s: loudness %.2f at %s, %.0f cm away, investigating 0 (birthday), t=%.1f"), *HeardWho, Stimulus.Strength,
+			*Stimulus.StimulusLocation.ToCompactString(), HeardDistance, GetRoundSeconds());
 		return;
 	}
 	if (NoiseRoom)
@@ -640,7 +689,10 @@ void AKomendantAIController::OnPerceptionUpdated(AActor* Actor, FAIStimulus Stim
 
 	// Тихий шум (скрип двери) только «греет» комнату; на громкий он идёт смотреть.
 	const bool bBusy = State == EKomendantState::Chase || State == EKomendantState::Interrogate;
-	if (!bBusy && Stimulus.Strength >= GetRoundConfig()->KomendantMinNoise)
+	const bool bGoLook = !bBusy && Stimulus.Strength >= GetRoundConfig()->KomendantMinNoise;
+	UE_LOG(LogObshaga, Verbose, TEXT("Komendant heard %s: loudness %.2f at %s, %.0f cm away, investigating %d (%s), t=%.1f"), *HeardWho, Stimulus.Strength,
+		*Stimulus.StimulusLocation.ToCompactString(), HeardDistance, bGoLook ? 1 : 0, bBusy ? TEXT("busy") : (bGoLook ? TEXT("loud") : TEXT("too quiet")), GetRoundSeconds());
+	if (bGoLook)
 	{
 		StartInvestigate(Stimulus.StimulusLocation);
 		if (AObshagaCharacter* Culprit = Cast<AObshagaCharacter>(Actor))
@@ -689,6 +741,22 @@ void AKomendantAIController::StartChase(AObshagaCharacter* Target)
 	LastKnownLocation = Target->GetActorLocation();
 	LastSeenTime = GetWorld()->GetTimeSeconds();
 	ReplanTime = 0.f;
+
+	// Для проверок по журналу: кто, с чем и откуда; конец погони пишет LogChaseEnd.
+	ChaseStartTime = LastSeenTime;
+	ChaseRun = 0.f;
+	ChaseSeen = 0.f;
+	ChaseRoomChanges = 0;
+	ChaseStuck = 0;
+	ChaseStartRoom = Target->GetCurrentRoom() ? Target->GetCurrentRoom()->RoomId : NAME_None;
+	ChaseLastRoom = ChaseStartRoom;
+	ChasePrevLocation = Komendant->GetActorLocation();
+	const AItemActor* Item = Target->GetCarryComponent()->GetCarriedItem();
+	const AObshagaPlayerState* ChasedState = Target->GetPlayerState<AObshagaPlayerState>();
+	UE_LOG(LogObshaga, Verbose, TEXT("Komendant chase start: %s (%s), item=%s (%s), room=%s, z=%.0f, dist=%.0f, suspicion=%.0f, t=%.1f"),
+		*KomendantLogName(Target->GetPlayerState()), *Target->GetName(), *GetNameSafe(Item), *KomendantItemId(Item),
+		*ChaseStartRoom.ToString(), Target->GetActorLocation().Z, FVector::Dist(Target->GetActorLocation(), Komendant->GetActorLocation()),
+		ChasedState ? ChasedState->GetSuspicionComponent()->GetSuspicion() : 0.f, GetRoundSeconds());
 	NotifyPlayer(Target->GetPlayerState(), LOCTEXT("ChaseNotice", "Комендант идёт за тобой!"));
 }
 
@@ -707,6 +775,12 @@ void AKomendantAIController::TickPatrol(float DeltaSeconds)
 		if (!QueuedSpot.IsValid())
 		{
 			QueuedSpot = InspectionQueue.Pop();
+			if (const AHidingSpot* Next = QueuedSpot.Get())
+			{
+				const ARoomVolume* NextRoom = ARoomVolume::FindRoomAt(this, Next->GetActorLocation() + FVector(0.f, 0.f, 50.f));
+				UE_LOG(LogObshaga, Verbose, TEXT("Komendant inspection next: %s (room %s), %d left"), *Next->GetName(),
+					NextRoom ? *NextRoom->RoomId.ToString() : TEXT("None"), InspectionQueue.Num());
+			}
 		}
 		if (!QueuedSpot.IsValid() || !PlanPathTo(GetSpotStandLocation(QueuedSpot.Get()), true))
 		{
@@ -722,8 +796,26 @@ void AKomendantAIController::TickPatrol(float DeltaSeconds)
 		{
 			WaitTime = 1.f;
 		}
+		else
+		{
+			// Для автопроверки «жара»: куда пошёл и насколько горячо там было.
+			UE_LOG(LogObshaga, Verbose, TEXT("Komendant patrol to %s (room %s, heat %.0f), t=%.1f"), *Target->GetName(), *Target->RoomId.ToString(),
+				RoomHeat.FindRef(Target->RoomId), GetRoundSeconds());
+		}
 		return;
 	}
+
+#if !UE_BUILD_SHIPPING
+	// -TestKomendantStuck=N: раз за раунд посреди обычного обхода он «упирается» (MoveToward стоит на месте),
+	// чтобы сработала страховка FollowPath — перенос на точку. Последнюю точку пути не берём: там упор считается приходом.
+	if (!bDebugStuckDone && DebugStuckAtSeconds > 0.f && !QueuedSpot.IsValid() && PathIndex < Path.Num() - 1 && GetRoundSeconds() >= DebugStuckAtSeconds)
+	{
+		bDebugStuckDone = true;
+		DebugStuckUntil = GetWorld()->GetTimeSeconds() + StuckSeconds + 1.5f;
+		UE_LOG(LogObshaga, Log, TEXT("Komendant test stuck: holding still on the way to %s (point %d of %d), t=%.1f"),
+			*Path[PathIndex].ToCompactString(), PathIndex + 1, Path.Num(), GetRoundSeconds());
+	}
+#endif
 
 	// К тайнику не идём вплотную: его точка лежит внутри самой мебели, комендант упирался в неё и «застревал».
 	// Подошёл на расстояние вытянутой руки и видит тайник — значит, пришёл.
@@ -797,8 +889,25 @@ void AKomendantAIController::TickChase(float DeltaSeconds)
 	const float Now = GetWorld()->GetTimeSeconds();
 	if (!Target)
 	{
+		LogChaseEnd(nullptr, TEXT("target_gone"), nullptr, nullptr);
 		SetState(EKomendantState::Patrol);
 		return;
+	}
+
+	// Для журнала: сколько пробежал, сколько секунд видел цель и через сколько комнат она уходила.
+	ChaseRun += FVector::Dist2D(Komendant->GetActorLocation(), ChasePrevLocation);
+	ChasePrevLocation = Komendant->GetActorLocation();
+	if (SeenPlayers.Contains(Target))
+	{
+		ChaseSeen += DeltaSeconds;
+	}
+	if (const ARoomVolume* TargetRoom = Target->GetCurrentRoom())
+	{
+		if (TargetRoom->RoomId != ChaseLastRoom)
+		{
+			ChaseLastRoom = TargetRoom->RoomId;
+			++ChaseRoomChanges;
+		}
 	}
 
 	if (Target->IsHiding())
@@ -807,6 +916,7 @@ void AKomendantAIController::TickChase(float DeltaSeconds)
 		if (Now - LastSeenTime < 1.f && Target->GetHidingSpot())
 		{
 			AHidingSpot* Spot = Target->GetHidingSpot();
+			LogChaseEnd(Target, TEXT("hid_seen"), Spot, Target->GetCarryComponent()->GetCarriedItem());
 			SetState(EKomendantState::Inspect);
 			InspectSpot = Spot;
 		}
@@ -818,6 +928,7 @@ void AKomendantAIController::TickChase(float DeltaSeconds)
 				TargetState->GetSuspicionComponent()->SetSuspicion(GetRoundConfig()->SuspicionAfterStrike);
 				NotifyPlayer(TargetState, LOCTEXT("LostHiddenNotice", "Палыч тебя потерял — посиди тихо"));
 			}
+			LogChaseEnd(Target, TEXT("hid_unseen"), Target->GetHidingSpot(), Target->GetCarryComponent()->GetCarriedItem());
 			StartInvestigate(LastKnownLocation);
 		}
 		return;
@@ -837,6 +948,7 @@ void AKomendantAIController::TickChase(float DeltaSeconds)
 			TargetState->GetSuspicionComponent()->SetSuspicion(GetRoundConfig()->SuspicionAfterStrike);
 			NotifyPlayer(TargetState, LOCTEXT("EscapedNotice", "Оторвался! Комендант тебя потерял"));
 		}
+		LogChaseEnd(Target, TEXT("lost_sight"), nullptr, Target->GetCarryComponent()->GetCarriedItem());
 		StartInvestigate(LastKnownLocation);
 		return;
 	}
@@ -845,14 +957,18 @@ void AKomendantAIController::TickChase(float DeltaSeconds)
 	const bool bSameFloor = FMath::Abs(ToTarget.Z) < SameFloorHeight;
 	if (bSeen && bSameFloor && ToTarget.Size2D() <= GetRoundConfig()->KomendantCatchDistance)
 	{
+		// Ношу запоминаем до допроса: там её отбирают или роняют.
+		const AItemActor* CaughtWith = Target->GetCarryComponent()->GetCarriedItem();
 		AObshagaGameMode* GameMode = GetWorld()->GetAuthGameMode<AObshagaGameMode>();
 		if (GameMode && GameMode->StartInterrogation(Target, GetEvidenceLocation()))
 		{
+			LogChaseEnd(Target, TEXT("caught"), nullptr, CaughtWith);
 			SetState(EKomendantState::Interrogate);
 			ChaseTarget = Target;
 		}
 		else
 		{
+			LogChaseEnd(Target, TEXT("refused"), nullptr, CaughtWith);
 			SetState(EKomendantState::Patrol);
 		}
 		return;
@@ -919,10 +1035,19 @@ void AKomendantAIController::SearchSpot(AHidingSpot* Spot)
 {
 	const UObshagaRoundConfig* Config = GetRoundConfig();
 
+	// Тайник из утреннего списка или случайный (для проверки «утренняя проверка нашла запрещёнку»).
+	const bool bQueued = InterruptedQueuedSpot.Get() == Spot;
 	InterruptedQueuedSpot.Reset();
 	AObshagaCharacter* FoundPlayer = nullptr;
 	AItemActor* Contraband = Spot->KomendantSearch(FoundPlayer);
-	UE_LOG(LogObshaga, Verbose, TEXT("Komendant searched %s: contraband=%s player=%s"), *Spot->GetName(), *GetNameSafe(Contraband), *GetNameSafe(FoundPlayer));
+	{
+		const ARoomVolume* SpotRoom = ARoomVolume::FindRoomAt(this, Spot->GetActorLocation() + FVector(0.f, 0.f, 50.f));
+		const AObshagaGameState* SearchState = GetWorld()->GetGameState<AObshagaGameState>();
+		UE_LOG(LogObshaga, Verbose, TEXT("Komendant searched %s: contraband=%s player=%s, room=%s, phase=%s, queued=%d, t=%.1f"), *Spot->GetName(),
+			*GetNameSafe(Contraband), FoundPlayer ? *KomendantLogName(FoundPlayer->GetPlayerState()) : TEXT("None"),
+			SpotRoom ? *SpotRoom->RoomId.ToString() : TEXT("None"), SearchState ? *UEnum::GetValueAsString(SearchState->GetPhase()) : TEXT("-"),
+			bQueued ? 1 : 0, GetRoundSeconds());
+	}
 
 	if (Contraband)
 	{
@@ -961,6 +1086,18 @@ void AKomendantAIController::SearchSpot(AHidingSpot* Spot)
 		// Прятал у себя (даже если его уже выселили) или сам попался в этом же тайнике — отвечает он.
 		const bool bHiderLivesHere = HiderState && HiderState->GetHomeRoomId() == RoomId;
 		const bool bCaughtInside = HiderState && FoundPlayer && FoundPlayer->GetPlayerState() == HiderState;
+		{
+			// Для автопроверки: на кого записали находку — на прятавшего или на жильцов комнаты (подстава).
+			const bool bFramed = !(Residents.IsEmpty() || bHiderLivesHere || bCaughtInside);
+			FString ResidentNames;
+			for (const AObshagaPlayerState* Resident : Residents)
+			{
+				ResidentNames += (ResidentNames.IsEmpty() ? TEXT("") : TEXT("+")) + Resident->GetPlayerName();
+			}
+			UE_LOG(LogObshaga, Verbose, TEXT("Contraband %s in %s (room %s): hider %s, residents %s, blamed %s, framed %d"), *GetNameSafe(Contraband),
+				*Spot->GetName(), *RoomId.ToString(), *KomendantLogName(Hider), ResidentNames.IsEmpty() ? TEXT("-") : *ResidentNames,
+				bFramed ? (ResidentNames.IsEmpty() ? TEXT("-") : *ResidentNames) : *KomendantLogName(Hider), bFramed ? 1 : 0);
+		}
 		if (Residents.IsEmpty() || bHiderLivesHere || bCaughtInside)
 		{
 			// Общая комната или своя собственная: отвечает тот, кто прятал.
@@ -1027,6 +1164,25 @@ void AKomendantAIController::TickInterrogate(float DeltaSeconds)
 	}
 }
 
+void AKomendantAIController::LogChaseEnd(const AObshagaCharacter* Target, const TCHAR* Reason, const AHidingSpot* Spot, const AItemActor* Item) const
+{
+	const float Now = GetWorld()->GetTimeSeconds();
+	const ARoomVolume* Room = Target ? Target->GetCurrentRoom() : nullptr;
+	const ARoomVolume* SpotRoom = Spot ? ARoomVolume::FindRoomAt(this, Spot->GetActorLocation() + FVector(0.f, 0.f, 50.f)) : nullptr;
+	const AObshagaPlayerState* TargetState = Target ? Target->GetPlayerState<AObshagaPlayerState>() : nullptr;
+	UE_LOG(LogObshaga, Verbose, TEXT("Komendant chase end: %s (%s), reason=%s, %.1f s, seen %.1f s, unseen for %.1f s, ran %.0f cm, rooms %s -> %s (%d changes), z=%.0f, item=%s (%s), spot=%s (%s), exit=%d, suspicion=%.0f, stuck=%d, t=%.1f"),
+		*KomendantLogName(TargetState), *GetNameSafe(Target), Reason, Now - ChaseStartTime, ChaseSeen, Now - LastSeenTime, ChaseRun,
+		*ChaseStartRoom.ToString(), Room ? *Room->RoomId.ToString() : *ChaseLastRoom.ToString(), ChaseRoomChanges, Target ? Target->GetActorLocation().Z : 0.f,
+		*GetNameSafe(Item), *KomendantItemId(Item), *GetNameSafe(Spot), SpotRoom ? *SpotRoom->RoomId.ToString() : TEXT("None"),
+		(Spot && Spot->IsA<ANightExitDoor>()) ? 1 : 0, TargetState ? TargetState->GetSuspicionComponent()->GetSuspicion() : 0.f, ChaseStuck, GetRoundSeconds());
+}
+
+float AKomendantAIController::GetRoundSeconds() const
+{
+	const AObshagaGameMode* GameMode = GetWorld()->GetAuthGameMode<AObshagaGameMode>();
+	return GameMode ? GameMode->GetRoundSeconds() : GetWorld()->GetTimeSeconds();
+}
+
 bool AKomendantAIController::MoveToward(const FVector& Goal, float Speed)
 {
 	Komendant->GetCharacterMovement()->MaxWalkSpeed = Speed;
@@ -1036,6 +1192,14 @@ bool AKomendantAIController::MoveToward(const FVector& Goal, float Speed)
 	{
 		return true;
 	}
+
+#if !UE_BUILD_SHIPPING
+	// -TestKomendantStuck: стоит на месте, будто упёрся (только на обходе — погоню и обыск не трогаем).
+	if (State == EKomendantState::Patrol && GetWorld()->GetTimeSeconds() < DebugStuckUntil)
+	{
+		return false;
+	}
+#endif
 
 	Komendant->AddMovementInput(FVector(ToGoal.X, ToGoal.Y, 0.f).GetSafeNormal());
 	return false;
@@ -1103,9 +1267,16 @@ bool AKomendantAIController::FollowPath(float Speed, float DeltaSeconds)
 				{
 					StuckMode->ReportStuck(true);
 				}
+				if (State == EKomendantState::Chase)
+				{
+					++ChaseStuck;
+				}
 				// TeleportTo не ставит внутрь мебели или чужой капсулы; свободного места у точки нет — переносить некуда.
 				if (Komendant->TeleportTo(Point, Komendant->GetActorRotation()))
 				{
+					DebugStuckUntil = 0.f;
+					UE_LOG(LogObshaga, Verbose, TEXT("Komendant snapped to %s, state %s, t=%.1f"), *Point.ToCompactString(),
+						*UEnum::GetValueAsString(State), GetRoundSeconds());
 					return false;
 				}
 				UE_LOG(LogObshaga, Verbose, TEXT("Komendant: no free room at %s, snap skipped"), *Point.ToCompactString());
@@ -1116,6 +1287,8 @@ bool AKomendantAIController::FollowPath(float Speed, float DeltaSeconds)
 			++PawnBlockedCount;
 			if (PawnBlockedCount >= StuckBehindPawnWaits)
 			{
+				UE_LOG(LogObshaga, Verbose, TEXT("Komendant gave up the path to %s after %d tries, state %s"), *Point.ToCompactString(),
+					PawnBlockedCount, *UEnum::GetValueAsString(State));
 				PawnBlockedCount = 0;
 				PathIndex = Path.Num();
 				return true;

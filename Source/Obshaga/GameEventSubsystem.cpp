@@ -3,6 +3,7 @@
 #include "ItemActor.h"
 #include "Obshaga.h"
 #include "ObshagaCharacter.h"
+#include "ObshagaItemData.h"
 #include "RoomVolume.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
@@ -45,10 +46,14 @@ void UGameEventSubsystem::Publish(const FGameEvent& Event)
 	FGameEvent& Stored = EventLog.Add_GetRef(Event);
 	Stored.Time = World->GetTimeSeconds();
 
-	UE_LOG(LogObshaga, Verbose, TEXT("Event %s by %s item=%s room=%s target=%s"),
+	// Для автопроверки (tools/verify_round.py): t — секунды от начала раунда (первое событие журнала — RoundStarted),
+	// те же, что в телеметрии; рядом с именем предмета — его ItemId, как в телеметрии.
+	UE_LOG(LogObshaga, Verbose, TEXT("Event %s t=%.1f by %s item=%s (%s) room=%s target=%s"),
 		*UEnum::GetValueAsString(Stored.Type),
+		Stored.Time - EventLog[0].Time,
 		Stored.Instigator ? *Stored.Instigator->GetPlayerName() : TEXT("-"),
 		*GetNameSafe(Stored.Item),
+		Stored.Item ? *Stored.Item->GetItemData()->ItemId.ToString() : TEXT("-"),
 		*Stored.RoomId.ToString(),
 		Stored.Target ? *Stored.Target->GetPlayerName() : TEXT("-"));
 

@@ -10,8 +10,10 @@
 #include "ObshagaPlayerController.h"
 #include "ObshagaAudioConfig.h"
 #include "ObshagaVisuals.h"
+#include "RoomVolume.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/StaticMesh.h"
+#include "GameFramework/PlayerState.h"
 #include "Net/UnrealNetwork.h"
 #include "TimerManager.h"
 #include "UObject/ConstructorHelpers.h"
@@ -247,7 +249,11 @@ void AHidingSpot::FinishHidingItem(AObshagaCharacter* By)
 	HiddenItem = Item;
 	UGameEventSubsystem::PublishFrom(By, EGameEventType::ItemHidden, Item);
 	Notify(By, FText::Format(LOCTEXT("Hid", "Спрятано: {0}"), Item->GetDisplayName()));
-	UE_LOG(LogObshaga, Verbose, TEXT("%s hid %s in %s"), *By->GetName(), *Item->GetName(), *GetName());
+	// Для автопроверки: чей предмет, в какой комнате тайник и запрещёнка ли это.
+	const ARoomVolume* SpotRoom = ARoomVolume::FindRoomAt(this, GetActorLocation() + FVector(0.f, 0.f, 50.f));
+	UE_LOG(LogObshaga, Verbose, TEXT("%s hid %s in %s: player %s, room %s, id=%s, contraband=%d"), *By->GetName(), *Item->GetName(), *GetName(),
+		By->GetPlayerState() ? *By->GetPlayerState()->GetPlayerName() : TEXT("None"), SpotRoom ? *SpotRoom->RoomId.ToString() : TEXT("None"),
+		*Item->GetItemData()->ItemId.ToString(), Item->GetItemData()->bContraband ? 1 : 0);
 }
 
 void AHidingSpot::FinishSearch(AObshagaCharacter* By)

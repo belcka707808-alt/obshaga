@@ -546,6 +546,7 @@ bool AObshagaBotController::TryFleeOrHide(const AKomendantCharacter* Komendant)
 		}
 		if (Best)
 		{
+			UE_LOG(LogObshaga, Verbose, TEXT("Bot %s runs to hide in %s (komendant %.0f cm)"), *MyState->GetPlayerName(), *Best->GetName(), Distance);
 			TargetSpot = Best;
 			Me->SetSprinting(true);
 			WalkTo(Best->GetActorLocation(), EBotGoal::HideSelf, 160.f);

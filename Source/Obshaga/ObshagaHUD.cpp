@@ -7,6 +7,7 @@
 #include "HidingSpot.h"
 #include "KomendantCharacter.h"
 #include "NightExitDoor.h"
+#include "Obshaga.h"
 #include "ObshagaCharacter.h"
 #include "ObshagaCharacterConfig.h"
 #include "ObshagaGameMode.h"
@@ -1184,6 +1185,7 @@ void AObshagaHUD::DrawRoundResults(const AObshagaGameState* GameState)
 		ResultsKey = Key;
 		ResultsVariant = INDEX_NONE;
 		float BestHeight = TNumericLimits<float>::Max();
+		float ChosenHeight = 0.f;
 		for (int32 Index = 0; Index < UE_ARRAY_COUNT(Variants); ++Index)
 		{
 			// Две колонки имеют смысл, только если экран шире одной колонки.
@@ -1196,13 +1198,20 @@ void AObshagaHUD::DrawRoundResults(const AObshagaGameState* GameState)
 			{
 				BestHeight = Height;
 				ResultsVariant = Index;
+				ChosenHeight = Height;
 			}
 			if (Height <= RematchY)
 			{
 				ResultsVariant = Index;
+				ChosenHeight = Height;
 				break;
 			}
 		}
+		// Для автопроверки экрана итогов: какая раскладка выбрана и уместилась ли она над «Реваншем».
+		const FVariant& Picked = Variants[FMath::Max(ResultsVariant, 0)];
+		UE_LOG(LogObshaga, Log, TEXT("Results layout: variant %d (two columns %d, captions %d, line %.0f), height %.0f of %.0f, fits %d, players %d, chronicle %d, canvas %.0fx%.0f"),
+			ResultsVariant, Picked.bTwoColumns ? 1 : 0, Picked.bCaptions ? 1 : 0, Picked.Line, ChosenHeight, RematchY, ChosenHeight <= RematchY ? 1 : 0,
+			GameState->GetRevealedPlayers().Num(), GameState->GetChronicle().Num(), Canvas->ClipX, Canvas->ClipY);
 	}
 
 	const FVariant& Chosen = Variants[FMath::Max(ResultsVariant, 0)];

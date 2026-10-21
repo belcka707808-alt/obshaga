@@ -62,6 +62,9 @@ public:
 	/** Кого комендант ловил в прошлом раунде (для мстительной личности). */
 	const TArray<TWeakObjectPtr<APlayerState>>& GetCaughtLastRound() const { return CaughtLastRound; }
 
+	/** Секунды от начала раунда — те же, что «t» в телеметрии и в строках журнала для автопроверки (tools/verify_round.py). */
+	float GetRoundSeconds() const { return GetWorld()->GetTimeSeconds() - RoundStartWorldTime; }
+
 protected:
 	void StartRound();
 	void AdvancePhase();
@@ -82,15 +85,18 @@ protected:
 	void AssignRoles(const TArray<AObshagaPlayerState*>& Players);
 	void UpdateLiveTaskStatus();
 	void SendSms();
-	FText MakeSmsFor(const AObshagaPlayerState* Reader, const TArray<AObshagaPlayerState*>& Players) const;
+	/** OutSource — для журнала: откуда взялся слух (lie, quiet или событие, по которому он написан). */
+	FText MakeSmsFor(const AObshagaPlayerState* Reader, const TArray<AObshagaPlayerState*>& Players, FString* OutSource = nullptr) const;
 	void Evict(AObshagaPlayerState* PlayerState, AObshagaCharacter* Character);
 	void ResolveInterrogation();
 	/** Включает игроку клавиши, которые нужны его заданиям (обвинить, настучать на комнату). */
 	void GrantTaskAbilities(AObshagaPlayerState* PlayerState) const;
 	void BreakDeviceByItself();
 	void ScheduleSelfBreakIfNeeded();
-	/** Пишет итоги раунда в Saved/Telemetry — для правки баланса после плейтестов. */
-	void WriteTelemetry(const TArray<AObshagaPlayerState*>& Players) const;
+	/** Пишет итоги раунда в Saved/Telemetry — для правки баланса после плейтестов. Revealed и Chronicle — то, что увидят на экране итогов. */
+	void WriteTelemetry(const TArray<AObshagaPlayerState*>& Players, const TArray<FRevealedPlayer>& Revealed, const TArray<FText>& Chronicle) const;
+	/** Для автопроверки: где в конце раунда лежит каждая вещь и что с приборами (до подсчёта заданий). */
+	void LogEndOfRoundState() const;
 
 	TArray<FText> BuildChronicle() const;
 	void AssignTitles(TArray<FRevealedPlayer>& Players, const TArray<AObshagaPlayerState*>& States) const;
@@ -186,4 +192,21 @@ private:
 	bool IsOutsideBuilding(const AActor* Actor) const;
 	/** Вещи, лежащие снаружи общаги, и с какого времени. */
 	TMap<TWeakObjectPtr<AItemActor>, float> ItemOutsideSince;
+
+	// Для автопроверки: очки в начале раунда и бонус Крысы (строка «Final score» и телеметрия).
+	TMap<TWeakObjectPtr<APlayerState>, int32> RoundStartScore;
+	TMap<TWeakObjectPtr<APlayerState>, int32> RoundRatBonus;
+
+	// Ключи проверок (не в Shipping). -AutoRounds=N: раунды сами начинаются и идут подряд, после N-го игра закрывается.
+	int32 AutoRounds = 0;
+	int32 AutoRoundsPlayed = 0;
+	FTimerHandle AutoRoundTimer;
+	void AutoNextRound();
+	/** -TestCatchHostAt=20,45,70: на этих секундах раунда Палыч ловит хоста (как клавиша K), -TestChaseAt=N: гонится за ботом. */
+	TArray<FTimerHandle> TestTimers;
+	int32 TestRetries = 0;
+	void StartTestTimers();
+	void ClearTestTimers();
+	void TestCatchHost();
+	void TestChase();
 };

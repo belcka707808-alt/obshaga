@@ -177,8 +177,10 @@ void UTaskComponent::AssignTask(FName TaskId, const FTaskRow& Row, bool bMain)
 	State.bSatisfiedNow = EvaluateCondition(Row);
 	LiveNotices.AddDefaulted_GetRef().bAnnounced = State.bSatisfiedNow;
 
-	UE_LOG(LogObshaga, Verbose, TEXT("Task %s (%s) assigned to %s, satisfied now %d"), *TaskId.ToString(), bMain ? TEXT("main") : TEXT("side"),
-		*GetOwnerState()->GetPlayerName(), State.bSatisfiedNow ? 1 : 0);
+	// Хвост строки (условие и его параметры) — для автопроверки tools/verify_round.py.
+	UE_LOG(LogObshaga, Verbose, TEXT("Task %s (%s) assigned to %s, satisfied now %d, cond %s item %s room %s own %d count %d reward %d"), *TaskId.ToString(),
+		bMain ? TEXT("main") : TEXT("side"), *GetOwnerState()->GetPlayerName(), State.bSatisfiedNow ? 1 : 0,
+		*UEnum::GetValueAsString(Row.SuccessCondition), *Row.ItemId.ToString(), *Row.RoomId.ToString(), Row.bUseOwnRoom ? 1 : 0, Row.Count, State.Reward);
 }
 
 void UTaskComponent::ClearTasks()
@@ -261,8 +263,8 @@ int32 UTaskComponent::FinalizeTasks()
 		{
 			Earned += State.Reward;
 		}
-		UE_LOG(LogObshaga, Verbose, TEXT("Task %s of %s: %s"), *State.TaskId.ToString(), *GetOwnerState()->GetPlayerName(),
-			State.bSatisfiedNow ? TEXT("COMPLETED") : TEXT("FAILED"));
+		UE_LOG(LogObshaga, Verbose, TEXT("Task %s of %s: %s, reward %d"), *State.TaskId.ToString(), *GetOwnerState()->GetPlayerName(),
+			State.bSatisfiedNow ? TEXT("COMPLETED") : TEXT("FAILED"), State.bSatisfiedNow ? State.Reward : 0);
 	}
 	return Earned;
 }

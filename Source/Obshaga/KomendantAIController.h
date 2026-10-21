@@ -7,6 +7,7 @@
 
 class ADoorActor;
 class AHidingSpot;
+class AItemActor;
 class AKomendantCharacter;
 class AKomendantWaypoint;
 class AObshagaCharacter;
@@ -174,6 +175,26 @@ private:
 	FVector LastKnownLocation = FVector::ZeroVector;
 	float LastSeenTime = 0.f;
 	float ReplanTime = 0.f;
+
+	// Погоня для журнала автопроверки (tools/verify_round.py): сколько длилась, сколько он видел цель, сколько пробежал,
+	// через какие комнаты она шла и сколько раз его переносило. Начало пишет StartChase, конец — LogChaseEnd.
+	float ChaseStartTime = 0.f;
+	float ChaseRun = 0.f;
+	float ChaseSeen = 0.f;
+	int32 ChaseRoomChanges = 0;
+	int32 ChaseStuck = 0;
+	FName ChaseStartRoom;
+	FName ChaseLastRoom;
+	FVector ChasePrevLocation = FVector::ZeroVector;
+	/** Item — что было в руках у цели (при поимке вещь уже отобрана, поэтому её передают отдельно). */
+	void LogChaseEnd(const AObshagaCharacter* Target, const TCHAR* Reason, const AHidingSpot* Spot, const AItemActor* Item) const;
+	/** Секунды от начала раунда — те же, что в телеметрии. */
+	float GetRoundSeconds() const;
+
+	// -TestKomendantStuck=N (не в Shipping): раз за раунд на N-й секунде он «упирается» посреди пути, чтобы сработал перенос на точку.
+	float DebugStuckAtSeconds = 0.f;
+	float DebugStuckUntil = 0.f;
+	bool bDebugStuckDone = false;
 
 	// Обыск.
 	TWeakObjectPtr<AHidingSpot> InspectSpot;
