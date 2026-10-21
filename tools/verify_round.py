@@ -1188,7 +1188,10 @@ def hide_results(ctx, exit_flag):
                 left = [e for e in events if e["by"] == who and e["type"] == "PlayerLeftHiding" and end.idx < e["line"].idx < follow.idx]
                 if not left:
                     problems.append("%s из %s не выходил, а обыск никого не нашёл (player=%s)" % (who, spot, follow.g(3)))
-            what = "вытащил %s" % who if follow.g(3) == who else "внутри уже пусто (%s вышел сам)" % who
+            if follow.kind == "not_reach":
+                what = "не дошёл до укрытия"
+            else:
+                what = "вытащил %s" % who if follow.g(3) == who else "внутри уже пусто (%s вышел сам)" % who
             out.append(Result(FAIL if problems else PASS, follow, "; ".join(problems) or "видел, как %s залез в %s, открыл: %s" % (who, spot, what), rnd))
     return out
 
@@ -2557,7 +2560,10 @@ def task_extra(ctx, task_id):
                     out.append(Result(FAIL, line, "обвинение %s, а по событиям %s %s вор" % ("верное" if right else "мимо", suspect, "—" if thief else "не"), rnd))
         elif task_id == "sabotage_kitchen":
             for line in rnd.of("bot_breaks"):
-                broke = next_after(rnd, line, ("event",), predicate=lambda e: e.g(1) == "DeviceBroken" and e.g(3) == line.g(1), limit=10)
+                # Ломают несколько секунд, а между началом и концом может пройти допрос с десятком событий — ищем по времени, а не по счёту строк.
+                t0 = rnd.t_of(line)
+                broke = next_after(rnd, line, ("event",), predicate=lambda e: e.g(1) == "DeviceBroken" and e.g(3) == line.g(1)
+                                   and (t0 is None or fnum(e.g(2)) is None or fnum(e.g(2)) <= t0 + 15.0))
                 if broke is None:
                     out.append(Result(FAIL, line, "бот сломал %s, а события DeviceBroken нет" % line.g(2), rnd))
     return out
@@ -2959,6 +2965,8 @@ def main(argv=None):
         try:
             items = check(ctx) if (logs or check is check_telemetry_invariants) else []
         except Exception:  # одна сломанная проверка не должна прятать остальные
+            if os.environ.get("VERIFY_TRACE"):
+                traceback.print_exc()
             items = [Result(FAIL, None, "сбой проверки: %s" % traceback.format_exc().strip().splitlines()[-1])]
         results.append((name, items, hint))
     report = render(ctx, results, args, header)
