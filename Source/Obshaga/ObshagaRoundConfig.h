@@ -335,7 +335,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bots", meta = (ClampMin = "0", ClampMax = "1"))
 	float BotLieWithAlibiChance = 0.8f;
 
-	/** «Ложная тревога»: бот бросает вещь, когда спокойный Палыч не ближе этого (по горизонтали)… */
+	/** «Ложная тревога»: бот бросает вещь, когда спокойный Палыч не ближе этого (по прямой, с учётом этажа)… */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bots", meta = (ClampMin = "0", Units = "cm"))
 	float BotLureMinDistance = 700.f;
 

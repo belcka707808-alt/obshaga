@@ -312,6 +312,8 @@ private:
 	FName FrameRoom;
 	FName PlantedRoom;
 	bool bPlanted = false;
+	/** Подброшенное спрятано в тайник (а не брошено на пол): только такое найдёт обыск по стуку. */
+	bool bPlantedHidden = false;
 	/** Алиби: к чьему допросу бот уже бежал. Допрос самого бота: когда начал думать над ответом. */
 	TWeakObjectPtr<APlayerState> AlibiRunFor;
 	float AnswerStartTime = -1.f;

@@ -66,6 +66,9 @@ namespace
 	constexpr float BotLureRetrySeconds = 20.f;
 	// Место для броска ищем не дальше этого от себя.
 	constexpr float BotLureSearchRadius = 2500.f;
+	// Брошенная вещь бьётся о пол примерно с такой долей «громкой» скорости удара (LoudImpactSpeed): тише неё вещь
+	// не годится для приманки — громкость не дотянет до KomendantMinNoise, и Палыч не пойдёт смотреть.
+	constexpr float BotLureImpactShare = 0.65f;
 	// К допросу бежим, если до конца окна не меньше стольких секунд; бегом (с обходами) бот делает примерно столько см в секунду.
 	constexpr float BotAlibiMinWindowSeconds = 2.f;
 	constexpr float BotAlibiRunSpeed = 450.f;
@@ -257,6 +260,7 @@ void AObshagaBotController::ResetForRound()
 	FrameRoom = NAME_None;
 	PlantedRoom = NAME_None;
 	bPlanted = false;
+	bPlantedHidden = false;
 	AlibiRunFor.Reset();
 	AnswerStartTime = -1.f;
 	bLureDone = false;
@@ -573,6 +577,9 @@ void AObshagaBotController::HandleInterrogation()
 	{
 		AnswerAt = -1.f;
 		AnswerStartTime = -1.f;
+		// Решения про алиби — на один допрос: соседа поймают снова — вступиться (или прибежать) можно ещё раз.
+		AlibiDecidedFor.Reset();
+		AlibiRunFor.Reset();
 		// Допрос кончился, пока бот бежал подтвердить алиби, — бежать уже незачем.
 		if (State == EBotState::Walk && Goal == EBotGoal::Alibi)
 		{
@@ -657,17 +664,40 @@ void AObshagaBotController::HandleInterrogation()
 		return;
 	}
 	// Бежать к допросу — один раз на допрос, если успеваем: окно не закрывается и путь есть.
-	// Из шкафа, с улицы и посреди дела (прячет вещь, чинит) не срывается.
-	const bool bFreeToRun = State == EBotState::Idle || State == EBotState::Walk || State == EBotState::Flee;
+	// Из шкафа, с улицы и посреди дела (прячет вещь, чинит) не срывается. С вещью в руках не бежит: нёс бы её прямо
+	// к Палычу. Осторожный (не попадаться, выманил Палыча) тоже: выбежать к Палычу — как раз попасться на глаза.
+	const bool bFreeToRun = (State == EBotState::Idle || State == EBotState::Walk || State == EBotState::Flee)
+		&& !Me->GetCarryComponent()->IsCarrying() && !IsCareful();
 	if (bCoverTask && bFreeToRun && !Me->IsFrozen() && AlibiRunFor.Get() != Info.Suspect && Remaining >= BotAlibiMinWindowSeconds
 		&& Distance <= Config->BotAlibiRunDistance && (Distance - Radius) / BotAlibiRunSpeed <= Remaining - 0.5f)
 	{
 		AlibiRunFor = Info.Suspect;
 		if (WalkTo(SuspectPawn->GetActorLocation(), EBotGoal::Alibi, Radius * 0.8f))
 		{
-			Me->SetSprinting(!Me->GetCarryComponent()->IsCarryingHeavy());
+			// Успеем ли — по длине пути по точкам (через лестницу и двери), а не по прямой.
+			float PathLength = 0.f;
+			FVector From = Me->GetActorLocation();
+			for (const FVector& Point : Path)
+			{
+				PathLength += FVector::Dist(From, Point);
+				From = Point;
+			}
+			PathLength += FVector::Dist(From, SuspectPawn->GetActorLocation());
+			if ((PathLength - Radius) / BotAlibiRunSpeed > Remaining - 0.5f)
+			{
+				Goal = EBotGoal::None;
+				Path.Reset();
+				Me->SetSprinting(false);
+				SetState(EBotState::Idle);
+				return;
+			}
+			// Цели прерванного дела забываем: застрянет по дороге — «не дошёл» не должно записаться на них.
+			TargetItem.Reset();
+			TargetSpot.Reset();
+			TargetDevice.Reset();
+			Me->SetSprinting(true);
 			UE_LOG(LogObshaga, Verbose, TEXT("Bot %s runs to alibi for %s: %.0f cm, %.1f s left, t=%.1f"), *MyState->GetPlayerName(), *Info.Suspect->GetPlayerName(),
-				Distance, Remaining, GetRoundSeconds());
+				PathLength, Remaining, GetRoundSeconds());
 		}
 	}
 }
@@ -784,6 +814,9 @@ bool AObshagaBotController::TryFleeOrHide(const AKomendantCharacter* Komendant)
 		if (Best)
 		{
 			UE_LOG(LogObshaga, Verbose, TEXT("Bot %s runs to hide in %s (komendant %.0f cm)"), *MyState->GetPlayerName(), *Best->GetName(), Distance);
+			// Прерванное дело забываем: не дошёл до шкафа — «не дошёл» не должно записаться на вещь или прибор.
+			TargetItem.Reset();
+			TargetDevice.Reset();
 			TargetSpot = Best;
 			WalkTo(Best->GetActorLocation(), EBotGoal::HideSelf, 160.f);
 			Say(static_cast<uint8>(ObshagaStory::EBotLine::SpotKomendant));
@@ -816,6 +849,10 @@ bool AObshagaBotController::TryFleeOrHide(const AKomendantCharacter* Komendant)
 	{
 		return false;
 	}
+	// Прерванное дело забываем: не добежал до точки — «не дошёл» не должно записаться на вещь, тайник или прибор.
+	TargetItem.Reset();
+	TargetSpot.Reset();
+	TargetDevice.Reset();
 	WalkTo(Best->GetActorLocation(), EBotGoal::None, 120.f);
 	State = EBotState::Flee;
 	Me->SetSprinting(!Me->GetCarryComponent()->IsCarryingHeavy());
@@ -1026,7 +1063,8 @@ bool AObshagaBotController::PlanTaskRow(const FTaskRow& Row)
 			{
 				SearchRoom = Thief->GetHomeRoomId();
 			}
-			if (PlanSearchRoom(SearchRoom))
+			// Спрятали прямо в охраняемой комнате — предмет и так «не вынесен»: доставать его на виду незачем.
+			if (SearchRoom != Row.RoomId && PlanSearchRoom(SearchRoom))
 			{
 				return true;
 			}
@@ -1185,7 +1223,10 @@ bool AObshagaBotController::IsCarefulAtHomeTime() const
 	// Домой — заранее, за BotCurfewHomeSeconds до отбоя: идти к себе уже ночью по коридору — тоже «подозрительно».
 	const AObshagaGameState* GameState = GetWorld()->GetGameState<AObshagaGameState>();
 	const bool bNearCurfew = GameState && (GameState->GetPhase() != ERoundPhase::Evening || GameState->GetPhaseRemainingSeconds() < BotCurfewHomeSeconds);
-	return bNearCurfew && IsCareful();
+	// Только «не попадись на глаза»: выманившему Палыча шумом нельзя лишь попасться, а не показываться, —
+	// его ночные дела (выход на улицу, недоделанная кража) не отменяются.
+	const AObshagaPlayerState* MyState = GetMyState();
+	return bNearCurfew && MyState && MyState->GetTaskComponent()->FindRowByCondition(ETaskCondition::NeverSpottedWholeRound) != nullptr;
 }
 
 void AObshagaBotController::PlanWander()
@@ -1739,7 +1780,11 @@ bool AObshagaBotController::RowWantsItem(const FTaskRow& Row, const AItemActor* 
 	case ETaskCondition::NoteReadByDistinctPlayers:
 		return !bRumorPlanted && Data->bReadable && (Row.ItemId.IsNone() || Data->ItemId == Row.ItemId);
 	case ETaskCondition::NoiseLuredKomendantAndUnseen:
-		return !bLureDone && LureThrowTime < 0.f && IsLureItem(Item);
+	{
+		// Утром Палыч обыскивает комнаты и спокойным почти не бывает — приманку не носим (кладём), чтобы не мешала другим делам.
+		const AObshagaGameState* GameState = GetWorld()->GetGameState<AObshagaGameState>();
+		return !bLureDone && LureThrowTime < 0.f && IsLureItem(Item) && GameState && GameState->GetPhase() != ERoundPhase::Morning;
+	}
 	default:
 		return false;
 	}
@@ -1832,9 +1877,10 @@ void AObshagaBotController::OnGameEvent(const FGameEvent& Event)
 			if (bFrameItem && Item->GetCurrentRoomId() == FrameRoom)
 			{
 				bPlanted = true;
+				bPlantedHidden = Event.Type == EGameEventType::ItemHidden;
 				PlantedRoom = FrameRoom;
 				UE_LOG(LogObshaga, Verbose, TEXT("Bot %s planted %s (%s) in %s, room of %s, t=%.1f"), *MyState->GetPlayerName(), *Data->ItemId.ToString(), *Item->GetName(),
-					*FrameRoom.ToString(), *GetNameSafe(FrameVictim.Get()), GetRoundSeconds());
+					*FrameRoom.ToString(), FrameVictim.IsValid() ? *FrameVictim->GetPlayerName() : TEXT("-"), GetRoundSeconds());
 			}
 		}
 		return;
@@ -2003,9 +2049,11 @@ FBotSuspect AObshagaBotController::FindTvThief(const FTaskRow& Row) const
 			continue;
 		}
 		const float Ago = Now - Seen.Time;
+		// Вещь снова на месте — вынос мог кончиться возвратом (а сервер считает вором того, кто бросил её вне комнаты):
+		// такая улика только слабая.
 		if (Seen.What == EBotSeen::PickedUp && Seen.RoomId == TheftRoom)
 		{
-			if (bCarriedOut)
+			if (bCarriedOut && bGone)
 			{
 				Consider(Who, EBotEvidence::Strong, Seen.Time, FString::Printf(TEXT("saw pick up %s in %s and carry it out %.0f s ago"), *Seen.ItemId.ToString(), *TheftRoom.ToString(), Ago));
 			}
@@ -2013,10 +2061,16 @@ FBotSuspect AObshagaBotController::FindTvThief(const FTaskRow& Row) const
 			{
 				Consider(Who, EBotEvidence::Medium, Seen.Time, FString::Printf(TEXT("saw pick up %s in %s %.0f s ago, it is gone"), *Seen.ItemId.ToString(), *TheftRoom.ToString(), Ago));
 			}
+			else if (bCarriedOut)
+			{
+				Consider(Who, EBotEvidence::Weak, Seen.Time + 200000.f, FString::Printf(TEXT("saw pick up %s in %s and carry it out %.0f s ago, it is back"), *Seen.ItemId.ToString(), *TheftRoom.ToString(), Ago));
+			}
 		}
-		else if (Seen.What != EBotSeen::PickedUp && !Seen.RoomId.IsNone() && Seen.RoomId != TheftRoom)
+		// Видел вещь у него только вне её комнаты, а как он взял её там — нет: мог отнимать у вора или нести обратно.
+		// Слабая улика (обвинение — только утром), но надёжнее слуха из СМС.
+		else if (bGone && Seen.What != EBotSeen::PickedUp && !Seen.RoomId.IsNone() && Seen.RoomId != TheftRoom)
 		{
-			Consider(Who, EBotEvidence::Medium, Seen.Time, FString::Printf(TEXT("saw %s %s in %s %.0f s ago"), SeenName(Seen.What), *Seen.ItemId.ToString(), *Seen.RoomId.ToString(), Ago));
+			Consider(Who, EBotEvidence::Weak, Seen.Time + 200000.f, FString::Printf(TEXT("saw %s %s in %s %.0f s ago"), SeenName(Seen.What), *Seen.ItemId.ToString(), *Seen.RoomId.ToString(), Ago));
 		}
 	}
 
@@ -2074,7 +2128,8 @@ FBotSuspect AObshagaBotController::FindContrabandRoom() const
 	};
 
 	FBotSuspect Best;
-	if (bPlanted && IsForeignBedroom(PlantedRoom))
+	// Подбросил в тайник — знаю точно. Брошенное на пол обыск по стуку не найдёт (он смотрит только тайники) — это слабо, ниже.
+	if (bPlanted && bPlantedHidden && IsForeignBedroom(PlantedRoom))
 	{
 		Best.Who = FrameVictim;
 		Best.RoomId = PlantedRoom;
@@ -2090,11 +2145,12 @@ FBotSuspect AObshagaBotController::FindContrabandRoom() const
 		{
 			continue;
 		}
-		// Потом её на глазах у бота подняли — там её уже нет.
+		// Верим только последнему, что бот видел с этой вещью: потом её подняли или пронесли через другую комнату —
+		// здесь её уже нет; видели её тут снова — судим по той, более поздней записи.
 		bool bMovedLater = false;
 		for (int32 Other = Index + 1; Other < Sightings.Num() && !bMovedLater; ++Other)
 		{
-			bMovedLater = Sightings[Other].Item == Seen.Item && Sightings[Other].What == EBotSeen::PickedUp;
+			bMovedLater = Sightings[Other].Item == Seen.Item && Sightings[Other].ItemId == Seen.ItemId;
 		}
 		if (bMovedLater || Seen.What == EBotSeen::PickedUp)
 		{
@@ -2123,6 +2179,13 @@ FBotSuspect AObshagaBotController::FindContrabandRoom() const
 				BestTime = Rumor.Time;
 			}
 		}
+	}
+	if (Best.Strength == EBotEvidence::None && bPlanted && IsForeignBedroom(PlantedRoom))
+	{
+		Best.Who = FrameVictim;
+		Best.RoomId = PlantedRoom;
+		Best.Strength = EBotEvidence::Weak;
+		Best.Source = TEXT("dropped it there myself, not in a hiding spot");
 	}
 	return Best;
 }
@@ -2370,7 +2433,7 @@ bool AObshagaBotController::PlanFrame(const FTaskRow& Row)
 bool AObshagaBotController::IsLureItem(const AItemActor* Item) const
 {
 	const UObshagaItemData* Data = Item ? Item->GetItemData() : nullptr;
-	if (!Data || Data->bHeavy || Data->bContraband || Data->bReadable || Data->NoiseFactor < GetRoundConfig()->KomendantMinNoise)
+	if (!Data || Data->bHeavy || Data->bContraband || Data->bReadable || Data->NoiseFactor * BotLureImpactShare < GetRoundConfig()->KomendantMinNoise)
 	{
 		return false;
 	}
@@ -2397,6 +2460,13 @@ bool AObshagaBotController::PlanLure()
 	AItemActor* Carried = Carry->GetCarriedItem();
 	if (!Carried)
 	{
+		// Брать вещь стоит, только когда её можно скоро бросить: Палыч спокоен и не утро (утром он обыскивает комнаты).
+		// Иначе бот носил бы её без толку, а другие дела стояли бы.
+		const AObshagaGameState* GameState = GetWorld()->GetGameState<AObshagaGameState>();
+		if (Komendant->GetAlert() != EKomendantAlert::Calm || !GameState || GameState->GetPhase() == ERoundPhase::Morning)
+		{
+			return false;
+		}
 		// Взять лёгкую звонкую вещь, что лежит на виду.
 		AItemActor* Best = nullptr;
 		float BestDistance = TNumericLimits<float>::Max();
@@ -2492,11 +2562,13 @@ bool AObshagaBotController::TryLureThrow()
 		return false;
 	}
 	const bool bSeesMe = LineOfSightTo(Komendant);
-	// Бросаем от Палыча: вещь стукнет подальше от него, а сам бот уйдёт в другую сторону.
+	// Бросаем в сторону Палыча: вещь пролетает метров семь и стукнет между ним и ботом (или о стену между ними) —
+	// ближе к Палычу, чем стоит бот, так что он её услышит, а пойдёт на шум не к самому боту. Брошенная от него
+	// падала бы ещё на 7 м дальше — за пределом его слуха.
 	// Бросок летит туда, куда «смотрит» персонаж, — поворачиваем и тело, и взгляд контроллера.
-	FVector Away = Me->GetActorLocation() - KomendantAt;
-	Away.Z = 0.f;
-	const FRotator Facing = Away.IsNearlyZero() ? Me->GetActorRotation() : Away.Rotation();
+	FVector Toward = KomendantAt - Me->GetActorLocation();
+	Toward.Z = 0.f;
+	const FRotator Facing = Toward.IsNearlyZero() ? Me->GetActorRotation() : Toward.Rotation();
 	Me->SetActorRotation(Facing);
 	SetControlRotation(Facing);
 	Carry->Throw();

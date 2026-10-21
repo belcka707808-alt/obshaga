@@ -205,6 +205,7 @@ PATTERNS = [
     ("end_device", r"^End device (\S+) room (\S+): broken (\d) brokenBy (.+?) repairedBy (.+?) brokenAt (" + NUM + r")$"),
     ("room_tip_rej", r"^Room tip by (.+) rejected: (.*)$"),
     ("room_tip", r"^Room tip by (.+): room (\S+), t=(" + NUM + r")$"),
+    ("accuse_rej", r"^Accuse by (.+) (rejected|postponed): (.*)$"),
     ("accuse", r"^Accuse by (.+) of (.+): (right|wrong) \((?:rumor task: (\d), proof: (\S+), holder (.+), item room (\S+)\))?"),
     ("hid_item", r"^(\S+) hid (\S+) in (\S+): player (.+), room (\S+), id=(\S+), contraband=(\d)$"),
     ("took_out", r"^(\S+) took (\S+) out of (\S+)$"),
@@ -2815,7 +2816,7 @@ def check_results_rows(ctx):
 
 # ---------------------------------------------------------------- Боты в заданиях
 
-SMS_VERBS = {"ItemPickedUp": 0, "ItemHidden": 1, "Noise": 2, "RoomEntered": 3}
+SMS_EVENT_VERB = {"ItemPickedUp": 0, "ItemHidden": 1, "Noise": 2, "RoomEntered": 3}
 
 
 def check_bot_tasks(ctx):
@@ -2841,7 +2842,14 @@ def check_bot_tasks(ctx):
             elif accepted:
                 out.append(Result(PASS, verdict, "%s назвал %s: улика %s (%s) — %s" % (bot, suspect, strength, source, "верно" if right else "неверно"), rnd))
             else:
-                out.append(Result(SKIP, line, "%s хотел назвать %s, Палыч был занят — бот попробует позже" % (bot, suspect), rnd))
+                # Отказ сервера: «postponed» — Палыч занят; «rejected» — сервер считает дистанцию/видимость не так, как бот.
+                refusal = prev_before(rnd, line, ("accuse_rej",), predicate=lambda o: o.g(1) == bot, limit=12)
+                if refusal is not None and refusal.g(2) == "rejected" and refusal.g(3) in ("no line of sight", "too far", "no accusation task"):
+                    out.append(Result(FAIL, line, "%s хотел назвать %s, сервер отказал: %s — бот и сервер считают по-разному" % (bot, suspect, refusal.g(3)), rnd))
+                elif refusal is not None and refusal.g(2) == "rejected":
+                    out.append(Result(SKIP, line, "%s хотел назвать %s, сервер отказал (%s) — бот попробует позже" % (bot, suspect, refusal.g(3)), rnd))
+                else:
+                    out.append(Result(SKIP, line, "%s хотел назвать %s, Палыч был занят — бот попробует позже" % (bot, suspect), rnd))
         # Стук на комнату: принятый — есть строка сервера «Room tip by … room R»; потом смотрим, нашлась ли там запрещёнка.
         for line in rnd.of("bot_tip_room"):
             bot, room, strength, source, accepted = line.g(1), line.g(2), line.g(3), line.g(4), line.g(5) == "1"
@@ -2907,7 +2915,7 @@ def check_bot_tasks(ctx):
                 if sms.g(3) != "Paranoid":
                     problems.append("выдумка не Параноику (%s)" % sms.g(3))
             elif fact:
-                if SMS_VERBS.get(fact.group(1)) != verb or fact.group(2) != who or fact.group(3) != room:
+                if SMS_EVENT_VERB.get(fact.group(1)) != verb or fact.group(2) != who or fact.group(3) != room:
                     problems.append("в СМС «%s», а боту передано %s verb %d room %s" % (src, who, verb, room))
             else:
                 problems.append("у СМС нет источника для слуха (%s)" % src)
