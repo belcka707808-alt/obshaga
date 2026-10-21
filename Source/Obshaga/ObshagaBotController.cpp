@@ -941,7 +941,8 @@ void AObshagaBotController::Arrive()
 		}
 		break;
 	case EBotGoal::BreakDevice:
-		if (ADeviceActor* Device = TargetDevice.Get())
+		// Пока шёл, плиту мог сломать кто-то другой (или её уже ломают) — тогда тут делать нечего.
+		if (ADeviceActor* Device = TargetDevice.Get(); Device && !Device->IsBroken() && !Device->IsBusy())
 		{
 			UE_LOG(LogObshaga, Verbose, TEXT("Bot %s breaks %s"), *GetMyState()->GetPlayerName(), *Device->GetName());
 			Device->SecondaryInteract(Me);

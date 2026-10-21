@@ -2374,7 +2374,9 @@ def check_tv_scenario(ctx):
             problems = []
             teleport = [l for l in gap if l.kind == "bot_stuck" and l.g(1) == who]
             entered = [l for l in gap if l.kind == "event" and l.g(1) == "RoomEntered" and l.g(3) == who and l.g(6) == home]
-            if not entered:
+            # Шкаф у самой двери достают и из коридора (сервер проверил дальность и видимость) — заходить в комнату не обязательно.
+            reached_in = [l for l in gap + [hide] if l.kind == "event" and l.g(1) == "ItemHidden" and l.g(3) == who and l.g(4) == actor]
+            if not entered and not reached_in:
                 problems.append("нет события RoomEntered в %s по дороге" % home)
             moved_later = any(l.kind == "event" and l.g(1) == "ItemPickedUp" and l.g(4) == actor for l in rnd.lines[hide.idx + 1:])
             if end is not None and not moved_later and (end.g(3) != "Hidden" or end.g(4) != home or end.g(6) != who):
