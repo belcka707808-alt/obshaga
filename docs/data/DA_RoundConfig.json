@@ -65,6 +65,11 @@
       "default": 0.3499999940395355,
       "changed": false
     },
+    "bot_alibi_run_distance": {
+      "value": 2500.0,
+      "default": 2500.0,
+      "changed": false
+    },
     "bot_confess_weight": {
       "value": 1.0,
       "default": 1.0,
@@ -90,6 +95,11 @@
       "default": 6.0,
       "changed": false
     },
+    "bot_hide_outside_bedroom_chance": {
+      "value": 0.6000000238418579,
+      "default": 0.6000000238418579,
+      "changed": false
+    },
     "bot_hide_search_radius": {
       "value": 450.0,
       "default": 450.0,
@@ -110,9 +120,24 @@
       "default": 2.0,
       "changed": false
     },
+    "bot_lie_with_alibi_chance": {
+      "value": 0.800000011920929,
+      "default": 0.800000011920929,
+      "changed": false
+    },
     "bot_line_cooldown": {
       "value": 20.0,
       "default": 20.0,
+      "changed": false
+    },
+    "bot_lure_max_distance": {
+      "value": 1400.0,
+      "default": 1400.0,
+      "changed": false
+    },
+    "bot_lure_min_distance": {
+      "value": 700.0,
+      "default": 700.0,
       "changed": false
     },
     "bot_outside_seconds": {
@@ -149,7 +174,13 @@
         "fix_kitchen",
         "start_rumor",
         "build_trust",
-        "curfew_breach"
+        "curfew_breach",
+        "frame_roommate",
+        "investigate_theft",
+        "expose_liar",
+        "tip_off",
+        "cover_for_friend",
+        "fake_alarm"
       ],
       "default": [
         "steal_tv",
@@ -159,8 +190,24 @@
         "fix_kitchen",
         "start_rumor",
         "build_trust",
-        "curfew_breach"
+        "curfew_breach",
+        "frame_roommate",
+        "investigate_theft",
+        "expose_liar",
+        "tip_off",
+        "cover_for_friend",
+        "fake_alarm"
       ],
+      "changed": false
+    },
+    "bot_tip_guess_chance": {
+      "value": 0.5,
+      "default": 0.5,
+      "changed": false
+    },
+    "bot_tip_guess_seconds": {
+      "value": 120.0,
+      "default": 120.0,
       "changed": false
     },
     "bot_tip_max_seconds": {
@@ -171,6 +218,11 @@
     "bot_tip_min_seconds": {
       "value": 20.0,
       "default": 20.0,
+      "changed": false
+    },
+    "bot_witness_distance": {
+      "value": 1500.0,
+      "default": 1500.0,
       "changed": false
     },
     "carry_suspicion_per_second": {
