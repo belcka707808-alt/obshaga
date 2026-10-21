@@ -975,7 +975,8 @@ void AObshagaBotController::Arrive()
 		// Выселенный бот ушёл: персонаж исчезает, карточка игрока остаётся для итогов.
 		if (APawn* Body = GetPawn())
 		{
-			UE_LOG(LogObshaga, Verbose, TEXT("Evicted bot %s left the building"), *GetMyState()->GetPlayerName());
+			const AObshagaGameMode* LeaveMode = GetWorld()->GetAuthGameMode<AObshagaGameMode>();
+			UE_LOG(LogObshaga, Verbose, TEXT("Evicted bot %s left the building, t=%.1f"), *GetMyState()->GetPlayerName(), LeaveMode ? LeaveMode->GetRoundSeconds() : 0.f);
 			UnPossess();
 			Body->Destroy();
 			Me = nullptr;

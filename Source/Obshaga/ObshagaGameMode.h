@@ -202,11 +202,18 @@ private:
 	int32 AutoRoundsPlayed = 0;
 	FTimerHandle AutoRoundTimer;
 	void AutoNextRound();
-	/** -TestCatchHostAt=20,45,70: на этих секундах раунда Палыч ловит хоста (как клавиша K), -TestChaseAt=N: гонится за ботом. */
+	/**
+	 * -TestCatchHostAt=20,45,70: на этих секундах раунда Палыч ловит хоста (как клавиша K); -TestCatchBotAt=40,90,140 — бота
+	 * (всё время одного и того же, чтобы его выселили); -TestChaseAt=150,330: гонится за ботом, лучше за тем, кто с вещью.
+	 */
 	TArray<FTimerHandle> TestTimers;
-	int32 TestRetries = 0;
+	int32 TestCatchRetries = 0;
+	int32 TestBotCatchRetries = 0;
+	int32 TestChaseRetries = 0;
 	void StartTestTimers();
 	void ClearTestTimers();
-	void TestCatchHost();
+	/** Ставит на эти секунды раунда (список через запятую из ключа Key) вызов Action. */
+	void AddTestTimers(const TCHAR* Key, const FTimerDelegate& Action);
+	void TestCatch(bool bBot);
 	void TestChase();
 };

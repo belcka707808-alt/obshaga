@@ -1261,8 +1261,9 @@ bool AKomendantAIController::FollowPath(float Speed, float DeltaSeconds)
 			}
 			else
 			{
-				UE_LOG(LogObshaga, Warning, TEXT("Komendant stuck near %s on the way to %s (point %d of %d), blocked by %s, snapping to waypoint"),
-					*Komendant->GetActorLocation().ToCompactString(), *Point.ToCompactString(), PathIndex + 1, Path.Num(), *GetNameSafe(Block.GetActor()));
+				// t= — секунды раунда: автопроверка сверяет их с проверочным упором (-TestKomendantStuck) и ищет повторы на одной точке.
+				UE_LOG(LogObshaga, Warning, TEXT("Komendant stuck near %s on the way to %s (point %d of %d), blocked by %s, snapping to waypoint, t=%.1f"),
+					*Komendant->GetActorLocation().ToCompactString(), *Point.ToCompactString(), PathIndex + 1, Path.Num(), *GetNameSafe(Block.GetActor()), GetRoundSeconds());
 				if (AObshagaGameMode* StuckMode = GetWorld()->GetAuthGameMode<AObshagaGameMode>())
 				{
 					StuckMode->ReportStuck(true);

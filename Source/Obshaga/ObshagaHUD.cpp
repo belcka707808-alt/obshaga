@@ -1036,6 +1036,11 @@ void AObshagaHUD::DrawRoundResults(const AObshagaGameState* GameState)
 		{
 			Y = DrawWrapped(Tasks, bAnyDone ? FLinearColor(0.5f, 1.f, 0.5f) : FLinearColor(1.f, 0.55f, 0.55f), X + 14.f * Scale, Y, TextWidth - 14.f * Scale, Line - 2.f, bDraw);
 		}
+		if (bDraw && bLogResultsRows)
+		{
+			// Для автопроверки: ровно то, что игрок видит в строке о себе (роль, титул, очки и задания с наградой).
+			UE_LOG(LogObshaga, Verbose, TEXT("Results row %s: %s | %s"), *Player.PlayerName, *Text.ToString(), *Tasks);
+		}
 		return Y;
 	};
 
@@ -1159,6 +1164,10 @@ void AObshagaHUD::DrawRoundResults(const AObshagaGameState* GameState)
 				if (DrawPlayer(Players[Index], X, Y, TextWidth, Line, bCaptions, false) > RematchY - Reserve)
 				{
 					DrawText(FText::Format(LOCTEXT("ResultsMore", "… и ещё {0}"), FText::AsNumber(Players.Num() - Index)).ToString(), Dim, X, Y, Font, Scale);
+					if (bLogResultsRows)
+					{
+						UE_LOG(LogObshaga, Log, TEXT("Results truncated: shown %d of %d players"), Index, Players.Num());
+					}
 					break;
 				}
 			}
@@ -1212,10 +1221,12 @@ void AObshagaHUD::DrawRoundResults(const AObshagaGameState* GameState)
 		UE_LOG(LogObshaga, Log, TEXT("Results layout: variant %d (two columns %d, captions %d, line %.0f), height %.0f of %.0f, fits %d, players %d, chronicle %d, canvas %.0fx%.0f"),
 			ResultsVariant, Picked.bTwoColumns ? 1 : 0, Picked.bCaptions ? 1 : 0, Picked.Line, ChosenHeight, RematchY, ChosenHeight <= RematchY ? 1 : 0,
 			GameState->GetRevealedPlayers().Num(), GameState->GetChronicle().Num(), Canvas->ClipX, Canvas->ClipY);
+		bLogResultsRows = true;
 	}
 
 	const FVariant& Chosen = Variants[FMath::Max(ResultsVariant, 0)];
 	Layout(Chosen.bTwoColumns, Chosen.bCaptions, Chosen.Line, true);
+	bLogResultsRows = false;
 }
 
 void AObshagaHUD::DrawInterrogation(const AObshagaPlayerState* MyState, const AObshagaGameState* GameState, const FVector& MyLocation)

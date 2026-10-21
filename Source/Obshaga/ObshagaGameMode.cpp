@@ -164,25 +164,31 @@ void AObshagaGameMode::StartTestTimers()
 #if !UE_BUILD_SHIPPING
 	// -TestCatchHostAt=20,45,70: на этих секундах раунда Палыч ловит хоста, как по клавише K. Хост не отвечает —
 	// допрос кончается молчанием по таймауту, а третья поимка выселяет его в призраки.
-	FString CatchTimes;
-	if (FParse::Value(FCommandLine::Get(), TEXT("TestCatchHostAt="), CatchTimes, false))
+	AddTestTimers(TEXT("TestCatchHostAt="), FTimerDelegate::CreateUObject(this, &AObshagaGameMode::TestCatch, false));
+	// -TestCatchBotAt=40,90,140,190: так же ловит бота — всё время того, у кого больше страйков, чтобы проверить выселение бота.
+	AddTestTimers(TEXT("TestCatchBotAt="), FTimerDelegate::CreateUObject(this, &AObshagaGameMode::TestCatch, true));
+	// -TestChaseAt=150,330: на этих секундах Палыч сам начинает погоню за ботом — без переноса, дальше всё как в игре.
+	AddTestTimers(TEXT("TestChaseAt="), FTimerDelegate::CreateUObject(this, &AObshagaGameMode::TestChase));
+#endif
+}
+
+void AObshagaGameMode::AddTestTimers(const TCHAR* Key, const FTimerDelegate& Action)
+{
+#if !UE_BUILD_SHIPPING
+	FString TimesText;
+	if (!FParse::Value(FCommandLine::Get(), Key, TimesText, false))
 	{
-		TArray<FString> Times;
-		CatchTimes.ParseIntoArray(Times, TEXT(","));
-		for (const FString& Time : Times)
-		{
-			const float Seconds = FCString::Atof(*Time);
-			if (Seconds > 0.f)
-			{
-				GetWorldTimerManager().SetTimer(TestTimers.AddDefaulted_GetRef(), this, &AObshagaGameMode::TestCatchHost, Seconds, false);
-			}
-		}
+		return;
 	}
-	// -TestChaseAt=N: на N-й секунде Палыч сам начинает погоню за ботом — без переноса, дальше всё как в игре.
-	float ChaseAt = 0.f;
-	if (FParse::Value(FCommandLine::Get(), TEXT("TestChaseAt="), ChaseAt) && ChaseAt > 0.f)
+	TArray<FString> Times;
+	TimesText.ParseIntoArray(Times, TEXT(","));
+	for (const FString& Time : Times)
 	{
-		GetWorldTimerManager().SetTimer(TestTimers.AddDefaulted_GetRef(), this, &AObshagaGameMode::TestChase, ChaseAt, false);
+		const float Seconds = FCString::Atof(*Time);
+		if (Seconds > 0.f)
+		{
+			GetWorldTimerManager().SetTimer(TestTimers.AddDefaulted_GetRef(), Action, Seconds, false);
+		}
 	}
 #endif
 }
@@ -194,18 +200,39 @@ void AObshagaGameMode::ClearTestTimers()
 		GetWorldTimerManager().ClearTimer(Handle);
 	}
 	TestTimers.Reset();
-	TestRetries = 0;
+	TestCatchRetries = 0;
+	TestBotCatchRetries = 0;
+	TestChaseRetries = 0;
 }
 
-void AObshagaGameMode::TestCatchHost()
+void AObshagaGameMode::TestCatch(bool bBot)
 {
 #if !UE_BUILD_SHIPPING
 	const AObshagaGameState* State = GetGameState<AObshagaGameState>();
-	APlayerController* Host = GetWorld()->GetFirstPlayerController();
-	AObshagaCharacter* Me = Host && Host->IsLocalController() ? Cast<AObshagaCharacter>(Host->GetPawn()) : nullptr;
+	AObshagaCharacter* Me = nullptr;
+	if (bBot)
+	{
+		// Всё время одного и того же бота — того, у кого больше страйков (при равенстве — первого): три страйка подряд выселяют.
+		int32 MostStrikes = -1;
+		for (const AObshagaPlayerState* PlayerState : GetObshagaPlayers())
+		{
+			AObshagaCharacter* Body = Cast<AObshagaCharacter>(PlayerState->GetPawn());
+			const int32 Strikes = PlayerState->GetSuspicionComponent()->GetStrikes();
+			if (PlayerState->IsABot() && !PlayerState->IsEvicted() && Body && !Body->IsGhost() && Strikes > MostStrikes)
+			{
+				MostStrikes = Strikes;
+				Me = Body;
+			}
+		}
+	}
+	else
+	{
+		APlayerController* Host = GetWorld()->GetFirstPlayerController();
+		Me = Host && Host->IsLocalController() ? Cast<AObshagaCharacter>(Host->GetPawn()) : nullptr;
+	}
 	if (!State || State->GetRoundState() != ERoundState::InProgress || !Me || Me->IsGhost())
 	{
-		UE_LOG(LogObshaga, Log, TEXT("Debug: test catch skipped (no host in the round or host is a ghost)"));
+		UE_LOG(LogObshaga, Log, TEXT("Debug: test catch skipped (%s)"), bBot ? TEXT("no bot to catch") : TEXT("no host in the round or host is a ghost"));
 		return;
 	}
 	AKomendantCharacter* Komendant = nullptr;
@@ -215,23 +242,25 @@ void AObshagaGameMode::TestCatchHost()
 		Komendant = *It;
 		Brain = Cast<AKomendantAIController>(It->GetController());
 	}
-	// Идёт допрос, Палыч уже гонится или хост в укрытии — пробуем снова через пару секунд.
+	// Идёт допрос, Палыч уже гонится или пойманный в укрытии — пробуем снова через пару секунд.
 	const TCHAR* Busy = !Brain ? TEXT("no komendant") : (State->GetInterrogation().bActive ? TEXT("interrogation")
-		: (Brain->GetState() == EKomendantState::Chase ? TEXT("chase") : ((Me->IsHiding() || Me->IsFrozen()) ? TEXT("host hiding or frozen") : nullptr)));
+		: (Brain->GetState() == EKomendantState::Chase ? TEXT("chase") : ((Me->IsHiding() || Me->IsFrozen()) ? TEXT("target hiding or frozen") : nullptr)));
+	int32& Retries = bBot ? TestBotCatchRetries : TestCatchRetries;
 	if (Busy)
 	{
-		if (Brain && ++TestRetries <= 30)
+		if (Brain && ++Retries <= 30)
 		{
 			UE_LOG(LogObshaga, Log, TEXT("Debug: test catch postponed: %s"), Busy);
-			GetWorldTimerManager().SetTimer(TestTimers.AddDefaulted_GetRef(), this, &AObshagaGameMode::TestCatchHost, 2.f, false);
+			GetWorldTimerManager().SetTimer(TestTimers.AddDefaulted_GetRef(), FTimerDelegate::CreateUObject(this, &AObshagaGameMode::TestCatch, bBot), 2.f, false);
 		}
 		return;
 	}
-	// Как клавиша K: Палыч встаёт перед хостом и начинает обычную погоню — ловит он сам, допрос идёт как в игре.
+	Retries = 0;
+	// Как клавиша K: Палыч встаёт перед пойманным и начинает обычную погоню — ловит он сам, допрос идёт как в игре.
 	const FVector Front = Me->GetActorLocation() + Me->GetActorForwardVector() * 120.f;
 	Komendant->SetActorLocationAndRotation(Front, (-Me->GetActorForwardVector()).Rotation(), false, nullptr, ETeleportType::TeleportPhysics);
 	Brain->DebugChase(Me);
-	UE_LOG(LogObshaga, Log, TEXT("Debug: test catch of %s, t=%.1f"), *LogPlayerName(Host->PlayerState), GetRoundSeconds());
+	UE_LOG(LogObshaga, Log, TEXT("Debug: test catch of %s, t=%.1f"), *LogPlayerName(Me->GetPlayerState()), GetRoundSeconds());
 #endif
 }
 
@@ -252,10 +281,12 @@ void AObshagaGameMode::TestChase()
 	}
 	const bool bBusy = !Brain || State->GetInterrogation().bActive || Brain->GetState() == EKomendantState::Chase || Brain->GetState() == EKomendantState::Interrogate;
 
-	// Кого гнать: бота с вещью в руках (лучше того, кого Палыч видит), иначе самого дальнего бота на его этаже, которого он видит.
+	// Кого гнать: бота с вещью в руках, которого Палыч видит; иначе самого дальнего видимого бота на его этаже;
+	// бот с вещью за стеной — последний выбор (Палыч его не видит, и такая «погоня» часто кончается, не начавшись).
 	AObshagaCharacter* Target = nullptr;
 	int32 BestRank = -1;
 	float BestDistance = 0.f;
+	bool bTargetVisible = false;
 	for (TActorIterator<AObshagaCharacter> It(GetWorld()); It && !bBusy; ++It)
 	{
 		const AObshagaPlayerState* BotState = It->GetPlayerState<AObshagaPlayerState>();
@@ -267,27 +298,32 @@ void AObshagaGameMode::TestChase()
 		const bool bSameFloor = FMath::Abs(It->GetActorLocation().Z - Komendant->GetActorLocation().Z) < 150.f;
 		const bool bVisible = bSameFloor && Distance < 1500.f && Brain->LineOfSightTo(*It);
 		const bool bCarrying = It->GetCarryComponent()->IsCarrying();
-		const int32 Rank = bCarrying ? (bVisible ? 3 : 2) : (bVisible ? 1 : -1);
+		const int32 Rank = bCarrying ? (bVisible ? 3 : 1) : (bVisible ? 2 : -1);
 		// Среди несущих — ближайший, среди остальных — дальний (погоня должна быть длинной).
 		if (Rank > BestRank || (Rank == BestRank && Rank >= 0 && (bCarrying ? Distance < BestDistance : Distance > BestDistance)))
 		{
 			BestRank = Rank;
 			BestDistance = Distance;
 			Target = Rank >= 0 ? *It : nullptr;
+			bTargetVisible = bVisible;
 		}
 	}
-	if (!Target)
+	// Первые 20 секунд ждём видимого бота с вещью: для проверки длинной погони с вещью он лучше всех.
+	const bool bWaitForCarrier = Target && BestRank < 3 && TestChaseRetries < 10;
+	if (!Target || bWaitForCarrier)
 	{
-		if (++TestRetries <= 30)
+		if (++TestChaseRetries <= 30)
 		{
-			UE_LOG(LogObshaga, Log, TEXT("Debug: test chase postponed: %s"), bBusy ? TEXT("komendant busy") : TEXT("no bot to chase"));
+			UE_LOG(LogObshaga, Log, TEXT("Debug: test chase postponed: %s"), bBusy ? TEXT("komendant busy") : (Target ? TEXT("waiting for a visible carrier") : TEXT("no bot to chase")));
 			GetWorldTimerManager().SetTimer(TestTimers.AddDefaulted_GetRef(), this, &AObshagaGameMode::TestChase, 2.f, false);
 		}
 		return;
 	}
+	TestChaseRetries = 0;
 	const AItemActor* Item = Target->GetCarryComponent()->GetCarriedItem();
-	UE_LOG(LogObshaga, Log, TEXT("Debug: test chase of %s (item %s) from %.0f cm, t=%.1f"), *LogPlayerName(Target->GetPlayerState()),
-		Item ? *Item->GetItemData()->ItemId.ToString() : TEXT("-"), BestDistance, GetRoundSeconds());
+	// visible — видит ли Палыч цель в миг начала (невидимая цель может «оторваться», ни разу не попавшись ему на глаза).
+	UE_LOG(LogObshaga, Log, TEXT("Debug: test chase of %s (item %s) from %.0f cm, t=%.1f, visible %d"), *LogPlayerName(Target->GetPlayerState()),
+		Item ? *Item->GetItemData()->ItemId.ToString() : TEXT("-"), BestDistance, GetRoundSeconds(), bTargetVisible ? 1 : 0);
 	Brain->DebugChase(Target);
 #endif
 }
@@ -949,7 +985,10 @@ void AObshagaGameMode::PrepareNight()
 	}
 	// «Вчера в газете» — со вторника: заголовок прошлой ночи ещё лежит в GameState.
 	State->SetWeek(WeekNight, WeekId, WeekNight > 0 ? State->GetHeadline() : FText::GetEmpty());
-	UE_LOG(LogObshaga, Log, TEXT("Week %d, night %d (%s)"), WeekId, WeekNight, *ObshagaStory::WeekNight(WeekNight).Title.ToString());
+	// Для автопроверки: planned style — манера Палыча, заданная ночью (-1 — любая), night event — событие ночи по плану (-1 — случайное).
+	const FWeekNightInfo Night = ObshagaStory::WeekNight(WeekNight);
+	UE_LOG(LogObshaga, Log, TEXT("Week %d, night %d (%s), planned style %d, night event %d"), WeekId, WeekNight, *Night.Title.ToString(),
+		Night.KomendantStyle, Night.NightEvent);
 }
 
 int32 AObshagaGameMode::GetWeekKomendantStyle() const
@@ -1162,11 +1201,12 @@ void AObshagaGameMode::StartRound()
 	// Новичкам сразу говорим, откуда ждать опасность.
 	NotifyAll(LOCTEXT("KomendantWhere", "Комендант на вахте, 1 этаж. Скоро пойдёт в обход — не попадайся"));
 	// Для автопроверки: числа из DA_RoundConfig, по которым она сверяет штрафы, шансы и окна (в C++ значения по умолчанию другие).
-	UE_LOG(LogObshaga, Log, TEXT("Round config: confess=%d silent=%d lie=%d lieBase=%.2f alibiBonus=%.2f contrabandLie=%.2f afterStrike=%.0f evictStrikes=%d evictPenalty=%d interrogation=%.1f ratBonus=%d ratWindow=%.0f curfewRate=%.1f sms=%d grudge=%.0f unseen=%.1f curfewOutside=%.1f minNoise=%.2f inspect=%.1f alibiRadius=%.0f immunity=%.1f catch=%.0f chronicle=%d"),
+	UE_LOG(LogObshaga, Log, TEXT("Round config: confess=%d silent=%d lie=%d lieBase=%.2f alibiBonus=%.2f contrabandLie=%.2f afterStrike=%.0f evictStrikes=%d evictPenalty=%d interrogation=%.1f ratBonus=%d ratWindow=%.0f curfewRate=%.1f sms=%d grudge=%.0f unseen=%.1f curfewOutside=%.1f minNoise=%.2f inspect=%.1f alibiRadius=%.0f immunity=%.1f catch=%.0f chronicle=%d botConfess=%.1f botLie=%.1f botSilent=%.1f botAlibi=%.2f"),
 		Config->ConfessPenalty, Config->SilentPenalty, Config->FailedLiePenalty, Config->LieBaseChance, Config->AlibiBonus, Config->ContrabandLiePenalty,
 		Config->SuspicionAfterStrike, Config->EvictionStrikes, Config->EvictionPenalty, Config->InterrogationSeconds, Config->RatTipBonus, Config->RatTipWindowSeconds,
 		Config->CurfewSuspicionPerSecond, Config->SmsCount, Config->GrudgeSuspicion, Config->UnseenWindowSeconds, Config->CurfewOutsideSeconds, Config->KomendantMinNoise,
-		Config->InspectSeconds, Config->AlibiRadius, Config->ImmunitySeconds, Config->KomendantCatchDistance, Config->MaxChronicleLines);
+		Config->InspectSeconds, Config->AlibiRadius, Config->ImmunitySeconds, Config->KomendantCatchDistance, Config->MaxChronicleLines,
+		Config->BotConfessWeight, Config->BotLieWeight, Config->BotSilentWeight, Config->BotAlibiChance);
 	UE_LOG(LogObshaga, Log, TEXT("Round started: %.0f s, %d players, world time %.1f"), Config->GetTotalSeconds(), Players.Num(), RoundStartWorldTime);
 	StartTestTimers();
 	// Следующий раунд выберет следующую ночь.
@@ -1968,10 +2008,10 @@ void AObshagaGameMode::ResolveInterrogation()
 		PlayerState->SetScore(PlayerState->GetScore() - Penalty);
 		NotifyPlayer(PlayerState, FText::Format(Result, FText::AsNumber(Penalty)));
 		bEvict = Suspicion->GetStrikes() >= Config->EvictionStrikes && !PlayerState->IsEvicted();
-		// answered=0 — пойманный не ответил за отведённое время (это засчитано как молчание).
-		UE_LOG(LogObshaga, Verbose, TEXT("Interrogation of %s resolved: %s, strike=%d, penalty=%d, alibi=%d, answered=%d, chance=%.2f, roll=%.2f, contraband=%d, strikes=%d, score=%.0f, t=%.1f"),
+		// answered=0 — пойманный не ответил за отведённое время (это засчитано как молчание); suspicion — подозрение после сброса.
+		UE_LOG(LogObshaga, Verbose, TEXT("Interrogation of %s resolved: %s, strike=%d, penalty=%d, alibi=%d, answered=%d, chance=%.2f, roll=%.2f, contraband=%d, strikes=%d, score=%.0f, suspicion=%.0f, t=%.1f"),
 			*PlayerState->GetPlayerName(), *UEnum::GetValueAsString(Choice), bStrike ? 1 : 0, Penalty, AlibiBy.Num(), Info.Choice != EInterrogationChoice::None ? 1 : 0,
-			LieChance, LieRoll, bSuspectHadContraband ? 1 : 0, Suspicion->GetStrikes(), PlayerState->GetScore(), GetRoundSeconds());
+			LieChance, LieRoll, bSuspectHadContraband ? 1 : 0, Suspicion->GetStrikes(), PlayerState->GetScore(), Suspicion->GetSuspicion(), GetRoundSeconds());
 	}
 
 	if (Suspect)

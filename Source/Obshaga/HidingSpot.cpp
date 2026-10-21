@@ -218,6 +218,11 @@ void AHidingSpot::FinishTimedAction()
 	if (!By || By->IsHiding() || !By->GetInteractionComponent()->IsInRange(this, UInteractionComponent::ServerRangeSlack))
 	{
 		Notify(By, LOCTEXT("Interrupted", "Не успел: отошёл слишком рано"));
+		// Для автопроверки: сорванное «спрятать» объясняет, почему вор с телевизором так и не спрятал его.
+		const AItemActor* Carried = By ? By->GetCarryComponent()->GetCarriedItem() : nullptr;
+		UE_LOG(LogObshaga, Verbose, TEXT("%s %s of %s in %s interrupted: %s"), By && By->GetPlayerState() ? *By->GetPlayerState()->GetPlayerName() : TEXT("None"),
+			bPendingHideItem ? TEXT("hide") : TEXT("search"), *GetNameSafe(Carried), *GetName(),
+			!By ? TEXT("gone") : (By->IsHiding() ? TEXT("hiding") : TEXT("out of range")));
 		return;
 	}
 

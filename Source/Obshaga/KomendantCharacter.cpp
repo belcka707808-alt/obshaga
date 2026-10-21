@@ -4,6 +4,8 @@
 
 #include "KomendantAIController.h"
 #include "KomendantPersonality.h"
+#include "Obshaga.h"
+#include "ObshagaGameMode.h"
 
 namespace
 {
@@ -72,7 +74,12 @@ void AKomendantCharacter::Say(EKomendantLine Situation, int32 Style, bool bForce
 		return;
 	}
 	LastSayServerTime = Now;
-	MulticastSay(static_cast<uint8>(Situation), static_cast<uint8>(Style), static_cast<uint8>(FMath::RandRange(0, 200)));
+	const uint8 Variant = static_cast<uint8>(FMath::RandRange(0, 200));
+	// Для автопроверки: что Палыч сказал и когда (номер — EKomendantLine: 1 — «услышал», 4 — «ушёл» после погони и т.д.).
+	const AObshagaGameMode* GameMode = GetWorld()->GetAuthGameMode<AObshagaGameMode>();
+	UE_LOG(LogObshaga, Verbose, TEXT("Komendant says %d (style %d, forced %d): %s, t=%.1f"), static_cast<int32>(Situation), Style, bForce ? 1 : 0,
+		*ObshagaStory::KomendantLine(Situation, Style, Variant).ToString(), GameMode ? GameMode->GetRoundSeconds() : Now);
+	MulticastSay(static_cast<uint8>(Situation), static_cast<uint8>(Style), Variant);
 }
 
 void AKomendantCharacter::MulticastSay_Implementation(uint8 Situation, uint8 Style, uint8 Variant)
