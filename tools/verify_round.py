@@ -173,7 +173,7 @@ PATTERNS = [
     ("state", r"^Komendant state: EKomendantState::(\w+)$"),
     ("searched", r"^Komendant searched (\S+): contraband=(\S+) player=(.+?)(?:, room=(\S+), phase=(\S+), queued=(\d), t=(" + NUM + r"))?$"),
     ("contraband_found", r"^Contraband (\S+) in (\S+) \(room (\S+)\): hider (.+), residents (.+), blamed (.+), framed (\d)$"),
-    ("not_reach", r"^Komendant could not reach (\S+), skipping$"),
+    ("not_reach", r"^Komendant could not reach (\S+), skipping(?:: (.*))?$"),
     ("inspect_next", r"^Komendant inspection next: (\S+) \(room (\S+)\), (\d+) left$"),
     ("morning_queue", r"^Komendant morning inspection: (\d+) hiding spots$"),
     ("tipped_room", r"^Komendant tipped about room (\S+): (\d+) hiding spots queued$"),
@@ -1177,7 +1177,7 @@ def hide_results(ctx, exit_flag):
                     out.append(Result(FAIL, end, "; ".join(problems), rnd))
                 continue
             if follow.kind == "not_reach":
-                problems.append("видел, как %s залез в %s, но не дошёл до укрытия" % (who, spot))
+                problems.append("видел, как %s залез в %s, но не дошёл до укрытия%s" % (who, spot, " (%s)" % follow.g(2) if follow.g(2) else ""))
             elif follow.g(3) == who:
                 chase = next_after(rnd, follow, ("chase_start",), limit=8)
                 if chase is None or chase.g(1) != who:

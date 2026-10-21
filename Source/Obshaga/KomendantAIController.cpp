@@ -54,6 +54,10 @@ namespace
 	// Обыск: с какого расстояния начинает рыться, сколько секунд подходит и дальше чего не дотянется.
 	constexpr float InspectApproachDistance = 170.f;
 	constexpr float InspectApproachSeconds = 4.f;
+	// Нарушитель нырнул в укрытие у него на глазах: к такому тайнику он идёт дольше, в обход стен и с лестницы.
+	constexpr float InspectSeenHideApproachSeconds = 12.f;
+	// Идёт к тайнику по прямой и столько секунд не приближается (кровать или косяк на пути) — дальше по точкам маршрута.
+	constexpr float InspectNoProgressSeconds = 1.f;
 	constexpr float InspectReachDistance = 250.f;
 
 	void NotifyPlayer(const APlayerState* TargetState, const FText& Text)
@@ -432,6 +436,10 @@ void AKomendantAIController::SetState(EKomendantState NewState)
 	PathIndex = 0;
 	WaitTime = 0.f;
 	SearchTime = 0.f;
+	bInspectSeenHide = false;
+	bInspectViaPath = false;
+	InspectBestDistance = TNumericLimits<float>::Max();
+	InspectNoProgressTime = 0.f;
 	LookBaseYaw = Komendant->GetActorRotation().Yaw;
 
 	EKomendantAlert Alert = EKomendantAlert::Calm;
@@ -920,6 +928,7 @@ void AKomendantAIController::TickChase(float DeltaSeconds)
 			LogChaseEnd(Target, TEXT("hid_seen"), Spot, Target->GetCarryComponent()->GetCarriedItem());
 			SetState(EKomendantState::Inspect);
 			InspectSpot = Spot;
+			bInspectSeenHide = true;
 		}
 		else
 		{
@@ -1008,17 +1017,61 @@ void AKomendantAIController::TickInspect(float DeltaSeconds)
 	const FVector SpotLocation = GetSpotStandLocation(Spot);
 	const FVector ToSpot = SpotLocation - Komendant->GetActorLocation();
 	const float Distance = ToSpot.Size2D();
-	if (SearchTime <= 0.f && Distance > InspectApproachDistance && StateTime < InspectApproachSeconds)
+	const bool bClear = SearchTime <= 0.f && FMath::Abs(ToSpot.Z) <= SameFloorHeight && HasClearLine(Komendant->GetActorLocation(), SpotLocation);
+	const float ApproachSeconds = bInspectSeenHide ? InspectSeenHideApproachSeconds : InspectApproachSeconds;
+	bool bApproach = SearchTime <= 0.f && (Distance > InspectApproachDistance || !bClear) && StateTime < ApproachSeconds;
+	// Идёт по прямой: тайник на виду или путь по точкам уже пройден.
+	if (bApproach && (!bInspectViaPath || !Path.IsValidIndex(PathIndex)))
 	{
-		MoveToward(SpotLocation, Personality->PatrolSpeed * 1.4f * (IsDeaneryMorning() ? GetRoundConfig()->DeanerySpeedScale : 1.f));
+		if (Distance < InspectBestDistance - 15.f)
+		{
+			InspectBestDistance = Distance;
+			InspectNoProgressTime = 0.f;
+		}
+		else
+		{
+			InspectNoProgressTime += DeltaSeconds;
+		}
+		// Упёрся, но рукой уже дотягивается — роется отсюда, как и раньше. Упёрся уже после пути по точкам —
+		// обходить больше нечем: бросает тайник сразу, а не толкается в мебель до конца отведённых секунд.
+		if (InspectNoProgressTime >= InspectNoProgressSeconds && ((bClear && Distance <= InspectReachDistance) || bInspectViaPath))
+		{
+			bApproach = false;
+		}
+	}
+	if (bApproach)
+	{
+		const float Speed = Personality->PatrolSpeed * 1.4f * (IsDeaneryMorning() ? GetRoundConfig()->DeanerySpeedScale : 1.f);
+		if (!bInspectViaPath)
+		{
+			// Тайник на виду — по прямой.
+			if (bClear && InspectNoProgressTime < InspectNoProgressSeconds)
+			{
+				MoveToward(SpotLocation, Speed);
+				return;
+			}
+			// Тайник за стеной или на другом этаже (нарушитель залез в шкаф, пока Палыч был на лестнице) или прямо не пройти —
+			// по точкам маршрута до места, откуда тайник видно, а там по прямой. Близко по карте ещё не значит «рядом».
+			// Путь строится один раз: тайник не двигается, а перестройка каждую секунду снова начинала бы его
+			// с ближайшей точки — часто уже пройденной, и Палыч ходил бы туда-обратно по лестнице.
+			bInspectViaPath = true;
+			InspectBestDistance = TNumericLimits<float>::Max();
+			InspectNoProgressTime = 0.f;
+			PlanPathTo(SpotLocation, true, true);
+		}
+		if (FollowPath(Speed, DeltaSeconds))
+		{
+			MoveToward(SpotLocation, Speed);
+		}
 		return;
 	}
 
 	// Сквозь стены и с другого этажа не обыскивает: не дошёл — бросает этот тайник.
-	if (SearchTime <= 0.f && (Distance > InspectReachDistance || FMath::Abs(ToSpot.Z) > SameFloorHeight
-		|| !HasClearLine(Komendant->GetActorLocation(), SpotLocation)))
+	if (SearchTime <= 0.f && (Distance > InspectReachDistance || !bClear))
 	{
-		UE_LOG(LogObshaga, Verbose, TEXT("Komendant could not reach %s, skipping"), *Spot->GetName());
+		// Для автопроверки: почему не дошёл — далеко, другой этаж или стена (clear=0) и сколько шёл.
+		UE_LOG(LogObshaga, Verbose, TEXT("Komendant could not reach %s, skipping: dist=%.0f dz=%.0f clear=%d, approach %.1f of %.1f s, seen hide %d, t=%.1f"),
+			*Spot->GetName(), Distance, ToSpot.Z, bClear ? 1 : 0, StateTime, ApproachSeconds, bInspectSeenHide ? 1 : 0, GetRoundSeconds());
 		InterruptedQueuedSpot.Reset();
 		SetState(EKomendantState::Patrol);
 		return;
@@ -1300,6 +1353,36 @@ bool AKomendantAIController::FollowPath(float Speed, float DeltaSeconds)
 	return false;
 }
 
+void AKomendantAIController::SkipPassedPathStart()
+{
+	// Путь всегда начинается с ближайшей точки маршрута, даже когда Палыч её уже прошёл (середина лестницы) —
+	// он сначала шёл бы назад. Если до второй точки ближе, чем от первой, и к ней можно пройти напрямую, первую пропускаем.
+	if (Path.Num() < 2)
+	{
+		return;
+	}
+	const FVector From = Komendant->GetActorLocation();
+	if (FVector::Dist(From, Path[1]) >= FVector::Dist(Path[0], Path[1]))
+	{
+		return;
+	}
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(KomendantSkipStart), false, Komendant);
+	for (ADoorActor* Door : Doors)
+	{
+		Params.AddIgnoredActor(Door);
+	}
+	for (TActorIterator<APawn> It(GetWorld()); It; ++It)
+	{
+		Params.AddIgnoredActor(*It);
+	}
+	FHitResult Hit;
+	const float Radius = Komendant->GetCapsuleComponent()->GetScaledCapsuleRadius();
+	if (!GetWorld()->SweepSingleByChannel(Hit, From, Path[1], FQuat::Identity, ECC_Pawn, FCollisionShape::MakeSphere(Radius), Params))
+	{
+		Path.RemoveAt(0);
+	}
+}
+
 bool AKomendantAIController::HasClearLine(const FVector& From, const FVector& To) const
 {
 	// Мебель, двери, предметы и люди не в счёт — мешают только стены и перекрытия.
@@ -1348,7 +1431,7 @@ AKomendantWaypoint* AKomendantAIController::FindNearestWaypoint(const FVector& L
 	return Best;
 }
 
-bool AKomendantAIController::PlanPathTo(const FVector& Goal, bool bGoalNeedsSight)
+bool AKomendantAIController::PlanPathTo(const FVector& Goal, bool bGoalNeedsSight, bool bSkipPassedStart)
 {
 	Path.Reset();
 	PathIndex = 0;
@@ -1448,6 +1531,10 @@ bool AKomendantAIController::PlanPathTo(const FVector& Goal, bool bGoalNeedsSigh
 	for (AKomendantWaypoint* Step = End; Step; Step = Previous.FindRef(Step))
 	{
 		Path.Insert(Step->GetActorLocation(), 0);
+	}
+	if (bSkipPassedStart)
+	{
+		SkipPassedPathStart();
 	}
 	// Через дверные проёмы — ровно посередине, чтобы не цеплять косяк.
 	ADoorActor::ThreadDoorways(GetWorld(), Path, Komendant->GetActorLocation());

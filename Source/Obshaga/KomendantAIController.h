@@ -119,9 +119,14 @@ private:
 	bool MoveToward(const FVector& Goal, float Speed);
 	/** Шаг по построенному пути. true — путь пройден (или его нет). */
 	bool FollowPath(float Speed, float DeltaSeconds);
-	/** bGoalNeedsSight — закончить путь в точке, откуда цель видно (не за стеной от неё). */
-	bool PlanPathTo(const FVector& Goal, bool bGoalNeedsSight = false);
+	/**
+	 * bGoalNeedsSight — закончить путь в точке, откуда цель видно (не за стеной от неё).
+	 * bSkipPassedStart — не начинать с точки маршрута, которую Палыч уже прошёл (см. SkipPassedPathStart).
+	 */
+	bool PlanPathTo(const FVector& Goal, bool bGoalNeedsSight = false, bool bSkipPassedStart = false);
 	AKomendantWaypoint* FindNearestWaypoint(const FVector& Location, bool bNeedSight = false) const;
+	/** Путь по точкам маршрута (ещё без дверных проёмов) начинается с уже пройденной точки (середина лестницы) — выкидывает её. */
+	void SkipPassedPathStart();
 	/** Нет ли стены или перекрытия между двумя точками. */
 	bool HasClearLine(const FVector& From, const FVector& To) const;
 	AKomendantWaypoint* PickPatrolTarget() const;
@@ -199,6 +204,13 @@ private:
 	// Обыск.
 	TWeakObjectPtr<AHidingSpot> InspectSpot;
 	float SearchTime = 0.f;
+	/** Тайник обыскивается потому, что нарушитель залез в него у Палыча на глазах: подходит дольше и в обход стен. */
+	bool bInspectSeenHide = false;
+	/** К тайнику идёт по точкам маршрута (за стеной, на другом этаже или прямо упёрся); путь строится один раз. */
+	bool bInspectViaPath = false;
+	/** Подход по прямой: ближе всего к тайнику и сколько секунд с тех пор не приближался. */
+	float InspectBestDistance = TNumericLimits<float>::Max();
+	float InspectNoProgressTime = 0.f;
 
 	/** Кого комендант видит в этом кадре (жильцы не в укрытии). */
 	TArray<AObshagaCharacter*> SeenPlayers;
