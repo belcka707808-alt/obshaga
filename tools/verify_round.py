@@ -1089,7 +1089,7 @@ def check_escape_speech(ctx):
         else:
             what = ", ".join("%s «%s»" % (SAY_NAMES[int(l.g(1))] if int(l.g(1)) < len(SAY_NAMES) else l.g(1), clip(l.g(4), 40)) for l in said) or "ничего"
             out.append(Result(FAIL, said[0] if said else end, "%s оторвался, а Палыч сказал: %s — реплики «ушёл» нет "
-                              "(побег ведёт в Investigate, а там звучит «услышал»)" % (end.g(1), what), rnd))
+                              "(после погони в Investigate должна звучать «ушёл»)" % (end.g(1), what), rnd))
     return out
 
 

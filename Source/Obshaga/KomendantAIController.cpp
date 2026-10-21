@@ -450,7 +450,8 @@ void AKomendantAIController::SetState(EKomendantState NewState)
 	switch (NewState)
 	{
 	case EKomendantState::Investigate:
-		Komendant->Say(EKomendantLine::Heard, GetSpeechStyle());
+		// Оторвавшийся нарушитель уводит его осмотреться на последнем месте: это «ушёл», а не «что-то слышал».
+		Komendant->Say(PreviousState == EKomendantState::Chase ? EKomendantLine::Lost : EKomendantLine::Heard, GetSpeechStyle(), PreviousState == EKomendantState::Chase);
 		break;
 	case EKomendantState::Bluff:
 		Komendant->Say(EKomendantLine::Bluff, GetSpeechStyle());
