@@ -1,0 +1,482 @@
+{
+  "asset": "/Game/Obshaga/Data/DA_RoundConfig.DA_RoundConfig",
+  "class": "ObshagaRoundConfig",
+  "changed": [
+    "bot_retry_after_caught_seconds",
+    "bot_sabotage_delay_seconds",
+    "contraband_suspicion_per_second",
+    "heavy_carry_suspicion_per_second",
+    "night_sky_scale",
+    "tasks_table"
+  ],
+  "properties": {
+    "accusation_suspicion": {
+      "value": 40.0,
+      "default": 40.0,
+      "changed": false
+    },
+    "accuse_distance": {
+      "value": 1200.0,
+      "default": 1200.0,
+      "changed": false
+    },
+    "alibi_bonus": {
+      "value": 0.30000001192092896,
+      "default": 0.30000001192092896,
+      "changed": false
+    },
+    "alibi_radius": {
+      "value": 800.0,
+      "default": 800.0,
+      "changed": false
+    },
+    "auto_start": {
+      "value": false,
+      "default": false,
+      "changed": false
+    },
+    "birthday_room_id": {
+      "value": "Room203",
+      "default": "Room203",
+      "changed": false
+    },
+    "birthday_seconds": {
+      "value": 90.0,
+      "default": 90.0,
+      "changed": false
+    },
+    "blackout_seconds": {
+      "value": 60.0,
+      "default": 60.0,
+      "changed": false
+    },
+    "blackout_sight_scale": {
+      "value": 0.6000000238418579,
+      "default": 0.6000000238418579,
+      "changed": false
+    },
+    "blackout_sky_scale": {
+      "value": 0.10000000149011612,
+      "default": 0.10000000149011612,
+      "changed": false
+    },
+    "bot_alibi_chance": {
+      "value": 0.3499999940395355,
+      "default": 0.3499999940395355,
+      "changed": false
+    },
+    "bot_confess_weight": {
+      "value": 1.0,
+      "default": 1.0,
+      "changed": false
+    },
+    "bot_fix_check_chance": {
+      "value": 0.3499999940395355,
+      "default": 0.3499999940395355,
+      "changed": false
+    },
+    "bot_flee_distance": {
+      "value": 900.0,
+      "default": 900.0,
+      "changed": false
+    },
+    "bot_hide_max_seconds": {
+      "value": 14.0,
+      "default": 14.0,
+      "changed": false
+    },
+    "bot_hide_min_seconds": {
+      "value": 6.0,
+      "default": 6.0,
+      "changed": false
+    },
+    "bot_hide_search_radius": {
+      "value": 450.0,
+      "default": 450.0,
+      "changed": false
+    },
+    "bot_idle_max_seconds": {
+      "value": 7.0,
+      "default": 7.0,
+      "changed": false
+    },
+    "bot_idle_min_seconds": {
+      "value": 2.0,
+      "default": 2.0,
+      "changed": false
+    },
+    "bot_lie_weight": {
+      "value": 2.0,
+      "default": 2.0,
+      "changed": false
+    },
+    "bot_line_cooldown": {
+      "value": 20.0,
+      "default": 20.0,
+      "changed": false
+    },
+    "bot_outside_seconds": {
+      "value": 15.0,
+      "default": 15.0,
+      "changed": false
+    },
+    "bot_read_note_chance": {
+      "value": 0.3499999940395355,
+      "default": 0.3499999940395355,
+      "changed": false
+    },
+    "bot_retry_after_caught_seconds": {
+      "value": 180.0,
+      "default": 0.0,
+      "changed": true
+    },
+    "bot_sabotage_delay_seconds": {
+      "value": 300.0,
+      "default": 0.0,
+      "changed": true
+    },
+    "bot_silent_weight": {
+      "value": 1.0,
+      "default": 1.0,
+      "changed": false
+    },
+    "bot_task_ids": {
+      "value": [
+        "steal_tv",
+        "protect_tv",
+        "hide_contraband",
+        "sabotage_kitchen",
+        "fix_kitchen",
+        "start_rumor",
+        "build_trust",
+        "curfew_breach"
+      ],
+      "default": [
+        "steal_tv",
+        "protect_tv",
+        "hide_contraband",
+        "sabotage_kitchen",
+        "fix_kitchen",
+        "start_rumor",
+        "build_trust",
+        "curfew_breach"
+      ],
+      "changed": false
+    },
+    "bot_tip_max_seconds": {
+      "value": 90.0,
+      "default": 90.0,
+      "changed": false
+    },
+    "bot_tip_min_seconds": {
+      "value": 20.0,
+      "default": 20.0,
+      "changed": false
+    },
+    "carry_suspicion_per_second": {
+      "value": 12.0,
+      "default": 12.0,
+      "changed": false
+    },
+    "confess_penalty": {
+      "value": 10,
+      "default": 10,
+      "changed": false
+    },
+    "contraband_lie_penalty": {
+      "value": 0.25,
+      "default": 0.25,
+      "changed": false
+    },
+    "contraband_suspicion_per_second": {
+      "value": 200.0,
+      "default": 400.0,
+      "changed": true
+    },
+    "curfew_outside_seconds": {
+      "value": 10.0,
+      "default": 10.0,
+      "changed": false
+    },
+    "curfew_suspicion_per_second": {
+      "value": 15.0,
+      "default": 15.0,
+      "changed": false
+    },
+    "deanery_inspect_scale": {
+      "value": 0.6000000238418579,
+      "default": 0.6000000238418579,
+      "changed": false
+    },
+    "deanery_speed_scale": {
+      "value": 1.2999999523162842,
+      "default": 1.2999999523162842,
+      "changed": false
+    },
+    "debug_main_tasks": {
+      "value": [],
+      "default": [],
+      "changed": false
+    },
+    "evening_seconds": {
+      "value": 240.0,
+      "default": 240.0,
+      "changed": false
+    },
+    "eviction_penalty": {
+      "value": 50,
+      "default": 50,
+      "changed": false
+    },
+    "eviction_strikes": {
+      "value": 3,
+      "default": 3,
+      "changed": false
+    },
+    "evidence_room_id": {
+      "value": "Vahta",
+      "default": "Vahta",
+      "changed": false
+    },
+    "failed_lie_penalty": {
+      "value": 30,
+      "default": 30,
+      "changed": false
+    },
+    "false_accusation_suspicion": {
+      "value": 25.0,
+      "default": 25.0,
+      "changed": false
+    },
+    "fire_alarm_grace_seconds": {
+      "value": 8.0,
+      "default": 8.0,
+      "changed": false
+    },
+    "fire_alarm_seconds": {
+      "value": 30.0,
+      "default": 30.0,
+      "changed": false
+    },
+    "fire_alarm_suspicion_per_second": {
+      "value": 2.0,
+      "default": 2.0,
+      "changed": false
+    },
+    "flashlight_cone_degrees": {
+      "value": 28.0,
+      "default": 28.0,
+      "changed": false
+    },
+    "flashlight_intensity": {
+      "value": 6.0,
+      "default": 6.0,
+      "changed": false
+    },
+    "flashlight_radius": {
+      "value": 700.0,
+      "default": 700.0,
+      "changed": false
+    },
+    "grudge_suspicion": {
+      "value": 60.0,
+      "default": 60.0,
+      "changed": false
+    },
+    "heavy_carry_suspicion_per_second": {
+      "value": 45.0,
+      "default": 30.0,
+      "changed": true
+    },
+    "hidden_contraband_suspicion": {
+      "value": 60.0,
+      "default": 60.0,
+      "changed": false
+    },
+    "immunity_seconds": {
+      "value": 10.0,
+      "default": 10.0,
+      "changed": false
+    },
+    "inspect_seconds": {
+      "value": 2.5,
+      "default": 2.5,
+      "changed": false
+    },
+    "interrogation_seconds": {
+      "value": 8.0,
+      "default": 8.0,
+      "changed": false
+    },
+    "intro_seconds": {
+      "value": 9.0,
+      "default": 9.0,
+      "changed": false
+    },
+    "investigate_seconds": {
+      "value": 5.0,
+      "default": 5.0,
+      "changed": false
+    },
+    "item_lost_seconds": {
+      "value": 45.0,
+      "default": 45.0,
+      "changed": false
+    },
+    "komendant_catch_distance": {
+      "value": 160.0,
+      "default": 160.0,
+      "changed": false
+    },
+    "komendant_min_noise": {
+      "value": 0.30000001192092896,
+      "default": 0.30000001192092896,
+      "changed": false
+    },
+    "lie_base_chance": {
+      "value": 0.3499999940395355,
+      "default": 0.3499999940395355,
+      "changed": false
+    },
+    "max_chronicle_lines": {
+      "value": 8,
+      "default": 8,
+      "changed": false
+    },
+    "max_residents_with_bots": {
+      "value": 6,
+      "default": 6,
+      "changed": false
+    },
+    "min_players_for_roles": {
+      "value": 4,
+      "default": 4,
+      "changed": false
+    },
+    "morning_seconds": {
+      "value": 180.0,
+      "default": 180.0,
+      "changed": false
+    },
+    "night_door_noise_multiplier": {
+      "value": 2.0,
+      "default": 2.0,
+      "changed": false
+    },
+    "night_event_delay_seconds": {
+      "value": 8.0,
+      "default": 8.0,
+      "changed": false
+    },
+    "night_fade_seconds": {
+      "value": 6.0,
+      "default": 6.0,
+      "changed": false
+    },
+    "night_hearing_multiplier": {
+      "value": 1.2999999523162842,
+      "default": 1.2999999523162842,
+      "changed": false
+    },
+    "night_seconds": {
+      "value": 300.0,
+      "default": 300.0,
+      "changed": false
+    },
+    "night_sight_multiplier": {
+      "value": 1.2000000476837158,
+      "default": 1.2000000476837158,
+      "changed": false
+    },
+    "night_sky_scale": {
+      "value": 2.5,
+      "default": 5.0,
+      "changed": true
+    },
+    "night_sun_scale": {
+      "value": 0.11999999731779099,
+      "default": 0.11999999731779099,
+      "changed": false
+    },
+    "pipe_seconds": {
+      "value": 90.0,
+      "default": 90.0,
+      "changed": false
+    },
+    "players_for_sure_paranoid": {
+      "value": 6,
+      "default": 6,
+      "changed": false
+    },
+    "rat_tip_bonus": {
+      "value": 15,
+      "default": 15,
+      "changed": false
+    },
+    "rat_tip_window_seconds": {
+      "value": 60.0,
+      "default": 60.0,
+      "changed": false
+    },
+    "rematch_intro_seconds": {
+      "value": 5.0,
+      "default": 5.0,
+      "changed": false
+    },
+    "self_break_max_seconds": {
+      "value": 90.0,
+      "default": 90.0,
+      "changed": false
+    },
+    "self_break_min_seconds": {
+      "value": 20.0,
+      "default": 20.0,
+      "changed": false
+    },
+    "silent_penalty": {
+      "value": 20,
+      "default": 20,
+      "changed": false
+    },
+    "sms_count": {
+      "value": 3,
+      "default": 3,
+      "changed": false
+    },
+    "start_delay_seconds": {
+      "value": 5.0,
+      "default": 5.0,
+      "changed": false
+    },
+    "stranded_margin": {
+      "value": 100.0,
+      "default": 100.0,
+      "changed": false
+    },
+    "stranded_return_seconds": {
+      "value": 20.0,
+      "default": 20.0,
+      "changed": false
+    },
+    "suspicion_after_strike": {
+      "value": 40.0,
+      "default": 40.0,
+      "changed": false
+    },
+    "suspicion_decay_per_second": {
+      "value": 1.5,
+      "default": 1.5,
+      "changed": false
+    },
+    "tasks_table": {
+      "value": "/Game/Obshaga/Data/DT_Tasks.DT_Tasks",
+      "default": null,
+      "changed": true
+    },
+    "unseen_window_seconds": {
+      "value": 10.0,
+      "default": 10.0,
+      "changed": false
+    }
+  }
+}
