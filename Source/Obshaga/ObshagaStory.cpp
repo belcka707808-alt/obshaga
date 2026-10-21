@@ -231,7 +231,9 @@ void UObshagaStoryConfig::FillFromDefaults()
 		WeekNights.Add(ObshagaStory::DefaultWeekNight(Night));
 	}
 
-	static const TCHAR* BotSituations[] = { TEXT("Увидел Палыча"), TEXT("Поймали соседа"), TEXT("Хвастается телевизором"), TEXT("Разбудила пожарная тревога"), TEXT("Подтверждает алиби"), TEXT("Зовёт Палыча: уносят телевизор") };
+	static const TCHAR* BotSituations[] = { TEXT("Увидел Палыча"), TEXT("Поймали соседа"), TEXT("Хвастается телевизором"), TEXT("Разбудила пожарная тревога"), TEXT("Подтверждает алиби"), TEXT("Зовёт Палыча: уносят телевизор"),
+		TEXT("Называет вора телевизора"), TEXT("Называет автора слухов"), TEXT("Стучит на чужую комнату"), TEXT("Уронил вещь, чтобы выманить Палыча") };
+	static_assert(static_cast<int32>(UE_ARRAY_COUNT(BotSituations)) == static_cast<int32>(ObshagaStory::EBotLine::Count), "BotSituations needs a label for every EBotLine");
 	BotLines.Reset();
 	for (int32 Situation = 0; Situation < static_cast<int32>(ObshagaStory::EBotLine::Count); ++Situation)
 	{
@@ -354,6 +356,10 @@ FText ObshagaStory::DefaultBotLine(EBotLine Situation, int32 Variant)
 		{ LOCTEXT("BotFire0", "Три часа ночи, какая тревога?!"), LOCTEXT("BotFire1", "Дайте поспать…"), LOCTEXT("BotFire2", "Опять учения?"), LOCTEXT("BotFire3", "Я в тапках вообще-то") },
 		{ LOCTEXT("BotAlibi0", "Он был со мной всю ночь!"), LOCTEXT("BotAlibi1", "Это не он, Палыч"), LOCTEXT("BotAlibi2", "Мы чай пили, честно"), LOCTEXT("BotAlibi3", "Я свидетель!") },
 		{ LOCTEXT("BotCall0", "Палыч! Телевизор уносят!"), LOCTEXT("BotCall1", "Держи вора!"), LOCTEXT("BotCall2", "Э, положи где взял!"), LOCTEXT("BotCall3", "Палыч, сюда! Тут кража!") },
+		{ LOCTEXT("BotAccuse0", "Палыч! Это он телевизор упёр!"), LOCTEXT("BotAccuse1", "Я всё видел, это он!"), LOCTEXT("BotAccuse2", "Вот он, наш киноман!"), LOCTEXT("BotAccuse3", "Палыч, проверьте вон того!") },
+		{ LOCTEXT("BotAccuseRumor0", "Палыч, это она записки разбрасывает!"), LOCTEXT("BotAccuseRumor1", "Вот кто тут сплетни пишет!"), LOCTEXT("BotAccuseRumor2", "Я видел, кто подкинул записку!"), LOCTEXT("BotAccuseRumor3", "Автор слухов — вот, стоит!") },
+		{ LOCTEXT("BotTipRoom0", "Палыч, загляни-ка сюда…"), LOCTEXT("BotTipRoom1", "А тут что-то интересное в шкафу…"), LOCTEXT("BotTipRoom2", "Я ничего не говорил, но проверьте тут"), LOCTEXT("BotTipRoom3", "Палыч! Тут нечисто!") },
+		{ LOCTEXT("BotLure0", "Ой!"), LOCTEXT("BotLure1", "Упс…"), LOCTEXT("BotLure2", "Оно само!"), LOCTEXT("BotLure3", "*свистит*") },
 	};
 	return Lines[FMath::Clamp(static_cast<int32>(Situation), 0, static_cast<int32>(EBotLine::Count) - 1)][FMath::Clamp(Variant, 0, BotLinesPerSituation - 1)];
 }

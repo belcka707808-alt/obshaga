@@ -249,7 +249,8 @@ public:
 	/** Какие задания умеет бот (id строк DT_Tasks). Остальные боту не выдаются. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bots")
 	TArray<FName> BotTaskIds = { TEXT("steal_tv"), TEXT("protect_tv"), TEXT("hide_contraband"), TEXT("sabotage_kitchen"), TEXT("fix_kitchen"),
-		TEXT("start_rumor"), TEXT("build_trust"), TEXT("curfew_breach") };
+		TEXT("start_rumor"), TEXT("build_trust"), TEXT("curfew_breach"), TEXT("frame_roommate"), TEXT("investigate_theft"), TEXT("expose_liar"),
+		TEXT("tip_off"), TEXT("cover_for_friend"), TEXT("fake_alarm") };
 
 	/** С какого расстояния бот замечает Палыча (если видит его) и уходит от него. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bots", meta = (ClampMin = "0", Units = "cm"))
@@ -313,6 +314,38 @@ public:
 	/** С каким шансом бот читает найденную записку (решает один раз на записку). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bots", meta = (ClampMin = "0", ClampMax = "1"))
 	float BotReadNoteChance = 0.35f;
+
+	/** Бот замечает, что сосед взял, положил, бросил, спрятал или несёт вещь, только если тот не дальше этого и на виду. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bots", meta = (ClampMin = "0", Units = "cm"))
+	float BotWitnessDistance = 1500.f;
+
+	/** «Настучи на комнату» без улик: бот стучит наугад только в последние столько секунд ночи (или утром). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bots", meta = (ClampMin = "0", Units = "s"))
+	float BotTipGuessSeconds = 120.f;
+
+	/** Шанс, что бот без улик и без слуха всё-таки настучит на случайную чужую комнату (решает один раз за раунд). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bots", meta = (ClampMin = "0", ClampMax = "1"))
+	float BotTipGuessChance = 0.5f;
+
+	/** «Прикрой друга»: к допросу дальше этого бот не бежит — не успеет. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bots", meta = (ClampMin = "0", Units = "cm"))
+	float BotAlibiRunDistance = 2500.f;
+
+	/** Пойманный бот, за которого уже вступились, врёт с таким шансом (иначе — как обычно, по весам). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bots", meta = (ClampMin = "0", ClampMax = "1"))
+	float BotLieWithAlibiChance = 0.8f;
+
+	/** «Ложная тревога»: бот бросает вещь, когда спокойный Палыч не ближе этого (по горизонтали)… */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bots", meta = (ClampMin = "0", Units = "cm"))
+	float BotLureMinDistance = 700.f;
+
+	/** …и не дальше этого: дальше он может и не услышать. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bots", meta = (ClampMin = "0", Units = "cm"))
+	float BotLureMaxDistance = 1400.f;
+
+	/** «Спрячь запрещёнку»: с таким шансом бот прячет её не у себя, а в общем месте (санузел, кухня, гостиная) — туда утренний обыск не ходит. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bots", meta = (ClampMin = "0", ClampMax = "1"))
+	float BotHideOutsideBedroomChance = 0.6f;
 
 	/** Бот говорит реплику не чаще раза в столько секунд. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bots", meta = (ClampMin = "0", Units = "s"))

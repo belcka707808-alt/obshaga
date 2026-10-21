@@ -1482,12 +1482,26 @@ void AObshagaGameMode::SendSms()
 	for (AObshagaPlayerState* PlayerState : Players)
 	{
 		FString Source;
-		const FText Sms = MakeSmsFor(PlayerState, Players, &Source);
+		FSmsRumor Rumor;
+		const FText Sms = MakeSmsFor(PlayerState, Players, &Source, &Rumor);
 		PlayerState->AddSms(Sms);
 		NotifyPlayer(PlayerState, LOCTEXT("NewSms", "Новое СМС — открой телефон [Tab]"));
 		// Для автопроверки: правдивое ли СМС и по какому событию. Журнал есть только на сервере, по сети это не уходит.
 		UE_LOG(LogObshaga, Verbose, TEXT("SMS %d to %s (%s) t=%.1f: %s [%s]"), SmsSent + 1, *PlayerState->GetPlayerName(),
 			*StaticEnum<EPlayerRole>()->GetNameStringByValue(static_cast<int64>(PlayerState->GetTrueRole())), GetRoundSeconds(), *Sms.ToString(), *Source);
+
+		// Бот «читает» то же СМС: его мозгу слух передаётся данными. Параноику-боту — его выдумка, как и человеку.
+		if (Rumor.Who && PlayerState->IsABot())
+		{
+			for (AObshagaBotController* Bot : Bots)
+			{
+				if (IsValid(Bot) && Bot->GetPlayerState<AObshagaPlayerState>() == PlayerState)
+				{
+					Bot->HearRumor(Rumor.Who, Rumor.Verb, Rumor.RoomId);
+					break;
+				}
+			}
+		}
 	}
 
 	if (++SmsSent >= GetRoundConfig()->SmsCount)
@@ -1496,11 +1510,14 @@ void AObshagaGameMode::SendSms()
 	}
 }
 
-FText AObshagaGameMode::MakeSmsFor(const AObshagaPlayerState* Reader, const TArray<AObshagaPlayerState*>& Players, FString* OutSource) const
+FText AObshagaGameMode::MakeSmsFor(const AObshagaPlayerState* Reader, const TArray<AObshagaPlayerState*>& Players, FString* OutSource, FSmsRumor* OutRumor) const
 {
 	FString Unused;
 	FString& Source = OutSource ? *OutSource : Unused;
 	Source = TEXT("quiet");
+	FSmsRumor UnusedRumor;
+	FSmsRumor& Rumor = OutRumor ? *OutRumor : UnusedRumor;
+	Rumor = FSmsRumor();
 	const FText Quiet = LOCTEXT("SmsQuiet", "Сегодня в общаге подозрительно тихо...");
 	const FText Verbs[] = {
 		LOCTEXT("SmsCarried", "что-то тащил"),
@@ -1552,48 +1569,58 @@ FText AObshagaGameMode::MakeSmsFor(const AObshagaPlayerState* Reader, const TArr
 		}
 		const TPair<int32, const ARoomVolume*>& Lie = Lies[FMath::RandRange(0, Lies.Num() - 1)];
 		Source = FString::Printf(TEXT("lie verb %d room %s"), Lie.Key, *Lie.Value->RoomId.ToString());
-		return Compose(Others[FMath::RandRange(0, Others.Num() - 1)], Lie.Key, Lie.Value);
+		AObshagaPlayerState* Victim = Others[FMath::RandRange(0, Others.Num() - 1)];
+		Rumor.Who = Victim;
+		Rumor.Verb = Lie.Key;
+		Rumor.RoomId = Lie.Value->RoomId;
+		return Compose(Victim, Lie.Key, Lie.Value);
 	}
 
 	// Остальным — правда: случайное настоящее событие с участием другого игрока.
 	const UGameEventSubsystem* Bus = UGameEventSubsystem::Get(this);
 	TArray<FText> Rumors;
 	TArray<FString> Sources;
+	TArray<FSmsRumor> Facts;
 	for (const FGameEvent& Event : Bus->GetEventLog())
 	{
-		const AObshagaPlayerState* Who = Cast<AObshagaPlayerState>(Event.Instigator);
+		AObshagaPlayerState* Who = Cast<AObshagaPlayerState>(Event.Instigator);
 		const ARoomVolume* Room = ARoomVolume::FindRoomById(this, Event.RoomId);
 		if (!Who || Who == Reader || !Room)
 		{
 			continue;
 		}
 
-		const int32 NumBefore = Rumors.Num();
+		int32 Verb = INDEX_NONE;
 		switch (Event.Type)
 		{
 		case EGameEventType::ItemPickedUp:
-			Rumors.Add(Compose(Who, 0, Room));
+			Verb = 0;
 			break;
 		case EGameEventType::ItemHidden:
-			Rumors.Add(Compose(Who, 1, Room));
+			Verb = 1;
 			break;
 		case EGameEventType::Noise:
-			Rumors.Add(Compose(Who, 2, Room));
+			Verb = 2;
 			break;
 		case EGameEventType::RoomEntered:
 			// «Крутился» — только про общие комнаты, не про коридоры и не про чью-то спальню.
 			if (Room->RoomType != ERoomType::Corridor && Room->RoomType != ERoomType::Stairs && Room->RoomType != ERoomType::Bedroom)
 			{
-				Rumors.Add(Compose(Who, 3, Room));
+				Verb = 3;
 			}
 			break;
 		default:
 			break;
 		}
-		if (Rumors.Num() > NumBefore)
+		if (Verb != INDEX_NONE)
 		{
+			Rumors.Add(Compose(Who, Verb, Room));
 			Sources.Add(FString::Printf(TEXT("event %s by %s room %s t=%.1f"), *StaticEnum<EGameEventType>()->GetNameStringByValue(static_cast<int64>(Event.Type)),
 				*Who->GetPlayerName(), *Event.RoomId.ToString(), Event.Time - RoundStartWorldTime));
+			FSmsRumor& Fact = Facts.AddDefaulted_GetRef();
+			Fact.Who = Who;
+			Fact.Verb = Verb;
+			Fact.RoomId = Event.RoomId;
 		}
 	}
 	if (Rumors.IsEmpty())
@@ -1602,10 +1629,11 @@ FText AObshagaGameMode::MakeSmsFor(const AObshagaPlayerState* Reader, const TArr
 	}
 	const int32 Picked = FMath::RandRange(0, Rumors.Num() - 1);
 	Source = Sources[Picked];
+	Rumor = Facts[Picked];
 	return Rumors[Picked];
 }
 
-void AObshagaGameMode::TipOff(AObshagaPlayerState* Rat)
+bool AObshagaGameMode::TipOff(AObshagaPlayerState* Rat)
 {
 	const AObshagaGameState* State = GetGameState<AObshagaGameState>();
 	if (!Rat || !State || State->GetRoundState() != ERoundState::InProgress
@@ -1617,7 +1645,7 @@ void AObshagaGameMode::TipOff(AObshagaPlayerState* Rat)
 				*LogPlayerName(Rat->GetRatTarget()), State && State->GetRoundState() == ERoundState::InProgress ? 1 : 0,
 				Rat->GetTrueRole() == EPlayerRole::Rat ? 1 : 0, Rat->HasUsedTip() ? 1 : 0, Rat->IsEvicted() ? 1 : 0);
 		}
-		return;
+		return false;
 	}
 
 	APlayerState* Target = Rat->GetRatTarget();
@@ -1625,7 +1653,7 @@ void AObshagaGameMode::TipOff(AObshagaPlayerState* Rat)
 	if (!TargetCharacter)
 	{
 		UE_LOG(LogObshaga, Verbose, TEXT("Tip by %s on %s refused: no pawn"), *Rat->GetPlayerName(), *LogPlayerName(Target));
-		return;
+		return false;
 	}
 
 	// Стук один на раунд, поэтому впустую он не тратится: сначала убеждаемся, что от него будет толк.
@@ -1634,7 +1662,7 @@ void AObshagaGameMode::TipOff(AObshagaPlayerState* Rat)
 	{
 		UE_LOG(LogObshaga, Verbose, TEXT("Tip by %s on %s refused: evicted"), *Rat->GetPlayerName(), *Target->GetPlayerName());
 		NotifyPlayer(Rat, LOCTEXT("TipEvicted", "Его уже выселили — стучать не на кого"));
-		return;
+		return false;
 	}
 
 	// Комендант идёт туда, где жертва находится прямо сейчас.
@@ -1647,7 +1675,7 @@ void AObshagaGameMode::TipOff(AObshagaPlayerState* Rat)
 	{
 		UE_LOG(LogObshaga, Verbose, TEXT("Tip by %s on %s refused: busy"), *Rat->GetPlayerName(), *Target->GetPlayerName());
 		NotifyPlayer(Rat, LOCTEXT("TipBusy", "Комендант занят — стукни позже"));
-		return;
+		return false;
 	}
 
 	Rat->MarkTipUsed();
@@ -1668,9 +1696,10 @@ void AObshagaGameMode::TipOff(AObshagaPlayerState* Rat)
 		Bus->Publish(Event);
 	}
 	NotifyPlayer(Rat, LOCTEXT("TipDone", "Ты настучал. Комендант пошёл проверять"));
+	return true;
 }
 
-void AObshagaGameMode::Accuse(AObshagaPlayerState* Accuser, AObshagaCharacter* Suspect)
+bool AObshagaGameMode::Accuse(AObshagaPlayerState* Accuser, AObshagaCharacter* Suspect)
 {
 	const AObshagaGameState* State = GetGameState<AObshagaGameState>();
 	const UObshagaRoundConfig* Config = GetRoundConfig();
@@ -1681,7 +1710,7 @@ void AObshagaGameMode::Accuse(AObshagaPlayerState* Accuser, AObshagaCharacter* S
 		|| Suspect->IsHiding() || Suspect->IsGhost())
 	{
 		UE_LOG(LogObshaga, Verbose, TEXT("Accuse by %s rejected: round, accuser or suspect state (can accuse: %d)"), Accuser ? *Accuser->GetPlayerName() : TEXT("-"), Accuser ? Accuser->CanAccuse() : 0);
-		return;
+		return false;
 	}
 
 	// Клиенту не верим: показать можно только на того, кто рядом и на виду.
@@ -1692,7 +1721,7 @@ void AObshagaGameMode::Accuse(AObshagaPlayerState* Accuser, AObshagaCharacter* S
 	{
 		UE_LOG(LogObshaga, Verbose, TEXT("Accuse by %s rejected: %s"), *Accuser->GetPlayerName(),
 			!Row ? TEXT("no accusation task") : (FVector::Dist(AccuserCharacter->GetActorLocation(), Suspect->GetActorLocation()) > MaxDistance ? TEXT("too far") : TEXT("no line of sight")));
-		return;
+		return false;
 	}
 
 	// Коменданту некогда слушать — попытка не тратится. От виновности это не зависит, так что ничего не выдаёт.
@@ -1705,7 +1734,7 @@ void AObshagaGameMode::Accuse(AObshagaPlayerState* Accuser, AObshagaCharacter* S
 	{
 		UE_LOG(LogObshaga, Verbose, TEXT("Accuse by %s postponed: komendant is busy"), *Accuser->GetPlayerName());
 		NotifyPlayer(Accuser, LOCTEXT("AccuseBusy", "Комендант занят — скажи позже"));
-		return;
+		return false;
 	}
 
 	// Обвинить можно один раз за раунд. Верно ли обвинение, решается сейчас:
@@ -1733,28 +1762,29 @@ void AObshagaGameMode::Accuse(AObshagaPlayerState* Accuser, AObshagaCharacter* S
 		Accuser->GetSuspicionComponent()->AddSuspicion(Config->FalseAccusationSuspicion);
 		NotifyPlayer(Accuser, LOCTEXT("AccuseWrong", "Комендант не поверил. Теперь он косится на тебя"));
 	}
+	return true;
 }
 
-void AObshagaGameMode::TipOffRoom(AObshagaPlayerState* By)
+bool AObshagaGameMode::TipOffRoom(AObshagaPlayerState* By)
 {
 	const AObshagaGameState* State = GetGameState<AObshagaGameState>();
 	AObshagaCharacter* Character = By ? Cast<AObshagaCharacter>(By->GetPawn()) : nullptr;
 	if (!State || State->GetRoundState() != ERoundState::InProgress || !Character || !By->CanTipRoom() || By->IsEvicted() || Character->IsGhost())
 	{
 		UE_LOG(LogObshaga, Verbose, TEXT("Room tip by %s rejected: not allowed (can tip %d)"), By ? *By->GetPlayerName() : TEXT("-"), By && By->CanTipRoom() ? 1 : 0);
-		return;
+		return false;
 	}
 	if (Character->IsHiding())
 	{
 		UE_LOG(LogObshaga, Verbose, TEXT("Room tip by %s rejected: hiding"), *By->GetPlayerName());
 		NotifyPlayer(By, LOCTEXT("RoomTipHiding", "Сначала вылези из укрытия"));
-		return;
+		return false;
 	}
 	if (Character->IsFrozen())
 	{
 		UE_LOG(LogObshaga, Verbose, TEXT("Room tip by %s rejected: interrogated"), *By->GetPlayerName());
 		NotifyPlayer(By, LOCTEXT("RoomTipFrozen", "Не на допросе же стучать"));
-		return;
+		return false;
 	}
 
 	const ARoomVolume* Room = Character->GetCurrentRoom();
@@ -1762,13 +1792,13 @@ void AObshagaGameMode::TipOffRoom(AObshagaPlayerState* By)
 	{
 		UE_LOG(LogObshaga, Verbose, TEXT("Room tip by %s rejected: not a bedroom (%s)"), *By->GetPlayerName(), Room ? *Room->RoomId.ToString() : TEXT("None"));
 		NotifyPlayer(By, LOCTEXT("RoomTipNotBedroom", "Стучать можно только на жилую комнату — зайди в неё"));
-		return;
+		return false;
 	}
 	if (Room->RoomId == By->GetHomeRoomId())
 	{
 		UE_LOG(LogObshaga, Verbose, TEXT("Room tip by %s rejected: own room"), *By->GetPlayerName());
 		NotifyPlayer(By, LOCTEXT("RoomTipOwn", "На свою комнату стучать незачем"));
-		return;
+		return false;
 	}
 	UE_LOG(LogObshaga, Verbose, TEXT("Room tip by %s: room %s, t=%.1f"), *By->GetPlayerName(), *Room->RoomId.ToString(), GetRoundSeconds());
 
@@ -1780,6 +1810,7 @@ void AObshagaGameMode::TipOffRoom(AObshagaPlayerState* By)
 	}
 	UGameEventSubsystem::PublishFrom(Character, EGameEventType::RoomTipOff);
 	NotifyPlayer(By, FText::Format(LOCTEXT("RoomTipDone", "Ты настучал: {0}. Комендант придёт с обыском"), Room->DisplayName));
+	return true;
 }
 
 void AObshagaGameMode::Evict(AObshagaPlayerState* PlayerState, AObshagaCharacter* Character)
