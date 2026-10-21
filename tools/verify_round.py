@@ -53,10 +53,11 @@ CONFIG_DEFAULTS = {
     "minNoise": 0.3, "inspect": 2.5, "alibiRadius": 800.0, "immunity": 10.0, "catch": 160.0, "chronicle": 8,
     "botConfess": 1.0, "botLie": 2.0, "botSilent": 1.0, "botAlibi": 0.35,
 }
-# Из кода: KomendantAIController.cpp (StuckSeconds), ObshagaStory.h (NumWeekNights), ObshagaBotController.cpp (думает 1,5–4 с).
+# Из кода: KomendantAIController.cpp (StuckSeconds), ObshagaStory.h (NumWeekNights), ObshagaBotController.cpp (думает 1,5–5 с;
+# решает раз в 0,4 с, поэтому сверху запас почти в секунду).
 STUCK_SECONDS = 2.5
 WEEK_NIGHTS = 5
-BOT_ANSWER = (1.4, 4.7)
+BOT_ANSWER = (1.4, 5.8)
 # «Длинная погоня»: не меньше стольких секунд, секунд на глазах у Палыча, сантиметров бега и смен комнат (или этажа).
 LONG_CHASE_SECONDS = 8.0
 LONG_CHASE_SEEN = 3.0
@@ -151,13 +152,22 @@ PATTERNS = [
     ("bot_tipped", r"^Bot (.+) tipped off on (.+)$"),
     ("bot_runs_hide", r"^Bot (.+) runs to hide in (\S+)"),
     ("bot_hid", r"^Bot (.+) hid in (\S+)$"),
-    ("bot_answers", r"^Bot (.+) answers EInterrogationChoice::(\w+)$"),
+    ("bot_answers", r"^Bot (.+?) answers EInterrogationChoice::(\w+)(?: \(alibi (\d+)\))?$"),
     ("bot_confirms", r"^Bot (.+) confirms alibi of (.+)$"),
     ("bot_left", r"^Evicted bot (.+?) left the building(?:, t=(" + NUM + r"))?$"),
     ("bot_stuck", r"^Bot (.+?) stuck near .* snapping to waypoint"),
     ("bot_breaks", r"^Bot (.+) breaks (\S+)$"),
     ("bot_repairs", r"^Bot (.+) repairs (\S+)$"),
     ("bot_goes_out", r"^Bot (.+) goes outside: (\d)$"),
+    ("bot_accuse", r"^Bot (.+?) accuses (.+?): evidence (\w+) \((.*)\), accepted (\d), t=(" + NUM + r")$"),
+    ("bot_tip_room", r"^Bot (.+?) tips room (\S+): evidence (\w+) \((.*)\), accepted (\d), t=(" + NUM + r")$"),
+    ("bot_plant", r"^Bot (.+?) planted (\S+) \((\S+)\) in (\S+), room of (.+), t=(" + NUM + r")$"),
+    ("bot_lure_throw", r"^Bot (.+?) lure throw (\S+) \((\S+)\): komendant (" + NUM + r") cm, sees me (\d), phase (\w+), t=(" + NUM + r")$"),
+    ("bot_lure_result", r"^Bot (.+?) lure result: (alerted|failed) after (" + NUM + r") s, t=(" + NUM + r")$"),
+    ("bot_alibi_run", r"^Bot (.+?) runs to alibi for (.+): (" + NUM + r") cm, (" + NUM + r") s left, t=(" + NUM + r")$"),
+    ("bot_rumor", r"^Bot (.+?) heard rumor: (.+) verb (-?\d+) room (\S+), t=(" + NUM + r")$"),
+    ("bot_tip_refused", r"^Bot (.+?) tip on (.+) refused, retry in (" + NUM + r") s$"),
+    ("bot_puts_down", r"^Bot (.+?) puts down (\S+): no task needs it$"),
     ("interro_start", r"^Interrogation started: (.+) \(contraband=(\d)\)(?:, item=(\S+) \(([^)]*)\), t=(" + NUM + r"))?$"),
     ("interro_res", r"^Interrogation of (.+) resolved: EInterrogationChoice::(\w+), strike=(\d), penalty=(" + NUM + r"), alibi=(\d+)(?:, answered=(\d), chance=("
      + NUM + r"), roll=(" + NUM + r"), contraband=(\d), strikes=(\d+), score=(" + NUM + r")(?:, suspicion=(" + NUM + r"))?, t=(" + NUM + r"))?$"),
@@ -195,6 +205,7 @@ PATTERNS = [
     ("end_device", r"^End device (\S+) room (\S+): broken (\d) brokenBy (.+?) repairedBy (.+?) brokenAt (" + NUM + r")$"),
     ("room_tip_rej", r"^Room tip by (.+) rejected: (.*)$"),
     ("room_tip", r"^Room tip by (.+): room (\S+), t=(" + NUM + r")$"),
+    ("accuse_rej", r"^Accuse by (.+) (rejected|postponed): (.*)$"),
     ("accuse", r"^Accuse by (.+) of (.+): (right|wrong) \((?:rumor task: (\d), proof: (\S+), holder (.+), item room (\S+)\))?"),
     ("hid_item", r"^(\S+) hid (\S+) in (\S+): player (.+), room (\S+), id=(\S+), contraband=(\d)$"),
     ("took_out", r"^(\S+) took (\S+) out of (\S+)$"),
@@ -208,7 +219,8 @@ PATTERNS = [
 PATTERNS = [(kind, re.compile(rx)) for kind, rx in PATTERNS]
 # Виды, по которым видно, что игрок — бот.
 BOT_KINDS = ("bot_answers", "bot_tipped", "bot_hid", "bot_runs_hide", "bot_confirms", "bot_left", "bot_stuck", "bot_breaks", "bot_repairs",
-             "bot_goes_out", "notice_bot")
+             "bot_goes_out", "notice_bot", "bot_accuse", "bot_tip_room", "bot_plant", "bot_lure_throw", "bot_lure_result", "bot_alibi_run",
+             "bot_rumor", "bot_tip_refused", "bot_puts_down")
 
 PREFIX = re.compile(r"^(?:\[(\d{4}\.\d\d\.\d\d-\d\d\.\d\d\.\d\d:\d{3})\])?(?:\[\s*\d+\])?LogObshaga: (?:(Verbose|VeryVerbose|Display|Warning|Error|Fatal): )?(.*)$")
 CRASH = re.compile(r"(=== Critical error|Assertion failed|Fatal error!|Unhandled Exception|appError called|LogObshaga: Fatal:)")
@@ -1406,7 +1418,7 @@ def interrogation_cases(ctx):
                 kind = "timeout" if answered == "0" else "silent"
                 if rnd.config_known and (not strike or penalty != cfg["silent"]):
                     problems.append("ждали страйк и −%g" % cfg["silent"])
-            # Сколько длился допрос: ответ бота — через 1,5–4 с, ложь и молчание по таймауту — ровно окно допроса.
+            # Сколько длился допрос: ответ бота — через 1,5–5 с, ложь и молчание по таймауту — ровно окно допроса.
             if took is not None and rnd.config_known:
                 window = cfg["interrogation"]
                 if kind == "timeout" and took < window - 0.5 and duration is not None and t >= duration - 1.0:
@@ -1505,11 +1517,14 @@ def check_lie_statistics(ctx):
 
 
 def check_bot_answer_mix(ctx):
-    """Доли ответов ботов против весов из Round config (botConfess/botLie/botSilent)."""
+    """Доли ответов ботов против весов из Round config (botConfess/botLie/botSilent).
+    Ответы, когда за бота вступились (alibi > 0), не в счёт: тогда он врёт чаще весов (BotLieWithAlibiChance)."""
     counts = {"Confess": 0, "Lie": 0, "Silent": 0}
     weights = None
     for rnd in ctx.rounds:
         for line in rnd.of("bot_answers"):
+            if line.g(3) is not None and int(line.g(3)) > 0:
+                continue
             if line.g(2) in counts:
                 counts[line.g(2)] += 1
         if rnd.config_known and "botLie" in rnd.config and weights is None:
@@ -2019,7 +2034,8 @@ def check_rat_bonus(ctx):
             out.append(Result(FAIL if problems else PASS, pending or line, "; ".join(problems) or note, rnd))
     if not any(r.status == PASS for r in out) and (bot_tips or refusals):
         text = ", ".join("%s: %d" % (k, v) for k, v in refusals.items())
-        out.append(Result(SKIP, None, "боты стучали %d раз; отказы сервера — %s (отказ «busy» сжигает стук бота на весь раунд)" % (bot_tips, text or "нет")))
+        retries = sum(len(rnd.of("bot_tip_refused")) for rnd in ctx.rounds)
+        out.append(Result(SKIP, None, "боты стучали %d раз; отказы сервера — %s (на отказ бот стучит снова через 8 с; повторов %d)" % (bot_tips, text or "нет", retries)))
     return out
 
 
@@ -2798,6 +2814,121 @@ def check_results_rows(ctx):
     return out
 
 
+# ---------------------------------------------------------------- Боты в заданиях
+
+SMS_EVENT_VERB = {"ItemPickedUp": 0, "ItemHidden": 1, "Noise": 2, "RoomEntered": 3}
+
+
+def check_bot_tasks(ctx):
+    """Боты в заданиях без «вещи»: обвинение, стук на комнату, ложная тревога, подстава и слухи из СМС.
+    Сверяет строки мозга бота с тем, что решил сервер."""
+    out = []
+    for rnd in ctx.rounds:
+        events = ev_list(rnd)
+        # Обвинение: «принято» = сервер вынес вердикт (строка «Accuse by … right/wrong» прямо перед строкой бота).
+        for line in rnd.of("bot_accuse"):
+            bot, suspect, strength, source, accepted = line.g(1), line.g(2), line.g(3), line.g(4), line.g(5) == "1"
+            verdict = prev_before(rnd, line, ("accuse",), predicate=lambda o: o.g(1) == bot, limit=12)
+            problems = []
+            if accepted and (verdict is None or verdict.g(2) != suspect):
+                problems.append("бот пишет «принято», а вердикта сервера на %s рядом нет" % suspect)
+            if not accepted and verdict is not None:
+                problems.append("бот пишет «не принято», а сервер вынес вердикт (%s)" % verdict.g(3))
+            right = verdict is not None and verdict.g(3) == "right"
+            if accepted and strength == "strong" and not right:
+                problems.append("твёрдая улика (%s), а обвинение неверное" % source)
+            if problems:
+                out.append(Result(FAIL, line, "; ".join(problems), rnd))
+            elif accepted:
+                out.append(Result(PASS, verdict, "%s назвал %s: улика %s (%s) — %s" % (bot, suspect, strength, source, "верно" if right else "неверно"), rnd))
+            else:
+                # Отказ сервера: «postponed» — Палыч занят; «rejected» — сервер считает дистанцию/видимость не так, как бот.
+                refusal = prev_before(rnd, line, ("accuse_rej",), predicate=lambda o: o.g(1) == bot, limit=12)
+                if refusal is not None and refusal.g(2) == "rejected" and refusal.g(3) in ("no line of sight", "too far", "no accusation task"):
+                    out.append(Result(FAIL, line, "%s хотел назвать %s, сервер отказал: %s — бот и сервер считают по-разному" % (bot, suspect, refusal.g(3)), rnd))
+                elif refusal is not None and refusal.g(2) == "rejected":
+                    out.append(Result(SKIP, line, "%s хотел назвать %s, сервер отказал (%s) — бот попробует позже" % (bot, suspect, refusal.g(3)), rnd))
+                else:
+                    out.append(Result(SKIP, line, "%s хотел назвать %s, Палыч был занят — бот попробует позже" % (bot, suspect), rnd))
+        # Стук на комнату: принятый — есть строка сервера «Room tip by … room R»; потом смотрим, нашлась ли там запрещёнка.
+        for line in rnd.of("bot_tip_room"):
+            bot, room, strength, source, accepted = line.g(1), line.g(2), line.g(3), line.g(4), line.g(5) == "1"
+            server = prev_before(rnd, line, ("room_tip", "room_tip_rej"), predicate=lambda o: o.g(1) == bot, limit=12)
+            if accepted and (server is None or server.kind != "room_tip" or server.g(2) != room):
+                out.append(Result(FAIL, line, "бот пишет «принято», а строки сервера «Room tip by %s: room %s» нет" % (bot, room), rnd))
+                continue
+            if not accepted:
+                if server is not None and server.kind == "room_tip":
+                    out.append(Result(FAIL, line, "бот пишет «не принято», а сервер стук принял", rnd))
+                else:
+                    out.append(Result(SKIP, line, "%s стучал на %s, сервер отказал (%s)" % (bot, room, server.g(2) if server is not None else "?"), rnd))
+                continue
+            t0 = tline(rnd, line, 6)
+            found = [e for e in events if e["type"] == "ContrabandConfiscated" and e["room"] == room and e["t"] is not None and t0 is not None and e["t"] >= t0 - 0.2]
+            out.append(Result(PASS, line, "%s настучал на %s: улика %s (%s); запрещёнку там %s" % (
+                bot, room, strength, source, "нашли" if found else "не нашли"), rnd))
+        # Ложная тревога: «alerted» — Палыч пошёл на шум бота (событие KomendantAlerted от него); «failed» — такого события нет.
+        for line in rnd.of("bot_lure_result"):
+            bot, outcome, after = line.g(1), line.g(2), fnum(line.g(3))
+            t1 = tline(rnd, line, 4)
+            throw = prev_before(rnd, line, ("bot_lure_throw",), predicate=lambda o: o.g(1) == bot)
+            t0 = tline(rnd, throw, 7) if throw is not None else None
+            alerts = [e for e in events if e["type"] == "KomendantAlerted" and e["by"] == bot and e["t"] is not None and t1 is not None
+                      and (t0 is None or e["t"] >= t0 - 0.2) and e["t"] <= t1 + 0.2]
+            if outcome == "alerted" and not alerts:
+                out.append(Result(FAIL, line, "бот пишет «выманил», а события KomendantAlerted от %s нет" % bot, rnd))
+            elif outcome == "failed" and alerts and throw is not None:
+                out.append(Result(FAIL, line, "бот пишет «не вышло», а Палыч пошёл на его шум (t=%.1f)" % alerts[0]["t"], rnd))
+            else:
+                detail = ""
+                if throw is not None:
+                    detail = ", бросил %s за %s см от Палыча (видел его: %s, фаза %s)" % (throw.g(2), throw.g(4), throw.g(5), throw.g(6))
+                out.append(Result(PASS if outcome == "alerted" else SKIP, line, "%s: ложная тревога — %s через %.1f с%s" % (
+                    bot, "Палыч пошёл на шум" if outcome == "alerted" else "не клюнул", after or 0.0, detail), rnd))
+        # Подстава: комната — та, где бот оставил вещь (событие ItemDropped/ItemHidden от него), и это дом жертвы.
+        for line in rnd.of("bot_plant"):
+            bot, item_id, room, victim = line.g(1), line.g(2), line.g(4), line.g(5)
+            event = prev_before(rnd, line, ("event",), predicate=lambda o: o.g(1) in ("ItemDropped", "ItemHidden") and o.g(3) == bot, limit=30)
+            problems = []
+            if event is None:
+                problems.append("нет события ItemDropped/ItemHidden от бота")
+            elif event.g(5) != item_id:
+                problems.append("в событии вещь %s, а бот пишет %s" % (event.g(5), item_id))
+            home = rnd.homes.get(victim)
+            if home and home != room:
+                problems.append("%s живёт в %s, а вещь оставлена в %s" % (victim, home, room))
+            out.append(Result(FAIL if problems else PASS, line, "; ".join(problems) or "%s подбросил %s в %s (комната %s)" % (bot, item_id, room, victim), rnd))
+        # Слух боту — ровно то, что написано в его СМС (Параноику — выдумка, как и в тексте).
+        for line in rnd.of("bot_rumor"):
+            bot, who, verb, room = line.g(1), line.g(2), int(line.g(3)), line.g(4)
+            sms = prev_before(rnd, line, ("sms",), predicate=lambda o: o.g(2) == bot, limit=8)
+            if sms is None:
+                out.append(Result(FAIL, line, "слух боту без строки «SMS … to %s» перед ним" % bot, rnd))
+                continue
+            src = sms.g(6)
+            lie = re.match(r"^lie verb (\d+) room (\S+)$", src)
+            fact = re.match(r"^event (\w+) by (.+) room (\S+) t=", src)
+            problems = []
+            if lie:
+                if int(lie.group(1)) != verb or lie.group(2) != room:
+                    problems.append("в СМС выдумка «verb %s room %s», а боту передано verb %d room %s" % (lie.group(1), lie.group(2), verb, room))
+                if sms.g(3) != "Paranoid":
+                    problems.append("выдумка не Параноику (%s)" % sms.g(3))
+            elif fact:
+                if SMS_EVENT_VERB.get(fact.group(1)) != verb or fact.group(2) != who or fact.group(3) != room:
+                    problems.append("в СМС «%s», а боту передано %s verb %d room %s" % (src, who, verb, room))
+            else:
+                problems.append("у СМС нет источника для слуха (%s)" % src)
+            out.append(Result(FAIL if problems else PASS, line, "; ".join(problems) or "%s узнал из СМС: %s, verb %d, %s" % (bot, who, verb, room), rnd))
+        # Бежал подтвердить алиби — успел ли (строка «confirms alibi» по тому же допросу).
+        for line in rnd.of("bot_alibi_run"):
+            bot, suspect = line.g(1), line.g(2)
+            confirmed = next_after(rnd, line, ("bot_confirms",), stop_kinds=("interro_res",), predicate=lambda o: o.g(1) == bot and o.g(2) == suspect)
+            out.append(Result(PASS if confirmed is not None else SKIP, line, "%s бежал к допросу %s (%s см, %s с): %s" % (
+                bot, suspect, line.g(3), line.g(4), "успел подтвердить алиби" if confirmed is not None else "не успел"), rnd))
+    return out
+
+
 CHECKS = [
     ("Журнал без падений", check_no_crash, "журнала нет"),
     ("Раунды доиграны до итогов", check_rounds_complete, "в журнале нет ни одного раунда (RoundStarted)"),
@@ -2843,6 +2974,7 @@ CHECKS = [
     ("Экран итогов: хроника", check_chronicle, "нет строк «Chronicle» и телеметрии с хроникой"),
     ("Экран итогов: всё влезает", check_layout, "нет строк «Results layout» (окно не рисовало итоги)"),
     ("Экран итогов: строки игроков", check_results_rows, "нет строк «Results row» (окно не рисовало итоги или старая сборка)"),
+    ("Боты играют в задания", check_bot_tasks, "боты не обвиняли, не стучали на комнату, не выманивали Палыча, не подбрасывали и не получали слухов"),
 ]
 
 

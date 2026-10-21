@@ -8,11 +8,20 @@
 class AItemActor;
 class AObshagaCharacter;
 class AObshagaPlayerState;
+class APlayerState;
 class UObshagaRoundConfig;
 class UTaskDirector;
 enum class EInterrogationChoice : uint8;
 enum class ERoundPhase : uint8;
 struct FRevealedPlayer;
+
+/** Из чего сложен СМС-слух: про кого, что делал (0 — тащил, 1 — прятал, 2 — шумел, 3 — крутился) и в какой комнате. */
+struct FSmsRumor
+{
+	APlayerState* Who = nullptr;
+	int32 Verb = INDEX_NONE;
+	FName RoomId;
+};
 
 /**
  * «Судья» игры. Существует только на сервере: ведёт раунд по фазам, раздаёт роли и задания,
@@ -43,12 +52,12 @@ public:
 	void SubmitInterrogationChoice(AObshagaPlayerState* PlayerState, EInterrogationChoice Choice);
 	/** Игрок рядом подтверждает алиби пойманного. */
 	void ConfirmAlibi(AObshagaCharacter* By);
-	/** Крыса стучит коменданту на свою жертву. */
-	void TipOff(AObshagaPlayerState* Rat);
-	/** Игрок называет коменданту вора (задание «расследуй кражу»). */
-	void Accuse(AObshagaPlayerState* Accuser, AObshagaCharacter* Suspect);
-	/** Игрок стучит на жилую комнату, в которой стоит: комендант придёт её обыскивать. */
-	void TipOffRoom(AObshagaPlayerState* By);
+	/** Крыса стучит коменданту на свою жертву. true — стук принят (потрачен); false — отказ, стук не потрачен. */
+	bool TipOff(AObshagaPlayerState* Rat);
+	/** Игрок называет коменданту вора (задание «расследуй кражу»). true — обвинение принято (попытка потрачена). */
+	bool Accuse(AObshagaPlayerState* Accuser, AObshagaCharacter* Suspect);
+	/** Игрок стучит на жилую комнату, в которой стоит: комендант придёт её обыскивать. true — стук принят. */
+	bool TipOffRoom(AObshagaPlayerState* By);
 
 	/** Манера Палыча, заданная ночью недели: 0 — строгий, 1 — рассеянный, 2 — мстительный; -1 — любая. */
 	int32 GetWeekKomendantStyle() const;
@@ -85,8 +94,11 @@ protected:
 	void AssignRoles(const TArray<AObshagaPlayerState*>& Players);
 	void UpdateLiveTaskStatus();
 	void SendSms();
-	/** OutSource — для журнала: откуда взялся слух (lie, quiet или событие, по которому он написан). */
-	FText MakeSmsFor(const AObshagaPlayerState* Reader, const TArray<AObshagaPlayerState*>& Players, FString* OutSource = nullptr) const;
+	/**
+	 * OutSource — для журнала: откуда взялся слух (lie, quiet или событие, по которому он написан).
+	 * OutRumor — то же, что в тексте, данными (для бота); у «тихо» Who пуст.
+	 */
+	FText MakeSmsFor(const AObshagaPlayerState* Reader, const TArray<AObshagaPlayerState*>& Players, FString* OutSource = nullptr, FSmsRumor* OutRumor = nullptr) const;
 	void Evict(AObshagaPlayerState* PlayerState, AObshagaCharacter* Character);
 	void ResolveInterrogation();
 	/** Включает игроку клавиши, которые нужны его заданиям (обвинить, настучать на комнату). */

@@ -12,6 +12,7 @@ class AKomendantWaypoint;
 class AObshagaCharacter;
 class AObshagaPlayerState;
 class UObshagaRoundConfig;
+struct FGameEvent;
 struct FTaskRow;
 
 UENUM()
@@ -48,7 +49,75 @@ enum class EBotGoal : uint8
 	GoOutside,
 	ReadNote,
 	SearchSpot,
-	LeaveForever
+	LeaveForever,
+	/** Подойти к подозреваемому и назвать его коменданту. */
+	Accuse,
+	/** Зайти в чужую комнату и настучать на неё. */
+	TipRoom,
+	/** Встать подальше от Палыча и бросить вещь, чтобы он пошёл на шум. */
+	Lure,
+	/** Бежать к допросу подтвердить алиби. */
+	Alibi
+};
+
+/** Что бот видел своими глазами (не по слухам). */
+enum class EBotSeen : uint8
+{
+	PickedUp,
+	Dropped,
+	Thrown,
+	Hidden,
+	/** Видел, как вещь несли через эту комнату. */
+	Carrying
+};
+
+/** Насколько бот уверен: видел сам — твёрдо, сложил два и два — средне, слышал в СМС — слабо, наугад — догадка. */
+enum class EBotEvidence : uint8
+{
+	None,
+	Guess,
+	Weak,
+	Medium,
+	Strong
+};
+
+/** Одна запись памяти бота: кто, что сделал с какой вещью, где и когда. */
+struct FBotSighting
+{
+	TWeakObjectPtr<APlayerState> Who;
+	EBotSeen What = EBotSeen::Carrying;
+	TWeakObjectPtr<AItemActor> Item;
+	FName ItemId;
+	bool bContraband = false;
+	bool bReadable = false;
+	FName RoomId;
+	float Time = 0.f;
+};
+
+/** Слух из СМС: кто, что делал (0 — тащил, 1 — прятал, 2 — шумел, 3 — крутился) и где. Параноику — выдумка. */
+struct FBotRumor
+{
+	TWeakObjectPtr<APlayerState> Who;
+	int32 Verb = INDEX_NONE;
+	FName RoomId;
+	float Time = 0.f;
+};
+
+/** Вывод из памяти: на кого (или на какую комнату) думает бот, насколько уверен и почему (для журнала). */
+struct FBotSuspect
+{
+	TWeakObjectPtr<APlayerState> Who;
+	FName RoomId;
+	EBotEvidence Strength = EBotEvidence::None;
+	FString Source;
+};
+
+/** Решение про одну записку на одном месте: читать ли, сколько ещё попыток дойти, прочитал ли. */
+struct FBotNoteRoll
+{
+	FVector Location = FVector::ZeroVector;
+	int32 TriesLeft = 0;
+	bool bRead = false;
 };
 
 /**
@@ -72,7 +141,15 @@ public:
 
 	EBotState GetBotState() const { return State; }
 
+	/**
+	 * Боту пришло СМС: тот же слух, что увидел бы в телефоне человек (Параноику — выдумка), только данными, а не текстом.
+	 * Verb: 0 — «что-то тащил», 1 — «что-то прятал», 2 — «шумел», 3 — «крутился без дела». Вызывает AObshagaGameMode.
+	 */
+	void HearRumor(APlayerState* Who, int32 Verb, FName RoomId);
+
 protected:
+	virtual void BeginPlay() override;
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 	virtual void OnPossess(APawn* InPawn) override;
 
 private:
@@ -107,9 +184,48 @@ private:
 	/** Точка маршрута в комнате с таким id (ближайшая к её середине); нулевой вектор — такой нет. */
 	FVector RoomPoint(FName RoomId) const;
 
-	AItemActor* FindItem(FName ItemId, bool bContraband, bool bReadable) const;
+	/** bWorldOnly — только то, что лежит на виду (не из тайника). */
+	AItemActor* FindItem(FName ItemId, bool bContraband, bool bReadable, bool bWorldOnly = false) const;
 	AHidingSpot* FindSpotInRoom(FName RoomId, bool bForPlayer) const;
 	ADeviceActor* FindDevice(bool bBroken) const;
+	/** Свободный тайник для вещи вне жилых комнат (санузел, кухня, гостиная), ближайший к боту. */
+	AHidingSpot* FindSpotOutsideBedrooms() const;
+	/** Обыскать по одному тайники комнаты RoomId (те, что ещё не обыскивал). */
+	bool PlanSearchRoom(FName RoomId);
+	/** Не бросил ли бот недавно эту цель (не дошёл до неё). */
+	bool IsGivenUp(const AActor* Actor) const;
+	/** Нужна ли вещь в руках этому заданию. Вещь, не нужная ни одному, бот кладёт. */
+	bool RowWantsItem(const FTaskRow& Row, const AItemActor* Item) const;
+	/** «Осторожный» бот: задание не попадаться или уже выманил Палыча шумом (и теперь нельзя попасться). */
+	bool IsCareful() const;
+	float GetRoundSeconds() const;
+
+	// --- Память: что бот видел сам и что слышал в СМС ---
+	void OnGameEvent(const FGameEvent& Event);
+	/** Видит ли бот этого жильца: не дальше BotWitnessDistance, на своём этаже и в прямой видимости. */
+	bool CanWitness(const APawn* Other) const;
+	void Remember(APlayerState* Who, EBotSeen What, AItemActor* Item, FName RoomId);
+	/** Кто на виду несёт вещь: запомнить; сторож заодно зовёт Палыча к вору. */
+	void WatchOthers();
+	/** Лежит или едет в руках вещь ItemId в комнате RoomId — это видно всем, кто туда заглянет. */
+	bool IsItemShownInRoom(FName ItemId, FName RoomId) const;
+	FBotSuspect FindTvThief(const FTaskRow& Row) const;
+	FBotSuspect FindNoteAuthor() const;
+	FBotSuspect FindContrabandRoom() const;
+
+	// --- Планы заданий, у которых нет «отнести вещь» ---
+	bool PlanAccuse(const FTaskRow& Row);
+	/** Подозреваемый (AccusePlan) рядом и на виду — назвать его. true — попытка была (принята или нет). */
+	bool TryAccuse();
+	bool PlanTipRoom();
+	/** Бот стоит в комнате TipRoomPlan — настучать. true — попытка была. */
+	bool TryTipRoom();
+	bool PlanFrame(const FTaskRow& Row);
+	bool PlanLure();
+	/** Лёгкая вещь не для задания, которая громко стукнет при броске. */
+	bool IsLureItem(const AItemActor* Item) const;
+	/** Палыч спокоен и на нужном расстоянии — бросить вещь в руках. true — бросил. */
+	bool TryLureThrow();
 
 	UPROPERTY()
 	TObjectPtr<AObshagaCharacter> Me;
@@ -141,8 +257,8 @@ private:
 	/** Комната, куда нести предмет (своя или зона задания). */
 	FName CarryRoom;
 
-	/** Записки, которые бот уже прочитал в этом раунде. */
-	TSet<TWeakObjectPtr<AItemActor>> ReadNotes;
+	/** Записки: решение читать принимается заново, когда записку переложили на новое место. */
+	TMap<TWeakObjectPtr<AItemActor>, FBotNoteRoll> NoteRolls;
 
 	// Однократные дела раунда.
 	bool bRumorPlanted = false;
@@ -167,10 +283,45 @@ private:
 	TSet<TWeakObjectPtr<AHidingSpot>> SearchedSpots;
 	/** Сколько страйков было у бота на прошлой проверке: так он узнаёт, что его поймали. */
 	int32 SeenStrikes = 0;
-	/** Сторож видит, что его предмет уносят, — зовёт Палыча к вору. */
-	void GuardWatch();
+	/** Сторож видит, что его предмет уносит Thief, — зовёт Палыча к вору. */
+	void GuardSaw(const APawn* Thief, const AItemActor* Item);
+	/** Палыч был занят, когда сторож его звал: позвать ещё раз не раньше этого. */
+	float CallKomendantRetryAt = 0.f;
 	TWeakObjectPtr<APlayerState> AlibiDecidedFor;
 	/** Цель, до которой не дошёл: какое-то время её не берём. */
 	TWeakObjectPtr<AActor> GaveUpOn;
 	float GaveUpUntil = 0.f;
+	/** С чем бот работал последним (взял вещь, ломал или чинил прибор): поймали — за это дело сразу не берётся. */
+	TWeakObjectPtr<AActor> LastWorkedOn;
+
+	/** Подписка на шину событий (только сервер). */
+	FDelegateHandle EventHandle;
+	TArray<FBotSighting> Sightings;
+	TArray<FBotRumor> Rumors;
+
+	/** Обвинение: на кого и почему; до какого времени не пробовать снова (Палыч был занят). */
+	FBotSuspect AccusePlan;
+	float AccuseRetryAt = 0.f;
+	/** Стук на комнату: какую и почему; догадку наугад бот решает один раз за раунд. */
+	FBotSuspect TipRoomPlan;
+	FBotSuspect TipGuess;
+	bool bTipGuessDecided = false;
+	float TipRoomRetryAt = 0.f;
+	/** Подстава: чья комната, подбросил ли уже и куда (это знание пригодится для стука на комнату). */
+	TWeakObjectPtr<APlayerState> FrameVictim;
+	FName FrameRoom;
+	FName PlantedRoom;
+	bool bPlanted = false;
+	/** Подброшенное спрятано в тайник (а не брошено на пол): только такое найдёт обыск по стуку. */
+	bool bPlantedHidden = false;
+	/** Алиби: к чьему допросу бот уже бежал. Допрос самого бота: когда начал думать над ответом. */
+	TWeakObjectPtr<APlayerState> AlibiRunFor;
+	float AnswerStartTime = -1.f;
+	/** Ложная тревога: Палыч уже ходил на шум бота; когда бросил вещь (ждёт, клюнет ли); когда пробовать снова. */
+	bool bLureDone = false;
+	float LureThrowTime = -1.f;
+	float LureRetryAt = 0.f;
+	/** Запрещёнку прятать не у себя, а в общем месте (решается раз за раунд). */
+	bool bHideOutsideDecided = false;
+	bool bHideOutside = false;
 };

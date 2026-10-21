@@ -67,6 +67,14 @@ namespace ObshagaStory
 		FireAlarm,
 		Alibi,
 		CallKomendant,
+		/** Называет Палычу вора телевизора. */
+		AccuseThief,
+		/** Называет Палычу автора записок-слухов. */
+		AccuseRumor,
+		/** Стучит Палычу на чужую комнату. */
+		TipRoom,
+		/** Только что «нечаянно» уронил вещь, чтобы Палыч пошёл на шум. */
+		Lure,
 		Count
 	};
 	constexpr int32 BotLinesPerSituation = 4;
