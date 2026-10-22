@@ -2740,7 +2740,9 @@ def check_chronicle(ctx):
         if lines and limit is not None and len(top) <= limit:
             for e in top:
                 stamp = "%02d:%02d" % divmod(int(math.floor(e["t"])), 60)
-                if not any(text[:5] == stamp and e["by"] in text for text in lines):
+                # Часы хроники и время события расходятся до секунды (разная точка отсчёта раунда) — сверяем с допуском.
+                near = set("%02d:%02d" % divmod(max(0, int(math.floor(e["t"])) + d), 60) for d in (-1, 0, 1))
+                if not any(text[:5] in near and e["by"] in text for text in lines):
                     problems.append("нет строки о самом важном: %s у %s в %s" % (e["type"], e["by"], stamp))
                     break
         note = "%d строк, первая: %s" % (len(lines), clip(lines[0], 70)) if lines else "событий для хроники не было"
