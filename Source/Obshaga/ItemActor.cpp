@@ -5,12 +5,17 @@
 #include "HidingSpot.h"
 #include "NoiseStatics.h"
 #include "Obshaga.h"
+#include "ObshagaBotController.h"
 #include "ObshagaCharacter.h"
 #include "ObshagaGameMode.h"
 #include "ObshagaItemData.h"
 #include "ObshagaPlayerController.h"
+#include "ObshagaPlayerState.h"
+#include "ObshagaRoundConfig.h"
 #include "ObshagaVisuals.h"
 #include "RoomVolume.h"
+#include "TaskComponent.h"
+#include "EngineUtils.h"
 #include "GameFramework/GameStateBase.h"
 #include "GameFramework/PlayerState.h"
 #include "Components/StaticMeshComponent.h"
@@ -30,6 +35,28 @@ namespace
 
 	// Спрятанные предметы сервер убирает под карту, чтобы их положение не выдавало тайник.
 	const FVector HiddenItemsLocation(0.f, 0.f, -5000.f);
+
+	/** Название комнаты для игрока («Комната 203»); нет такой зоны — её код. */
+	FText RoomDisplayName(const UObject* WorldContextObject, FName RoomId)
+	{
+		const ARoomVolume* Room = ARoomVolume::FindRoomById(WorldContextObject, RoomId);
+		return Room && !Room->DisplayName.IsEmpty() ? Room->DisplayName : FText::FromName(RoomId);
+	}
+
+	void ShuffleRooms(TArray<FName>& Rooms)
+	{
+		for (int32 Index = Rooms.Num() - 1; Index > 0; --Index)
+		{
+			Rooms.Swap(Index, FMath::RandRange(0, Index));
+		}
+	}
+
+	/** Для журнала: секунды от начала раунда, как в соседних строках. */
+	float RoundSecondsFor(const UWorld* World)
+	{
+		const AObshagaGameMode* GameMode = World ? World->GetAuthGameMode<AObshagaGameMode>() : nullptr;
+		return GameMode ? GameMode->GetRoundSeconds() : 0.f;
+	}
 }
 
 AItemActor::AItemActor()
@@ -182,11 +209,121 @@ void AItemActor::ReadBy(AObshagaCharacter* By)
 		NoteText = FText::Format(Templates[FMath::RandRange(0, UE_ARRAY_COUNT(Templates) - 1)], Subject);
 	}
 
-	if (AObshagaPlayerController* Controller = Cast<AObshagaPlayerController>(By->GetController()))
+	AObshagaPlayerController* Controller = Cast<AObshagaPlayerController>(By->GetController());
+	if (Controller)
 	{
 		Controller->ClientShowNotice(FText::Format(LOCTEXT("NoteNotice", "В записке: «{0}»"), NoteText));
 	}
+
+	// Подсказка на бумаге (если записку уже подбросил автор слуха): из каких комнат автор — тоже только читателю.
+	// Параноику бумага «врёт», как и его СМС: две комнаты, где автор не живёт.
+	const AObshagaPlayerState* Reader = By->GetPlayerState<AObshagaPlayerState>();
+	const bool bParanoid = Reader && Reader->GetTrueRole() == EPlayerRole::Paranoid;
+	const TArray<FName>& Shown = bParanoid ? FakeHintRooms : HintRooms;
+	const FString ReaderName = Reader ? Reader->GetPlayerName() : By->GetName();
+	if (Shown.Num() == 2)
+	{
+		const AObshagaPlayerState* Author = Cast<AObshagaPlayerState>(HintAuthor.Get());
+		// Для автопроверки: правдивая ли подсказка (комната автора среди названных, только если читатель не Параноик).
+		UE_LOG(LogObshaga, Verbose, TEXT("Note %s read by %s: hint %s,%s (author %s, author room %s, paranoid %d), t=%.1f"), *GetName(), *ReaderName,
+			*Shown[0].ToString(), *Shown[1].ToString(), Author ? *Author->GetPlayerName() : TEXT("-"), Author ? *Author->GetHomeRoomId().ToString() : TEXT("None"),
+			bParanoid ? 1 : 0, RoundSecondsFor(GetWorld()));
+		if (Controller)
+		{
+			// Без кавычек-ёлочек вокруг названий: в них уже есть слово «Комната».
+			Controller->ClientShowNotice(FText::Format(LOCTEXT("NoteHint", "Бумага из тетради — такие только в двух комнатах: {0} и {1}."),
+				RoomDisplayName(this, Shown[0]), RoomDisplayName(this, Shown[1])));
+		}
+		else if (AObshagaBotController* Bot = Cast<AObshagaBotController>(By->GetController()))
+		{
+			// Бот «читает» ту же подсказку — данными, как СМС (HearRumor).
+			Bot->HearNoteHint(this, Shown[0], Shown[1]);
+		}
+	}
+	else
+	{
+		UE_LOG(LogObshaga, Verbose, TEXT("Note %s read by %s: hint none, t=%.1f"), *GetName(), *ReaderName, RoundSecondsFor(GetWorld()));
+	}
 	UGameEventSubsystem::PublishFrom(By, EGameEventType::NoteRead, this);
+}
+
+void AItemActor::MarkPlantedBy(AObshagaCharacter* By)
+{
+	check(HasAuthority());
+
+	// Подсказку пишет только автор слуха (у кого задание «пусти слух»); кто просто переложил записку — ничего не меняет.
+	AObshagaPlayerState* Author = By ? By->GetPlayerState<AObshagaPlayerState>() : nullptr;
+	if (!GetItemData()->bReadable || !Author || !Author->GetTaskComponent()->FindRowByCondition(ETaskCondition::NoteReadByDistinctPlayers))
+	{
+		return;
+	}
+	// Тот же автор подбросил снова — бумага та же, подсказка не меняется.
+	if (HintAuthor.Get() == Author && HintRooms.Num() == 2)
+	{
+		return;
+	}
+
+	HintAuthor = Author;
+	HintRooms.Reset();
+	FakeHintRooms.Reset();
+	const FName AuthorRoom = Author->GetHomeRoomId();
+
+	// Чужие жилые комнаты: сначала те, где кто-то живёт (подсказка должна указывать на живых людей), потом пустые.
+	// Кто где живёт, видят все (HomeRoomId), так что подсказка ничего лишнего не выдаёт.
+	TSet<FName> HomeRooms;
+	if (const AGameStateBase* GameState = GetWorld()->GetGameState())
+	{
+		for (const APlayerState* Player : GameState->PlayerArray)
+		{
+			const AObshagaPlayerState* Resident = Cast<AObshagaPlayerState>(Player);
+			if (Resident && Resident != Author && !Resident->IsEvicted() && !Resident->GetHomeRoomId().IsNone())
+			{
+				HomeRooms.Add(Resident->GetHomeRoomId());
+			}
+		}
+	}
+	TArray<FName> Lived;
+	TArray<FName> Vacant;
+	for (TActorIterator<ARoomVolume> It(GetWorld()); It; ++It)
+	{
+		if (It->RoomType == ERoomType::Bedroom && !It->RoomId.IsNone() && It->RoomId != AuthorRoom)
+		{
+			if (HomeRooms.Contains(It->RoomId))
+			{
+				Lived.AddUnique(It->RoomId);
+			}
+			else
+			{
+				Vacant.AddUnique(It->RoomId);
+			}
+		}
+	}
+	if (AuthorRoom.IsNone() || Lived.Num() + Vacant.Num() < 2)
+	{
+		// Не из чего сложить подсказку (у автора нет комнаты, жилых комнат мало) — бумага ничего не скажет.
+		UE_LOG(LogObshaga, Verbose, TEXT("Note %s: no paper hint for %s (room %s, other bedrooms %d), t=%.1f"), *GetName(), *Author->GetPlayerName(),
+			*AuthorRoom.ToString(), Lived.Num() + Vacant.Num(), RoundSecondsFor(GetWorld()));
+		return;
+	}
+
+	// Правдивая: комната автора и одна чужая, в случайном порядке.
+	ShuffleRooms(Lived);
+	ShuffleRooms(Vacant);
+	TArray<FName> Others = Lived;
+	Others.Append(Vacant);
+	HintRooms = { AuthorRoom, Others[0] };
+	if (FMath::RandBool())
+	{
+		HintRooms.Swap(0, 1);
+	}
+	// Для Параноика: две чужие комнаты, выбранные отдельно (тоже сначала обитаемые).
+	ShuffleRooms(Lived);
+	ShuffleRooms(Vacant);
+	Others = Lived;
+	Others.Append(Vacant);
+	FakeHintRooms = { Others[0], Others[1] };
+	UE_LOG(LogObshaga, Verbose, TEXT("Note %s hint from %s (room %s): %s,%s, paranoid %s,%s, t=%.1f"), *GetName(), *Author->GetPlayerName(), *AuthorRoom.ToString(),
+		*HintRooms[0].ToString(), *HintRooms[1].ToString(), *FakeHintRooms[0].ToString(), *FakeHintRooms[1].ToString(), RoundSecondsFor(GetWorld()));
 }
 
 void AItemActor::SetCarriedBy(AObshagaCharacter* Carrier)
@@ -194,6 +331,7 @@ void AItemActor::SetCarriedBy(AObshagaCharacter* Carrier)
 	check(HasAuthority());
 
 	LastCarrier = Carrier;
+	LastThrowTime = -100.f;
 	HidingSpot = nullptr;
 	Placement.State = EItemState::Carried;
 	Placement.Holder = Carrier;
@@ -218,6 +356,8 @@ void AItemActor::ReleaseToWorld(const FVector& Location, const FVector& Velocity
 {
 	check(HasAuthority());
 
+	// Положили (или Палыч вернул): это не бросок. Бросок ставит метку сам, уже после этого вызова (MarkThrown).
+	LastThrowTime = -100.f;
 	Placement.State = EItemState::World;
 	Placement.Holder = nullptr;
 	ApplyPlacement();
@@ -232,6 +372,7 @@ void AItemActor::SetHiddenIn(AHidingSpot* Spot, AObshagaCharacter* By)
 	check(HasAuthority());
 
 	LastHiddenBy = By ? By->GetPlayerState() : nullptr;
+	LastThrowTime = -100.f;
 	// Клиентам не сообщаем, в каком тайнике предмет: ни ссылкой, ни координатами.
 	HidingSpot = Spot;
 	Placement.State = EItemState::Hidden;
@@ -244,8 +385,14 @@ void AItemActor::SetHiddenIn(AHidingSpot* Spot, AObshagaCharacter* By)
 void AItemActor::ForgetCarrier()
 {
 	LastCarrier.Reset();
+	LastThrowTime = -100.f;
 	// Пока изъятое укладывается на место, оно не шумит.
 	LastNoiseTime = GetWorld()->GetTimeSeconds() + SettleGraceSeconds;
+}
+
+void AItemActor::MarkThrown()
+{
+	LastThrowTime = GetWorld()->GetTimeSeconds();
 }
 
 void AItemActor::ResetToInitial()
@@ -254,7 +401,11 @@ void AItemActor::ResetToInitial()
 
 	LastCarrier.Reset();
 	LastHiddenBy.Reset();
+	LastThrowTime = -100.f;
 	NoteText = FText::GetEmpty();
+	HintAuthor.Reset();
+	HintRooms.Reset();
+	FakeHintRooms.Reset();
 	HidingSpot = nullptr;
 	Placement.State = EItemState::World;
 	Placement.Holder = nullptr;
@@ -405,7 +556,12 @@ void AItemActor::OnMeshHit(UPrimitiveComponent* HitComponent, AActor* OtherActor
 
 	LastNoiseTime = Now;
 	const float Loudness = FMath::Clamp(ImpactSpeed / Data->LoudImpactSpeed, 0.f, 1.f) * Data->NoiseFactor;
-	UNoiseStatics::MakeGameNoise(this, Hit.ImpactPoint, Loudness, LastCarrier.Get());
+	// Удар вскоре после броска того, кто нёс предмет последним, — «брошено»: только на такой шум засчитывается
+	// «ложная тревога». Уроненное, положенное и задетое потом — простой удар.
+	const AObshagaGameMode* GameMode = GetWorld()->GetAuthGameMode<AObshagaGameMode>();
+	const float ThrowMaxAge = GameMode ? GameMode->GetRoundConfig()->LureThrowMaxAgeSeconds : GetDefault<UObshagaRoundConfig>()->LureThrowMaxAgeSeconds;
+	const bool bThrown = LastCarrier.IsValid() && Now - LastThrowTime <= ThrowMaxAge;
+	UNoiseStatics::MakeGameNoise(this, Hit.ImpactPoint, Loudness, LastCarrier.Get(), bThrown ? ENoiseKind::Thrown : ENoiseKind::Impact);
 }
 
 #undef LOCTEXT_NAMESPACE

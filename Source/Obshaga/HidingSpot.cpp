@@ -251,6 +251,7 @@ void AHidingSpot::FinishHidingItem(AObshagaCharacter* By)
 
 	AItemActor* Item = Carry->ReleaseForHiding();
 	Item->SetHiddenIn(this, By);
+	Item->MarkPlantedBy(By);
 	HiddenItem = Item;
 	UGameEventSubsystem::PublishFrom(By, EGameEventType::ItemHidden, Item);
 	Notify(By, FText::Format(LOCTEXT("Hid", "Спрятано: {0}"), Item->GetDisplayName()));

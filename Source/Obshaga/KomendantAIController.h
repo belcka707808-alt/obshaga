@@ -12,6 +12,7 @@ class AKomendantCharacter;
 class AKomendantWaypoint;
 class AObshagaCharacter;
 class APlayerState;
+class ARoomVolume;
 class UAISenseConfig_Hearing;
 class UAISenseConfig_Sight;
 class UKomendantPersonality;
@@ -113,6 +114,12 @@ private:
 	void UpdateSlowTimers();
 	void StartChase(AObshagaCharacter* Target);
 	void StartInvestigate(const FVector& Location);
+	/**
+	 * Шум брошенной вещи (Tag стимула — Thrown): засчитать ли бросившему «ложную тревогу» (событие KomendantLured).
+	 * Засчитывается, если он пошёл на этот шум (bInvestigating), бросивший — жилец, он не ближе LureMinSelfDistance
+	 * к месту грохота и Палыч его сейчас не видит. Каждое решение пишется в журнал; прочие шумы пропускаются молча.
+	 */
+	void JudgeLure(AActor* NoiseActor, const FAIStimulus& Stimulus, const ARoomVolume* NoiseRoom, bool bInvestigating);
 	void SearchSpot(AHidingSpot* Spot);
 
 	/** Шаг к цели по прямой. true — дошёл. */

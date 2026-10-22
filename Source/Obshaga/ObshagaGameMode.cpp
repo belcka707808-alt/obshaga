@@ -1201,12 +1201,13 @@ void AObshagaGameMode::StartRound()
 	// Новичкам сразу говорим, откуда ждать опасность.
 	NotifyAll(LOCTEXT("KomendantWhere", "Комендант на вахте, 1 этаж. Скоро пойдёт в обход — не попадайся"));
 	// Для автопроверки: числа из DA_RoundConfig, по которым она сверяет штрафы, шансы и окна (в C++ значения по умолчанию другие).
-	UE_LOG(LogObshaga, Log, TEXT("Round config: confess=%d silent=%d lie=%d lieBase=%.2f alibiBonus=%.2f contrabandLie=%.2f afterStrike=%.0f evictStrikes=%d evictPenalty=%d interrogation=%.1f ratBonus=%d ratWindow=%.0f curfewRate=%.1f sms=%d grudge=%.0f unseen=%.1f curfewOutside=%.1f minNoise=%.2f inspect=%.1f alibiRadius=%.0f immunity=%.1f catch=%.0f chronicle=%d botConfess=%.1f botLie=%.1f botSilent=%.1f botAlibi=%.2f"),
+	UE_LOG(LogObshaga, Log, TEXT("Round config: confess=%d silent=%d lie=%d lieBase=%.2f alibiBonus=%.2f contrabandLie=%.2f afterStrike=%.0f evictStrikes=%d evictPenalty=%d interrogation=%.1f ratBonus=%d ratWindow=%.0f curfewRate=%.1f sms=%d grudge=%.0f unseen=%.1f curfewOutside=%.1f minNoise=%.2f inspect=%.1f alibiRadius=%.0f immunity=%.1f catch=%.0f chronicle=%d botConfess=%.1f botLie=%.1f botSilent=%.1f botAlibi=%.2f lureUnseen=%.1f lureSelf=%.0f lureThrowAge=%.1f botLureSighting=%.1f botNoteReroll=%.0f"),
 		Config->ConfessPenalty, Config->SilentPenalty, Config->FailedLiePenalty, Config->LieBaseChance, Config->AlibiBonus, Config->ContrabandLiePenalty,
 		Config->SuspicionAfterStrike, Config->EvictionStrikes, Config->EvictionPenalty, Config->InterrogationSeconds, Config->RatTipBonus, Config->RatTipWindowSeconds,
 		Config->CurfewSuspicionPerSecond, Config->SmsCount, Config->GrudgeSuspicion, Config->UnseenWindowSeconds, Config->CurfewOutsideSeconds, Config->KomendantMinNoise,
 		Config->InspectSeconds, Config->AlibiRadius, Config->ImmunitySeconds, Config->KomendantCatchDistance, Config->MaxChronicleLines,
-		Config->BotConfessWeight, Config->BotLieWeight, Config->BotSilentWeight, Config->BotAlibiChance);
+		Config->BotConfessWeight, Config->BotLieWeight, Config->BotSilentWeight, Config->BotAlibiChance,
+		Config->LureUnseenSeconds, Config->LureMinSelfDistance, Config->LureThrowMaxAgeSeconds, Config->BotLureSightingMaxAge, Config->BotNoteRerollSeconds);
 	UE_LOG(LogObshaga, Log, TEXT("Round started: %.0f s, %d players, world time %.1f"), Config->GetTotalSeconds(), Players.Num(), RoundStartWorldTime);
 	StartTestTimers();
 	// Следующий раунд выберет следующую ночь.
@@ -1740,7 +1741,7 @@ bool AObshagaGameMode::Accuse(AObshagaPlayerState* Accuser, AObshagaCharacter* S
 	// Обвинить можно один раз за раунд. Верно ли обвинение, решается сейчас:
 	// украденный предмет (или ничего) записывается в событие, и задание читает его оттуда.
 	Accuser->SetTaskAbilities(false, Accuser->CanTipRoom());
-	// У задания «найди автора слуха» доказательство — записка, которую подкинул обвиняемый.
+	// У задания «найди автора слуха» доказательство — записка, которую обвиняемый подкинул (или уже брал в руки, если он автор).
 	AItemActor* StolenItem = UTaskComponent::IsRumorRow(this, *Row) ? UTaskComponent::FindRumorNote(this, SuspectState) : UTaskComponent::FindStolenItem(this, SuspectState, *Row);
 	const APawn* ProofHolder = StolenItem ? Cast<APawn>(StolenItem->GetHolder()) : nullptr;
 	UE_LOG(LogObshaga, Verbose, TEXT("Accuse by %s of %s: %s (rumor task: %d, proof: %s, holder %s, item room %s)"), *Accuser->GetPlayerName(), *SuspectState->GetPlayerName(),

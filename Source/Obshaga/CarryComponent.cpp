@@ -113,6 +113,8 @@ void UCarryComponent::Drop()
 	const FRotator Rotation = FindReleaseRotation(Item, Location);
 	SetCarriedItem(nullptr);
 	Item->ReleaseToWorld(Location, FVector::ZeroVector, Rotation);
+	// Записку оставил автор слуха (в том числе выронил на допросе) — на бумаге появляется подсказка.
+	Item->MarkPlantedBy(Character);
 	UE_LOG(LogObshaga, Verbose, TEXT("%s dropped %s at %s, yaw %.0f"), *Character->GetName(), *Item->GetName(), *Location.ToCompactString(), Rotation.Yaw);
 	UGameEventSubsystem::PublishFrom(Character, EGameEventType::ItemDropped, Item);
 }
@@ -141,6 +143,9 @@ void UCarryComponent::Throw()
 	const FRotator Rotation = FindReleaseRotation(Item, Location);
 	SetCarriedItem(nullptr);
 	Item->ReleaseToWorld(Location, Velocity, Rotation);
+	// Первые секунды полёта удар — шум «брошено» (на него засчитывается ложная тревога); ReleaseToWorld метку стирает, ставим после.
+	Item->MarkThrown();
+	Item->MarkPlantedBy(Character);
 	if (bHeavy)
 	{
 		// Швырнул телевизор — сам не удержался на ногах.

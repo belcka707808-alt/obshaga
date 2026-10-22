@@ -52,6 +52,7 @@ CONFIG_DEFAULTS = {
     "ratWindow": 60.0, "curfewRate": 15.0, "sms": 3, "grudge": 60.0, "unseen": 10.0, "curfewOutside": 10.0,
     "minNoise": 0.3, "inspect": 2.5, "alibiRadius": 800.0, "immunity": 10.0, "catch": 160.0, "chronicle": 8,
     "botConfess": 1.0, "botLie": 2.0, "botSilent": 1.0, "botAlibi": 0.35,
+    "lureUnseen": 10.0, "lureSelf": 500.0, "lureThrowAge": 3.0, "botLureSighting": 6.0, "botNoteReroll": 60.0,
 }
 # Из кода: KomendantAIController.cpp (StuckSeconds), ObshagaStory.h (NumWeekNights), ObshagaBotController.cpp (думает 1,5–5 с;
 # решает раз в 0,4 с, поэтому сверху запас почти в секунду).
@@ -66,6 +67,8 @@ LONG_CHASE_ROOMS = 2
 FLOOR_CHANGE_CM = 200
 # Побег засчитывается, только если Палыч видел цель хоть полсекунды (иначе это «погоня» вслепую из -TestChaseAt).
 ESCAPE_MIN_SEEN = 0.5
+# Из ObshagaBotController.cpp (BotLureResultSeconds): грохот, засчитанный позже стольких секунд после броска, бот своим не считает.
+BOT_LURE_RESULT_SECONDS = 5.0
 
 INTERROGATION_EVENTS = ("InterrogationConfessed", "InterrogationSilent", "InterrogationLieSucceeded", "InterrogationLieFailed")
 STRIKE_EVENTS = ("InterrogationConfessed", "InterrogationSilent", "InterrogationLieFailed")
@@ -73,7 +76,9 @@ SEEN_EVENTS = ("PlayerSpotted", "PlayerSpottedSuspicious", "PlayerCaught")
 # Что выселенный уже не может делать (ходить, открывать двери и шуметь шагами по дороге к выходу — может).
 EVICTED_FORBIDDEN = ("ItemPickedUp", "ItemDropped", "ItemThrown", "ItemHidden", "ItemFound", "NoteRead", "DeviceBroken", "DeviceRepaired",
                      "LeftBuilding", "ReturnedToBuilding", "PlayerSpotted", "PlayerSpottedSuspicious", "PlayerCaught", "Accusation",
-                     "PlayerHid", "AlibiConfirmed", "TipOff", "RoomTipOff", "KomendantAlerted")
+                     "PlayerHid", "AlibiConfirmed", "TipOff", "RoomTipOff", "KomendantAlerted", "KomendantLured")
+# Что считается «оставил записку» (TaskComponent: NoteReadByDistinctPlayers, FindRumorNote).
+PLANT_EVENTS = ("ItemDropped", "ItemThrown", "ItemHidden")
 
 # EKomendantLine (ObshagaStory.h): номер в строке «Komendant says».
 SAY_HEARD, SAY_LOST = 1, 4
@@ -137,6 +142,7 @@ PATTERNS = [
     ("role", r"^Role of (.+): (?:EPlayerRole::)?(\w+)$"),
     ("task_assigned", r"^Task (\S+) \((main|side)\) assigned to (.+?), satisfied now (\d)(?:, cond ETaskCondition::(\w+) item (\S+) room (\S+) own (\d) count (\d+) reward (" + NUM + r"))?$"),
     ("task_final", r"^Task (\S+) of (.+): (COMPLETED|FAILED)(?:, reward (" + NUM + r"))?$"),
+    ("task_live", r"^Task (\S+) of (.+): satisfied now (\d)(, owner notified)?$"),
     ("final_score", r"^Final score (.+): start (" + NUM + r"), tasks \+(" + NUM + r"), rat bonus \+(" + NUM + r"), penalties -(" + NUM + r"), final (" + NUM + r")$"),
     ("result", r"^Result (.+): role (\w+), title «(.*)», score (" + NUM + r"), strikes (\d+), evicted (\d), bot (\d)$"),
     ("results_row", r"^Results row (.+?): (.*) \|(?: (.*))?$"),
@@ -162,8 +168,14 @@ PATTERNS = [
     ("bot_accuse", r"^Bot (.+?) accuses (.+?): evidence (\w+) \((.*)\), accepted (\d), t=(" + NUM + r")$"),
     ("bot_tip_room", r"^Bot (.+?) tips room (\S+): evidence (\w+) \((.*)\), accepted (\d), t=(" + NUM + r")$"),
     ("bot_plant", r"^Bot (.+?) planted (\S+) \((\S+)\) in (\S+), room of (.+), t=(" + NUM + r")$"),
-    ("bot_lure_throw", r"^Bot (.+?) lure throw (\S+) \((\S+)\): komendant (" + NUM + r") cm, sees me (\d), phase (\w+), t=(" + NUM + r")$"),
-    ("bot_lure_result", r"^Bot (.+?) lure result: (alerted|failed) after (" + NUM + r") s, t=(" + NUM + r")$"),
+    ("bot_lure_throw", r"^Bot (.+?) lure throw (\S+) \((\S+)\): komendant (" + NUM + r") cm, sees me (\d)(?:, lane (" + NUM + r") cm, last seen (" + NUM
+     + r") s ago)?, phase (\w+), t=(" + NUM + r")$"),
+    # lured — задание выполнено; seen — грохот засчитан, но бота заметили; failed — грохот не засчитан; alerted — старая сборка.
+    ("bot_lure_result", r"^Bot (.+?) lure result: (lured|seen|failed|alerted) after (" + NUM + r") s, t=(" + NUM + r")$"),
+    ("bot_lure_skip", r"^Bot (.+?) lure skipped: (.+), retry in (" + NUM + r") s, t=(" + NUM + r")$"),
+    ("bot_note_hint", r"^Bot (.+?) heard note hint: ([^,\s]+),(\S+), t=(" + NUM + r")$"),
+    ("bot_note_search", r"^Bot (.+?) looks for notes in (\S+)$"),
+    ("bot_note_drop", r"^Bot (.+?) drops note (here after (\d+) aborts|before going home), t=(" + NUM + r")$"),
     ("bot_alibi_run", r"^Bot (.+?) runs to alibi for (.+): (" + NUM + r") cm, (" + NUM + r") s left, t=(" + NUM + r")$"),
     ("bot_rumor", r"^Bot (.+?) heard rumor: (.+) verb (-?\d+) room (\S+), t=(" + NUM + r")$"),
     ("bot_tip_refused", r"^Bot (.+?) tip on (.+) refused, retry in (" + NUM + r") s$"),
@@ -200,6 +212,7 @@ PATTERNS = [
     ("test_catch_skip", r"^Debug: test catch skipped \((.*)\)$"),
     ("sees", r"^Komendant sees (.+) suspicious in (\S+): carry=(\w+) curfew=(\d) rate=(" + NUM + r") suspicion=(" + NUM + r"), t=(" + NUM + r")$"),
     ("heard", r"^Komendant heard (.+): loudness (" + NUM + r") at .*, (" + NUM + r") cm away, investigating (\d) \((.*)\), t=(" + NUM + r")$"),
+    ("lure", r"^Komendant lure: (.+?) kind=(\w+) self=(" + NUM + r") cm komendant=(" + NUM + r") cm seen=(\d) counted=(\d), t=(" + NUM + r")$"),
     ("sortie", r"^Sortie of (.+) \((\S+)\): outside (" + NUM + r") s of (" + NUM + r"), counted (\d)$"),
     ("end_item", r"^End item (\S+) \(([^)]*)\): state EItemState::(\w+) room (\S+) home (\S+) hiddenBy (.+?) holder (.+?) spot (\S+)(?: contraband (\d) readable (\d))?$"),
     ("end_device", r"^End device (\S+) room (\S+): broken (\d) brokenBy (.+?) repairedBy (.+?) brokenAt (" + NUM + r")$"),
@@ -207,6 +220,10 @@ PATTERNS = [
     ("room_tip", r"^Room tip by (.+): room (\S+), t=(" + NUM + r")$"),
     ("accuse_rej", r"^Accuse by (.+) (rejected|postponed): (.*)$"),
     ("accuse", r"^Accuse by (.+) of (.+): (right|wrong) \((?:rumor task: (\d), proof: (\S+), holder (.+), item room (\S+)\))?"),
+    ("note_hint", r"^Note (\S+) read by (.+?): hint ([^,\s]+),(\S+) \(author (.+), author room (\S+), paranoid (\d)\), t=(" + NUM + r")$"),
+    ("note_hint_none", r"^Note (\S+) read by (.+?): hint none, t=(" + NUM + r")$"),
+    ("note_hint_set", r"^Note (\S+) hint from (.+) \(room (\S+)\): ([^,\s]+),(\S+), paranoid ([^,\s]+),(\S+), t=(" + NUM + r")$"),
+    ("note_no_hint", r"^Note (\S+): no paper hint for (.+) \(room (\S+), other bedrooms (\d+)\), t=(" + NUM + r")$"),
     ("hid_item", r"^(\S+) hid (\S+) in (\S+): player (.+), room (\S+), id=(\S+), contraband=(\d)$"),
     ("took_out", r"^(\S+) took (\S+) out of (\S+)$"),
     ("hide_interrupted", r"^(.+) (hide|search) of (\S+) in (\S+) interrupted: (.+)$"),
@@ -220,7 +237,7 @@ PATTERNS = [(kind, re.compile(rx)) for kind, rx in PATTERNS]
 # Виды, по которым видно, что игрок — бот.
 BOT_KINDS = ("bot_answers", "bot_tipped", "bot_hid", "bot_runs_hide", "bot_confirms", "bot_left", "bot_stuck", "bot_breaks", "bot_repairs",
              "bot_goes_out", "notice_bot", "bot_accuse", "bot_tip_room", "bot_plant", "bot_lure_throw", "bot_lure_result", "bot_alibi_run",
-             "bot_rumor", "bot_tip_refused", "bot_puts_down")
+             "bot_rumor", "bot_tip_refused", "bot_puts_down", "bot_lure_skip", "bot_note_hint", "bot_note_search", "bot_note_drop")
 
 PREFIX = re.compile(r"^(?:\[(\d{4}\.\d\d\.\d\d-\d\d\.\d\d\.\d\d:\d{3})\])?(?:\[\s*\d+\])?LogObshaga: (?:(Verbose|VeryVerbose|Display|Warning|Error|Fatal): )?(.*)$")
 CRASH = re.compile(r"(=== Critical error|Assertion failed|Fatal error!|Unhandled Exception|appError called|LogObshaga: Fatal:)")
@@ -287,6 +304,8 @@ class Round(object):
         self.next = None
         self.config = dict(CONFIG_DEFAULTS)
         self.config_known = False
+        # Какие числа есть в строке «Round config» (по новым ключам видно, что журнал записан сборкой с новыми правилами).
+        self.config_keys = set()
         self.room_table = {}
         self.by_kind = {}
         self._events = {}
@@ -477,6 +496,7 @@ class LogFile(object):
             rnd.config_known = True
             for key, value in re.findall(r"(\w+)=(" + NUM + r")", line.g(1)):
                 rnd.config[key] = float(value)
+                rnd.config_keys.add(key)
         if rnd.telemetry_name:
             rnd.telemetry = load_telemetry(rnd.telemetry_name, telemetry_dir)
             if rnd.telemetry:
@@ -632,6 +652,71 @@ def notice_before(rnd, line, who, words, limit=4):
     return prev_before(rnd, line, ("notice_bot", "notice_shown"), lambda o: o.g(1) == who and any(w in o.g(2) for w in words), limit=limit)
 
 
+def round_end_t(rnd):
+    """Секунды раунда в миг подсчёта заданий: событие RoundEnded (тот же кадр), иначе длительность из телеметрии или журнала."""
+    ended = [e for e in ev_list(rnd) if e["type"] == "RoundEnded"]
+    return ended[0]["t"] if ended else rnd.duration()
+
+
+def lure_window(rnd, owner, t, anchor, window, end):
+    """«Ложная тревога»: после приманки в t (строка anchor) owner window секунд не попадался Палычу — нет PlayerSpotted,
+    PlayerSpottedSuspicious и PlayerCaught в [t, t + window], и окно прошло к концу раунда end.
+    (True — чисто, False — нет, None — граница: в журнале время с точностью 0,1 с) и пояснение."""
+    stop = t + window
+    if end is None:
+        return None, "конец раунда неизвестен"
+    if stop > end + 0.15:
+        return False, "окно до t=%.1f к концу раунда (t=%.1f) не прошло" % (stop, end)
+    uncertain = abs(stop - end) <= 0.15
+    for e in ev_list(rnd, upto_telemetry=True):
+        if e["by"] != owner or e["type"] not in SEEN_EVENTS:
+            continue
+        # Записанное позже строки приманки случилось не раньше неё (время событий не убывает); раньше — разве что в том же кадре.
+        if e["line"].idx > anchor.idx:
+            if e["t"] < stop - 0.15:
+                return False, "%s t=%.1f — в окне" % (e["type"], e["t"])
+            if e["t"] <= stop + 0.15:
+                uncertain = True
+        elif abs(e["t"] - t) <= 0.05:
+            uncertain = True
+    return (None, "граница окна") if uncertain else (True, "%g с не попадался (до t=%.1f)" % (window, stop))
+
+
+def rumor_holder(rnd, who):
+    """Задание «пусти слух» у who: True/False; None — строк выдачи заданий нет."""
+    assigned = rnd.of("task_assigned")
+    if not assigned:
+        return None
+    return any(l.g(3) == who and (l.g(5) == "NoteReadByDistinctPlayers" if l.g(5) else l.g(1) == "start_rumor") for l in assigned)
+
+
+def rumor_proof(rnd, suspect, anchor):
+    """Автор ли слуха suspect к строке anchor — по правилу сервера (TaskComponent::FindRumorNote): у него задание «пусти слух»
+    и он уже оставил записку (положил, бросил, спрятал) или брал её в руки (несёт сейчас — тоже брал). В журналах сборок
+    до этого правила (нет ключа botNoteReroll в «Round config») в счёт шло только «оставил».
+    (True/False/None, пояснение, событие-доказательство или None)."""
+    holder = rumor_holder(rnd, suspect)
+    if holder is None:
+        return None, "нет строк выдачи заданий", None
+    if not holder:
+        return False, "у %s нет задания «пусти слух»" % suspect, None
+    flags = item_flags(rnd)
+    picked = "botNoteReroll" in rnd.config_keys
+    found = None
+    for e in ev_list(rnd):
+        if e["line"].idx >= anchor.idx:
+            break
+        if e["by"] != suspect or e["actor"] == "None" or not flags.get(e["id"], (False, False))[1]:
+            continue
+        if e["type"] in PLANT_EVENTS:
+            return True, "%s оставил %s (%s, t=%.1f)" % (suspect, e["id"], e["type"], e["t"]), e
+        if picked and e["type"] == "ItemPickedUp" and found is None:
+            found = e
+    if found is not None:
+        return True, "%s брал %s в руки (t=%.1f), ещё не оставил" % (suspect, found["id"], found["t"]), found
+    return False, "%s записку не %s" % (suspect, "брал и не оставлял" if picked else "оставлял"), None
+
+
 # ---------------------------------------------------------------- пересчёт заданий
 
 def recompute_task(rnd, owner, task_line):
@@ -686,15 +771,31 @@ def recompute_task(rnd, owner, task_line):
         return not bad, "замечен/пойман %d раз" % len(bad)
 
     if cond == "NoiseLuredKomendantAndUnseen":
-        lures = own_events("KomendantAlerted")
+        if "lureUnseen" not in rnd.config_keys:
+            # Журнал сборки до 2026-10-22: в счёт шёл любой шум, на который пошёл Палыч, и потом не поймали.
+            lures = own_events("KomendantAlerted")
+            if not lures:
+                return False, "Палыч на его шум не ходил"
+            last = lures[-1]["t"]
+            caught = [e["t"] for e in own_events("PlayerCaught")]
+            if any(abs(t - last) <= 0.15 for t in caught):
+                return None, "поимка в ту же секунду, что и приманка"
+            after = [t for t in caught if t > last]
+            return not after, "приманка t=%.1f, поимок после: %d" % (last, len(after))
+        # Годится любая засчитанная приманка (KomendantLured), после которой lureUnseen секунд не попадался Палычу.
+        lures = own_events("KomendantLured")
         if not lures:
-            return False, "Палыч на его шум не ходил"
-        last = lures[-1]["t"]
-        caught = [e["t"] for e in own_events("PlayerCaught")]
-        if any(abs(t - last) <= 0.15 for t in caught):
-            return None, "поимка в ту же секунду, что и приманка"
-        after = [t for t in caught if t > last]
-        return not after, "приманка t=%.1f, поимок после: %d" % (last, len(after))
+            return False, "засчитанных приманок нет (Палыч на брошенное им издалека не ходил)"
+        end = round_end_t(rnd)
+        uncertain = False
+        notes = []
+        for lure in lures:
+            clean, why = lure_window(rnd, owner, lure["t"], lure["line"], rnd.config["lureUnseen"], end)
+            if clean:
+                return True, "приманка t=%.1f, %s" % (lure["t"], why)
+            uncertain = uncertain or clean is None
+            notes.append("t=%.1f: %s" % (lure["t"], why))
+        return (None if uncertain else False), "приманки " + "; ".join(notes)
 
     if cond in ("ItemPlantedInRoomOfPlayer", "PlayerCaughtWithItem"):
         if own_events("PlayerFramed"):
@@ -775,6 +876,12 @@ def recompute_task(rnd, owner, task_line):
         acc = own_events("Accusation")
         if not acc:
             return False, "не обвинял"
+        # «Найди автора слуха» (предмет задания — записка): автор ли обвинённый, считаем сами по событиям до обвинения.
+        verdict_line = next((l for l in rnd.of("accuse") if l.g(1) == owner and l.g(4) is not None), None)
+        rumor = verdict_line.g(4) == "1" if verdict_line is not None else flags.get(item_param, (False, False))[1]
+        if rumor:
+            author, why, _ = rumor_proof(rnd, acc[0]["target"], acc[0]["line"])
+            return author, "обвинил %s: %s" % (acc[0]["target"], why)
         return acc[0]["actor"] != "None", "обвинение: %s" % ("верное" if acc[0]["actor"] != "None" else "мимо")
 
     return None, "условие %s не разобрано" % cond
@@ -2510,6 +2617,64 @@ def task_row(task_id):
     return run
 
 
+def fake_alarm_extra(rnd):
+    """«Ложная тревога»: каждое решение Палыча по брошенному (строка «Komendant lure») — по правилу, у засчитанного есть
+    событие KomendantLured, у выполненного задания — засчитанная приманка и чистое окно после неё."""
+    out = []
+    for e in rnd.of("event"):
+        if e.g(1) != "KomendantAlerted" or not rnd.of("heard"):
+            continue
+        heard = prev_before(rnd, e, ("heard",), lambda other: other.g(1) == e.g(3) and other.g(4) == "1")
+        exact = e.g(2) is not None
+        if heard is None or not close(fnum(heard.g(6)), tline(rnd, e, 2), 0.15 if exact else 1.5):
+            out.append(Result(FAIL, e, "KomendantAlerted без строки «heard … investigating 1»", rnd))
+    players = set(rnd.players()) | set(rnd.homes)
+    min_self = rnd.config["lureSelf"]
+    for line in rnd.of("lure"):
+        who, kind, self_cm, seen, counted, t = line.g(1), line.g(2), fnum(line.g(3)), line.g(5) == "1", line.g(6) == "1", fnum(line.g(7))
+        heard = prev_before(rnd, line, ("heard",), lambda o: o.g(1) == who, limit=10)
+        going = heard is not None and heard.g(4) == "1" and close(fnum(heard.g(6)), t, 0.15)
+        lured = next_after(rnd, line, ("event",), predicate=lambda e: e.g(1) == "KomendantLured" and e.g(3) == who, limit=3)
+        problems = []
+        if counted:
+            if kind != "Thrown":
+                problems.append("засчитан шум kind=%s, а не брошенное" % kind)
+            if self_cm < min_self - 0.5:
+                problems.append("бросивший в %.0f см от грохота, нужно не ближе %.0f" % (self_cm, min_self))
+            if seen:
+                problems.append("Палыч в этот миг его видел")
+            if not going:
+                problems.append("нет строки «heard … investigating 1» — Палыч на этот шум не пошёл")
+            if lured is None:
+                problems.append("нет события KomendantLured")
+        elif lured is not None:
+            problems.append("не засчитано, а событие KomendantLured есть")
+        elif kind == "Thrown" and not seen and going and self_cm >= min_self + 0.5 and who in players:
+            problems.append("брошено в %.0f см от себя (нужно %.0f), Палыч пошёл и бросившего не видел — а не засчитано" % (self_cm, min_self))
+        if problems:
+            out.append(Result(FAIL, line, "%s: %s" % (who, "; ".join(problems)), rnd))
+    for e in rnd.of("event"):
+        if e.g(1) == "KomendantLured" and prev_before(rnd, e, ("lure",), lambda o: o.g(1) == e.g(3) and o.g(6) == "1"
+                                                      and close(fnum(o.g(7)), tline(rnd, e, 2), 0.15), limit=3) is None:
+            out.append(Result(FAIL, e, "KomendantLured без строки «Komendant lure … counted=1»", rnd))
+    if "lureUnseen" not in rnd.config_keys:
+        return out
+    end = round_end_t(rnd)
+    for final in rnd.of("task_final"):
+        if final.g(1) != "fake_alarm" or final.g(3) != "COMPLETED":
+            continue
+        owner = final.g(2)
+        counted = [l for l in rnd.of("lure") if l.g(1) == owner and l.g(6) == "1"]
+        if not counted:
+            out.append(Result(FAIL, final, "%s: выполнено без засчитанной приманки (нет строки «Komendant lure: … counted=1»)" % owner, rnd))
+            continue
+        windows = [lure_window(rnd, owner, fnum(l.g(7)), l, rnd.config["lureUnseen"], end) for l in counted]
+        if all(clean is False for clean, _ in windows):
+            out.append(Result(FAIL, final, "%s: выполнено, а после каждой приманки попался: %s" % (
+                owner, "; ".join("t=%s: %s" % (l.g(7), why) for l, (_, why) in zip(counted, windows))), rnd))
+    return out
+
+
 def task_extra(ctx, task_id):
     out = []
     for rnd in ctx.rounds:
@@ -2526,14 +2691,22 @@ def task_extra(ctx, task_id):
             for e in events:
                 if e["type"] == "LeftBuilding" and rnd.phase_at(e["line"]) != "Night":
                     out.append(Result(FAIL, e["line"], "%s вышел через ночной выход в фазе %s" % (e["by"], rnd.phase_at(e["line"])), rnd))
-        elif task_id == "fake_alarm" and rnd.of("heard"):
-            for e in rnd.of("event"):
-                if e.g(1) != "KomendantAlerted":
+        elif task_id == "fake_alarm":
+            out.extend(fake_alarm_extra(rnd))
+        elif task_id == "expose_liar":
+            # Вердикт сервера = правило FindRumorNote по событиям до обвинения; доказательство — записка, которую обвинённый
+            # оставил или брал в руки.
+            for line in rnd.of("accuse"):
+                if line.g(4) != "1":
                     continue
-                heard = prev_before(rnd, e, ("heard",), lambda other: other.g(1) == e.g(3) and other.g(4) == "1")
-                exact = e.g(2) is not None
-                if heard is None or not close(fnum(heard.g(6)), tline(rnd, e, 2), 0.15 if exact else 1.5):
-                    out.append(Result(FAIL, e, "KomendantAlerted без строки «heard … investigating 1»", rnd))
+                by, suspect, right = line.g(1), line.g(2), line.g(3) == "right"
+                author, why, proof = rumor_proof(rnd, suspect, line)
+                if author is not None and author != right:
+                    out.append(Result(FAIL, line, "%s назвал %s: сервер — %s, по событиям %s" % (by, suspect, "верно" if right else "мимо", why), rnd))
+                elif right and line.g(5) not in (None, "None") and not any(
+                        e["by"] == suspect and e["actor"] == line.g(5) and (e["type"] in PLANT_EVENTS or e["type"] == "ItemPickedUp")
+                        and e["line"].idx < line.idx for e in events):
+                    out.append(Result(FAIL, line, "доказательство %s: %s его не брал и не оставлял" % (line.g(5), suspect), rnd))
         elif task_id == "tip_off":
             for tip in rnd.of("room_tip"):
                 by, room, t0 = tip.g(1), tip.g(2), fnum(tip.g(3))
@@ -2822,8 +2995,8 @@ SMS_EVENT_VERB = {"ItemPickedUp": 0, "ItemHidden": 1, "Noise": 2, "RoomEntered":
 
 
 def check_bot_tasks(ctx):
-    """Боты в заданиях без «вещи»: обвинение, стук на комнату, ложная тревога, подстава и слухи из СМС.
-    Сверяет строки мозга бота с тем, что решил сервер."""
+    """Боты в заданиях без «вещи»: обвинение (и по подсказке с бумаги), стук на комнату, ложная тревога, подстава, слухи из СМС,
+    подсказки с записок, поиск записок и «оставил записку здесь». Сверяет строки мозга бота с тем, что решил сервер."""
     out = []
     for rnd in ctx.rounds:
         events = ev_list(rnd)
@@ -2839,6 +3012,10 @@ def check_bot_tasks(ctx):
             right = verdict is not None and verdict.g(3) == "right"
             if accepted and strength == "strong" and not right:
                 problems.append("твёрдая улика (%s), а обвинение неверное" % source)
+            # Подсказка с бумаги — только та, что бот сам прочитал на записке (строка «heard note hint» раньше обвинения).
+            paper = re.search(r"paper hint (?:rooms )?([^,\s]+),([^,\s)]+)", source)
+            if paper and not any(h.g(1) == bot and h.idx < line.idx and set((h.g(2), h.g(3))) == set(paper.groups()) for h in rnd.of("bot_note_hint")):
+                problems.append("улика — подсказка %s,%s, а такой подсказки бот на записке не читал" % paper.groups())
             if problems:
                 out.append(Result(FAIL, line, "; ".join(problems), rnd))
             elif accepted:
@@ -2869,24 +3046,67 @@ def check_bot_tasks(ctx):
             found = [e for e in events if e["type"] == "ContrabandConfiscated" and e["room"] == room and e["t"] is not None and t0 is not None and e["t"] >= t0 - 0.2]
             out.append(Result(PASS, line, "%s настучал на %s: улика %s (%s); запрещёнку там %s" % (
                 bot, room, strength, source, "нашли" if found else "не нашли"), rnd))
-        # Ложная тревога: «alerted» — Палыч пошёл на шум бота (событие KomendantAlerted от него); «failed» — такого события нет.
+        # Ложная тревога. Новая сборка: «lured» — у бота выполнено fake_alarm (пометка «выполнено» в телефоне); «seen» — грохот
+        # засчитан (KomendantLured не позже BOT_LURE_RESULT_SECONDS после броска), но в окне бота заметили; «failed» — не засчитан.
+        # Старая сборка: «alerted» — Палыч пошёл на шум бота (KomendantAlerted от него), «failed» — такого события нет.
+        new_lure = "lureUnseen" in rnd.config_keys
+        window = rnd.config["lureUnseen"]
         for line in rnd.of("bot_lure_result"):
             bot, outcome, after = line.g(1), line.g(2), fnum(line.g(3))
             t1 = tline(rnd, line, 4)
             throw = prev_before(rnd, line, ("bot_lure_throw",), predicate=lambda o: o.g(1) == bot)
-            t0 = tline(rnd, throw, 7) if throw is not None else None
-            alerts = [e for e in events if e["type"] == "KomendantAlerted" and e["by"] == bot and e["t"] is not None and t1 is not None
-                      and (t0 is None or e["t"] >= t0 - 0.2) and e["t"] <= t1 + 0.2]
-            if outcome == "alerted" and not alerts:
-                out.append(Result(FAIL, line, "бот пишет «выманил», а события KomendantAlerted от %s нет" % bot, rnd))
-            elif outcome == "failed" and alerts and throw is not None:
-                out.append(Result(FAIL, line, "бот пишет «не вышло», а Палыч пошёл на его шум (t=%.1f)" % alerts[0]["t"], rnd))
+            t0 = tline(rnd, throw, 9) if throw is not None and after >= 0 else None
+            detail = ""
+            if t0 is not None:
+                detail = ", бросил %s в %s см от Палыча (Палыч видит бота: %s%s, фаза %s)" % (throw.g(2), throw.g(4), throw.g(5), (
+                    ", дорожка %s см, бот видел Палыча %s с назад" % (throw.g(6), throw.g(7))) if throw.g(6) is not None else "", throw.g(8))
+            if outcome == "alerted" or (outcome == "failed" and not new_lure):
+                alerts = [e for e in events if e["type"] == "KomendantAlerted" and e["by"] == bot and e["t"] is not None and t1 is not None
+                          and (t0 is None or e["t"] >= t0 - 0.2) and e["t"] <= t1 + 0.2]
+                if outcome == "alerted" and not alerts:
+                    out.append(Result(FAIL, line, "бот пишет «выманил», а события KomendantAlerted от %s нет" % bot, rnd))
+                elif outcome == "failed" and alerts and throw is not None:
+                    out.append(Result(FAIL, line, "бот пишет «не вышло», а Палыч пошёл на его шум (t=%.1f)" % alerts[0]["t"], rnd))
+                else:
+                    out.append(Result(PASS if outcome == "alerted" else SKIP, line, "%s: ложная тревога — %s через %.1f с%s" % (
+                        bot, "Палыч пошёл на шум" if outcome == "alerted" else "не клюнул", after or 0.0, detail), rnd))
+                continue
+            lured = [e for e in events if e["type"] == "KomendantLured" and e["by"] == bot and t0 is not None
+                     and t0 - 0.2 <= e["t"] <= t0 + BOT_LURE_RESULT_SECONDS + 0.2]
+            problems = []
+            status = PASS
+            if outcome == "lured":
+                final = task_final_of(rnd, "fake_alarm", bot)
+                # Пометку «выполнено» даёт засчитанная приманка, окно которой прошло чисто до строки бота.
+                done = [e for e in events if e["type"] == "KomendantLured" and e["by"] == bot
+                        and lure_window(rnd, bot, e["t"], e["line"], window, t1 + 0.15 if t1 is not None else None)[0] is not False]
+                if not done:
+                    problems.append("бот пишет «выманил», а засчитанной приманки, после которой он %g с не попадался, до этого нет" % window)
+                if final is not None and final.g(3) != "COMPLETED":
+                    problems.append("бот пишет «выманил», а fake_alarm у него провалено")
+                elif final is None and rnd.finished:
+                    problems.append("у бота нет итога задания fake_alarm")
+                text = "засчитано, задание выполнено"
+            elif outcome == "seen":
+                if not lured:
+                    problems.append("бот пишет «заметили», а KomendantLured за %g с после броска нет" % BOT_LURE_RESULT_SECONDS)
+                    text = ""
+                else:
+                    # Окно должно было пройти до строки бота (пометку задания сервер обновляет раз в секунду).
+                    clean, why = lure_window(rnd, bot, lured[0]["t"], lured[0]["line"], window, t1 - 1.0 if t1 is not None else None)
+                    if clean:
+                        problems.append("бот пишет «заметили», а после приманки t=%.1f %s" % (lured[0]["t"], why))
+                    text = "грохот засчитан (t=%.1f), но %s" % (lured[0]["t"], why)
             else:
-                detail = ""
-                if throw is not None:
-                    detail = ", бросил %s за %s см от Палыча (видел его: %s, фаза %s)" % (throw.g(2), throw.g(4), throw.g(5), throw.g(6))
-                out.append(Result(PASS if outcome == "alerted" else SKIP, line, "%s: ложная тревога — %s через %.1f с%s" % (
-                    bot, "Палыч пошёл на шум" if outcome == "alerted" else "не клюнул", after or 0.0, detail), rnd))
+                if lured:
+                    problems.append("бот пишет «не засчитано», а KomendantLured от него t=%.1f" % lured[0]["t"])
+                status = SKIP
+                text = "грохот не засчитан"
+            out.append(Result(FAIL if problems else status, line, "; ".join(problems) or "%s: ложная тревога — %s, %s%s" % (
+                bot, text, ("через %.1f с после броска" % after) if after >= 0 else "не после своего броска", detail), rnd))
+        for line in rnd.of("bot_lure_throw") + rnd.of("bot_lure_skip"):
+            if rnd.of("task_assigned") and not any(l.g(1) == "fake_alarm" and l.g(3) == line.g(1) for l in rnd.of("task_assigned")):
+                out.append(Result(FAIL, line, "%s бросает приманку без задания fake_alarm" % line.g(1), rnd))
         # Подстава: комната — та, где бот оставил вещь (событие ItemDropped/ItemHidden от него), и это дом жертвы.
         for line in rnd.of("bot_plant"):
             bot, item_id, room, victim = line.g(1), line.g(2), line.g(4), line.g(5)
@@ -2928,6 +3148,154 @@ def check_bot_tasks(ctx):
             confirmed = next_after(rnd, line, ("bot_confirms",), stop_kinds=("interro_res",), predicate=lambda o: o.g(1) == bot and o.g(2) == suspect)
             out.append(Result(PASS if confirmed is not None else SKIP, line, "%s бежал к допросу %s (%s см, %s с): %s" % (
                 bot, suspect, line.g(3), line.g(4), "успел подтвердить алиби" if confirmed is not None else "не успел"), rnd))
+        # Подсказка на записке боту — ровно то, что сервер записал в строке «Note … read by <бот>: hint A,B» (Параноику — выдумка).
+        for line in rnd.of("bot_note_hint"):
+            bot, pair = line.g(1), (line.g(2), line.g(3))
+            read = prev_before(rnd, line, ("note_hint",), predicate=lambda o: o.g(2) == bot, limit=4)
+            if read is None or (read.g(3), read.g(4)) != pair:
+                out.append(Result(FAIL, line, "подсказка боту %s,%s, а в строке чтения записки %s" % (
+                    pair[0], pair[1], "%s,%s" % (read.g(3), read.g(4)) if read is not None else "её нет"), rnd))
+            else:
+                out.append(Result(PASS, line, "%s прочитал на записке: бумага из %s и %s%s" % (
+                    bot, pair[0], pair[1], " (он Параноик — выдумка)" if read.g(7) == "1" else ""), rnd))
+        # Ищет записки — только с заданием «найди автора слуха» и только в общих комнатах (гостиная, кухня, коридоры).
+        flags = item_flags(rnd)
+        assigned = rnd.of("task_assigned")
+        for line in rnd.of("bot_note_search"):
+            bot, room = line.g(1), line.g(2)
+            info = rnd.room(room)
+            problems = []
+            if info is not None and info[0] not in ("LivingRoom", "Kitchen", "Corridor"):
+                problems.append("ищет записки в %s (%s), а не в общей комнате" % (room, info[0]))
+            if assigned and not any(l.g(3) == bot and (l.g(1) == "expose_liar" or (l.g(5) == "CorrectAccusation" and flags.get(l.g(6), (False, False))[1]))
+                                    for l in assigned):
+                problems.append("ищет записки без задания «найди автора слуха»")
+            out.append(Result(FAIL if problems else PASS, line, "; ".join(problems) or "%s ищет записки в %s" % (bot, room), rnd))
+        # Бросил носить записку-слух: тут же событие ItemDropped с запиской, и не в жилой комнате (в свою — только перед «сидеть дома»).
+        for line in rnd.of("bot_note_drop"):
+            bot, aborts = line.g(1), line.g(3)
+            drop = next_after(rnd, line, ("event",), predicate=lambda e: e.g(1) == "ItemDropped" and e.g(3) == bot, limit=4)
+            problems = []
+            if drop is None:
+                problems.append("нет события ItemDropped от бота")
+            else:
+                if not flags.get(drop.g(5) or "-", (False, False))[1]:
+                    problems.append("положил %s, а не записку" % drop.g(5))
+                info = rnd.room(drop.g(6))
+                if info is not None and info[0] == "Bedroom" and (aborts is not None or drop.g(6) != rnd.homes.get(bot)):
+                    problems.append("оставил записку в жилой комнате %s" % drop.g(6))
+            if rumor_holder(rnd, bot) is False:
+                problems.append("у бота нет задания «пусти слух»")
+            out.append(Result(FAIL if problems else PASS, line, "; ".join(problems) or "%s оставил записку в %s %s" % (
+                bot, drop.g(6), ("после %s сорванных походов" % aborts) if aborts is not None else "перед тем, как сидеть дома"), rnd))
+    return out
+
+
+def check_lure_accidental(ctx):
+    """«Ложная тревога»: Палыч пошёл на шум игрока с этим заданием, а приманкой это не засчитано (дверь, прибор, уронил,
+    бросил себе под ноги или у Палыча на глазах). Сам по себе такой шум задание не выполняет: в тот миг нет KomendantLured,
+    пометка «сейчас выполнено» после него появляется только за засчитанную раньше приманку, а выполненное к концу —
+    только с засчитанной приманкой."""
+    out = []
+    for rnd in ctx.rounds:
+        if "lureUnseen" not in rnd.config_keys:
+            continue  # журнал старой сборки: тогда шум и засчитывался
+        owners = set(l.g(3) for l in rnd.of("task_assigned") if l.g(1) == "fake_alarm")
+        if not owners:
+            continue
+        window = rnd.config["lureUnseen"]
+        lured = {}
+        for e in ev_list(rnd):
+            if e["type"] == "KomendantLured":
+                lured.setdefault(e["by"], []).append(e)
+        for heard in rnd.of("heard"):
+            who = heard.g(1)
+            if who not in owners or heard.g(4) != "1":
+                continue
+            t = fnum(heard.g(6))
+            lure = next_after(rnd, heard, ("lure",), stop_kinds=("heard",), predicate=lambda o: o.g(1) == who, limit=10)
+            if lure is not None and lure.g(6) == "1":
+                continue  # засчитанная приманка — это п. «Задание «Ложная тревога»»
+            if lure is None:
+                kind = "не брошенное: дверь, прибор или уронил"
+            elif lure.g(5) == "1":
+                kind = "брошено у Палыча на глазах"
+            elif fnum(lure.g(3)) < rnd.config["lureSelf"] - 0.5:
+                kind = "брошено в %s см от себя" % lure.g(3)
+            else:
+                kind = "брошено (%s), не засчитано" % lure.g(2)
+            problems = []
+            same = [e for e in lured.get(who, []) if abs(e["t"] - t) <= 0.15]
+            if same:
+                problems.append("в тот же миг событие KomendantLured")
+            # Пометка «сейчас выполнено», появившаяся после этого шума (до следующего шума этого игрока), — только за засчитанную
+            # приманку, окно которой уже прошло (время строки — по метке журнала, допуск 1 с).
+            live = next_after(rnd, heard, ("task_live", "heard"), predicate=lambda o: (o.kind == "heard" and o.g(1) == who and o.g(4) == "1")
+                              or (o.kind == "task_live" and o.g(1) == "fake_alarm" and o.g(2) == who and o.g(3) == "1"))
+            if live is not None and live.kind == "task_live":
+                at = rnd.t_of(live)
+                if at is None or not any(e["t"] + window <= at + 1.0 for e in lured.get(who, [])):
+                    problems.append("после него «сейчас выполнено» (%s), а засчитанной приманки за %g с до этого нет" % (live.short(), window))
+            final = task_final_of(rnd, "fake_alarm", who)
+            if final is not None and final.g(3) == "COMPLETED" and not lured.get(who):
+                problems.append("fake_alarm выполнено, а засчитанных приманок нет — засчитан этот шум")
+            outcome = "раунд не доигран" if final is None else ("выполнено другой приманкой" if final.g(3) == "COMPLETED" else "не выполнено")
+            out.append(Result(FAIL if problems else PASS, heard, "; ".join(problems) or "%s: Палыч пошёл на его шум (%s, громкость %s), приманкой не засчитан; задание: %s" % (
+                who, kind, heard.g(2), outcome), rnd))
+    return out
+
+
+def check_note_hints(ctx):
+    """Подсказка на бумаге записки-слуха: правдивая — комната автора и одна чужая, у Параноика — две чужие; комнаты разные,
+    жилые, та же пара, что записана при подбросе, и автор — тот, у кого задание «пусти слух»."""
+    out = []
+    for rnd in ctx.rounds:
+        roles = dict((l.g(1), l.g(2)) for l in rnd.of("role"))
+
+        def bad_rooms(rooms):
+            found = []
+            for room in rooms:
+                info = rnd.room(room)
+                if info is not None and info[0] != "Bedroom":
+                    found.append("%s — не жилая (%s)" % (room, info[0]))
+            return found
+
+        for line in rnd.of("note_hint_set"):
+            author, home, true_pair, fake_pair = line.g(2), line.g(3), (line.g(4), line.g(5)), (line.g(6), line.g(7))
+            problems = bad_rooms(set(true_pair + fake_pair))
+            if true_pair.count(home) != 1 or true_pair[0] == true_pair[1]:
+                problems.append("правдивая пара %s,%s при комнате автора %s" % (true_pair + (home,)))
+            if home in fake_pair or fake_pair[0] == fake_pair[1]:
+                problems.append("пара Параноика %s,%s при комнате автора %s" % (fake_pair + (home,)))
+            if rumor_holder(rnd, author) is False:
+                problems.append("у %s нет задания «пусти слух»" % author)
+            if rnd.homes.get(author) not in (None, home):
+                problems.append("%s живёт в %s, а в строке %s" % (author, rnd.homes.get(author), home))
+            if problems:
+                out.append(Result(FAIL, line, "; ".join(problems), rnd))
+        for line in rnd.of("note_hint"):
+            note, reader, pair, author, home, paranoid = line.g(1), line.g(2), (line.g(3), line.g(4)), line.g(5), line.g(6), line.g(7) == "1"
+            problems = bad_rooms(set(pair))
+            if pair[0] == pair[1]:
+                problems.append("обе комнаты — %s" % pair[0])
+            if not paranoid and home not in pair:
+                problems.append("правдивая подсказка без комнаты автора %s" % home)
+            if paranoid and home in pair:
+                problems.append("Параноику названа комната автора %s" % home)
+            if reader in roles and (roles[reader] == "Paranoid") != paranoid:
+                problems.append("%s — %s, а paranoid=%d" % (reader, roles[reader], paranoid))
+            if rnd.homes.get(author) not in (None, home):
+                problems.append("%s живёт в %s, а в строке %s" % (author, rnd.homes.get(author), home))
+            written = prev_before(rnd, line, ("note_hint_set",), predicate=lambda o: o.g(1) == note)
+            if written is None:
+                problems.append("нет строки «Note %s hint from …» — при подбросе подсказку не записали" % note)
+            elif written.g(2) != author or ((written.g(6), written.g(7)) if paranoid else (written.g(4), written.g(5))) != pair:
+                problems.append("при подбросе записано %s: %s,%s / %s,%s" % (written.g(2), written.g(4), written.g(5), written.g(6), written.g(7)))
+            read = next_after(rnd, line, ("event",), predicate=lambda e: e.g(1) == "NoteRead" and e.g(3) == reader, limit=4)
+            if read is None:
+                problems.append("нет события NoteRead от %s" % reader)
+            out.append(Result(FAIL if problems else PASS, line, "; ".join(problems) or "%s прочитал %s: бумага из %s и %s, автор %s из %s%s" % (
+                reader, note, pair[0], pair[1], author, home, " (Параноику — две чужие)" if paranoid else ""), rnd))
     return out
 
 
@@ -2976,7 +3344,9 @@ CHECKS = [
     ("Экран итогов: хроника", check_chronicle, "нет строк «Chronicle» и телеметрии с хроникой"),
     ("Экран итогов: всё влезает", check_layout, "нет строк «Results layout» (окно не рисовало итоги)"),
     ("Экран итогов: строки игроков", check_results_rows, "нет строк «Results row» (окно не рисовало итоги или старая сборка)"),
-    ("Боты играют в задания", check_bot_tasks, "боты не обвиняли, не стучали на комнату, не выманивали Палыча, не подбрасывали и не получали слухов"),
+    ("Боты играют в задания", check_bot_tasks, "боты не обвиняли, не стучали на комнату, не выманивали Палыча, не подбрасывали, не получали слухов и подсказок с записок"),
+    ("Ложная тревога: случайный шум не в счёт", check_lure_accidental, "Палыч не ходил на случайный шум игроков с «ложной тревогой» (или журнал старой сборки)"),
+    ("Подсказка на записке", check_note_hints, "записку с подсказкой никто не читал (её пишет только автор слуха, когда оставит записку)"),
 ]
 
 

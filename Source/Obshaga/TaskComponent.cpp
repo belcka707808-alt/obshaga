@@ -1,9 +1,11 @@
 #include "TaskComponent.h"
 
+#include "CarryComponent.h"
 #include "DeviceActor.h"
 #include "GameEventSubsystem.h"
 #include "ItemActor.h"
 #include "Obshaga.h"
+#include "ObshagaCharacter.h"
 #include "ObshagaGameMode.h"
 #include "ObshagaItemData.h"
 #include "ObshagaPlayerController.h"
@@ -133,15 +135,18 @@ bool UTaskComponent::IsRumorRow(const UObject* WorldContextObject, const FTaskRo
 
 AItemActor* UTaskComponent::FindRumorNote(const UObject* WorldContextObject, const APlayerState* Who)
 {
-	// Автор слуха — тот, у кого задание пустить слух и кто уже оставил записку (положил, бросил или спрятал).
-	// Просто переложить чужую записку — не авторство.
+	// Автор слуха — тот, у кого задание пустить слух. Доказательство — записка, которую он уже оставил (положил, бросил
+	// или спрятал), а пока не оставил — которую брал в руки или несёт сейчас: кто видел, как автор взял записку,
+	// не должен терять единственную попытку только потому, что тот её ещё не положил.
+	// Просто переложить чужую записку — не авторство: без задания «пусти слух» доказательства нет.
 	const UGameEventSubsystem* Bus = UGameEventSubsystem::Get(WorldContextObject);
 	const AObshagaPlayerState* State = Cast<AObshagaPlayerState>(Who);
 	if (!Bus || !State || !State->GetTaskComponent()->FindRowByCondition(ETaskCondition::NoteReadByDistinctPlayers))
 	{
 		return nullptr;
 	}
-	for (const FGameEvent& Plant : Bus->GetEventLog())
+	const TArray<FGameEvent>& Events = Bus->GetEventLog();
+	for (const FGameEvent& Plant : Events)
 	{
 		const bool bPlanted = Plant.Type == EGameEventType::ItemDropped || Plant.Type == EGameEventType::ItemThrown || Plant.Type == EGameEventType::ItemHidden;
 		if (bPlanted && Plant.Instigator == Who && Plant.Item && Plant.Item->GetItemData()->bReadable)
@@ -149,7 +154,16 @@ AItemActor* UTaskComponent::FindRumorNote(const UObject* WorldContextObject, con
 			return Plant.Item;
 		}
 	}
-	return nullptr;
+	for (const FGameEvent& Pick : Events)
+	{
+		if (Pick.Type == EGameEventType::ItemPickedUp && Pick.Instigator == Who && Pick.Item && Pick.Item->GetItemData()->bReadable)
+		{
+			return Pick.Item;
+		}
+	}
+	const AObshagaCharacter* Character = Cast<AObshagaCharacter>(State->GetPawn());
+	AItemActor* Carried = Character ? Character->GetCarryComponent()->GetCarriedItem() : nullptr;
+	return Carried && Carried->GetItemData()->bReadable ? Carried : nullptr;
 }
 
 bool UTaskComponent::HasTask(FName TaskId) const
@@ -343,12 +357,30 @@ bool UTaskComponent::EvaluateCondition(const FTaskRow& Row) const
 
 	case ETaskCondition::NoiseLuredKomendantAndUnseen:
 	{
-		// Комендант пошёл на шум этого игрока, и после этого игрока не поймали.
-		// Считается последняя приманка: ранняя неудача не портит более позднюю удачу.
-		const int32 LureIndex = Events.FindLastByPredicate([OwnerState](const FGameEvent& Event)
-			{ return Event.Type == EGameEventType::KomendantAlerted && Event.Instigator == OwnerState; });
-		const FGameEvent* Lure = Events.IsValidIndex(LureIndex) ? &Events[LureIndex] : nullptr;
-		return Lure && FindOwnEvent(EGameEventType::PlayerCaught, Lure->Time) == nullptr;
+		// Палыч пошёл на грохот вещи, которую игрок бросил подальше от себя и не у него на глазах (KomendantLured),
+		// и потом LureUnseenSeconds игрок ему не попадался: ни «заметил», ни «заметил за подозрительным», ни поимки.
+		// Годится любая такая приманка; окно должно целиком пройти (конец раунда — тоже «сейчас»), зато потом
+		// успех уже не отнять — поймают хоть через минуту.
+		const float LureUnseen = GameMode ? GameMode->GetRoundConfig()->LureUnseenSeconds : GetDefault<UObshagaRoundConfig>()->LureUnseenSeconds;
+		const float Now = World->GetTimeSeconds();
+		for (const FGameEvent& Lure : Events)
+		{
+			if (Lure.Type != EGameEventType::KomendantLured || Lure.Instigator != OwnerState || Lure.Time + LureUnseen > Now)
+			{
+				continue;
+			}
+			const bool bSeenAfter = Events.ContainsByPredicate([&Lure, LureUnseen, OwnerState](const FGameEvent& Event)
+			{
+				const bool bSeen = Event.Type == EGameEventType::PlayerSpotted || Event.Type == EGameEventType::PlayerSpottedSuspicious
+					|| Event.Type == EGameEventType::PlayerCaught;
+				return bSeen && Event.Instigator == OwnerState && Event.Time >= Lure.Time && Event.Time <= Lure.Time + LureUnseen;
+			});
+			if (!bSeenAfter)
+			{
+				return true;
+			}
+		}
+		return false;
 	}
 
 	case ETaskCondition::ItemPlantedInRoomOfPlayer:

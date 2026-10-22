@@ -12,6 +12,7 @@
 #include "NightExitDoor.h"
 #include "Obshaga.h"
 #include "ObshagaCharacter.h"
+#include "ObshagaCharacterConfig.h"
 #include "ObshagaGameMode.h"
 #include "ObshagaGameState.h"
 #include "ObshagaItemData.h"
@@ -61,11 +62,38 @@ namespace
 	constexpr float BotNoteMovedDistance = 150.f;
 	// Записку-слух кладём там, где ближе этого стоит больше всего соседей.
 	constexpr float BotRumorCrowdDistance = 900.f;
-	// Бросил вещь, а Палыч за столько секунд не пошёл на шум — не вышло; снова не раньше чем через BotLureRetrySeconds.
-	constexpr float BotLureResultSeconds = 4.f;
+	// …но не туда, где бот сам видел Палыча не дольше стольких секунд назад: точка ближе BotFleeDistance × столько к тому
+	// месту хуже любой другой (с запиской в руках от Палыча пришлось бы бежать).
+	constexpr float BotRumorKomendantMemorySeconds = 30.f;
+	constexpr float BotRumorKomendantClearance = 1.5f;
+	// Столько раз бот убегал от Палыча с запиской в руках — дальше оставляет её в первой же нежилой комнате.
+	constexpr int32 BotRumorMaxAborts = 2;
+	// «Найди автора слуха»: записок на виду нет — бот идёт искать их в общие комнаты с таким шансом (иначе — другие дела).
+	constexpr float BotNoteSearchChance = 0.6f;
+	// Ложная тревога: грохот, на который Палыч пошёл в первые столько секунд после броска, — от этого броска (для журнала).
+	// Исход бот узнаёт по пометке задания: ждёт BotLureResultSeconds + LureUnseenSeconds + BotLureStatusLagSeconds
+	// (пометку в телефоне сервер обновляет раз в секунду). Не вышло — снова не раньше чем через BotLureRetrySeconds.
+	constexpr float BotLureResultSeconds = 5.f;
+	constexpr float BotLureStatusLagSeconds = 1.5f;
 	constexpr float BotLureRetrySeconds = 20.f;
+	// После броска бот сидит тихо (ни за чем не ходит) LureUnseenSeconds и ещё столько секунд.
+	constexpr float BotLureHoldExtraSeconds = 2.f;
 	// Место для броска ищем не дальше этого от себя.
 	constexpr float BotLureSearchRadius = 2500.f;
+	// Пока бот шёл к месту броска, его взгляд на Палыча мог устареть ещё на столько секунд сверх BotLureSightingMaxAge.
+	constexpr float BotLureWalkSeconds = 8.f;
+	// Дорожка для броска: мерим на столько вперёд шаром такого радиуса; свободно должно быть на LureMinSelfDistance
+	// и ещё столько (вещь не стукнет о стену рядом с ботом). Брошенная вещь падает примерно в BotLureThrowReach от бота.
+	constexpr float BotLureLaneProbe = 900.f;
+	constexpr float BotLureLaneRadius = 15.f;
+	constexpr float BotLureLaneMargin = 150.f;
+	constexpr float BotLureThrowReach = 750.f;
+	// Направления броска: прямо к Палычу и с отклонением на столько градусов в обе стороны.
+	constexpr float BotLureAngleStep = 25.f;
+	constexpr int32 BotLureAngleSteps = 3;
+	// После броска: куда уйти — не дальше этого от себя; точка в коридоре хуже (там Палыч и ходит) на столько.
+	constexpr float BotLureRetreatRadius = 2000.f;
+	constexpr float BotLureCorridorPenalty = 600.f;
 	// Брошенная вещь бьётся о пол примерно с такой долей «громкой» скорости удара (LoudImpactSpeed): тише неё вещь
 	// не годится для приманки — громкость не дотянет до KomendantMinNoise, и Палыч не пойдёт смотреть.
 	constexpr float BotLureImpactShare = 0.65f;
@@ -183,9 +211,10 @@ bool AObshagaBotController::IsGivenUp(const AActor* Actor) const
 
 bool AObshagaBotController::IsCareful() const
 {
-	// Выманил Палыча шумом (или только что бросил вещь) — теперь попасться нельзя, иначе «ложная тревога» не засчитается.
+	// Только что бросил приманку — пока не ясно, засчитана ли, попадаться на глаза нельзя. Засчитанную уже не отнять,
+	// так что после успеха бот снова ведёт себя как обычно.
 	const AObshagaPlayerState* MyState = GetMyState();
-	return bLureDone || LureThrowTime >= 0.f
+	return LureThrowTime >= 0.f
 		|| (MyState && MyState->GetTaskComponent()->FindRowByCondition(ETaskCondition::NeverSpottedWholeRound) != nullptr);
 }
 
@@ -232,8 +261,12 @@ void AObshagaBotController::ResetForRound()
 	MySpot.Reset();
 	GaveUpOn.Reset();
 	bRumorPlanted = false;
+	MyRumorNote.Reset();
+	RumorDropAborts = 0;
 	bCurfewDone = false;
 	NoteRolls.Reset();
+	NoteHints.Reset();
+	NoteSearchRoom = NAME_None;
 	bTipped = false;
 	TipAtTime = -1.f;
 	AnswerAt = -1.f;
@@ -266,6 +299,11 @@ void AObshagaBotController::ResetForRound()
 	bLureDone = false;
 	LureThrowTime = -1.f;
 	LureRetryAt = 0.f;
+	LureHoldUntil = 0.f;
+	LureCountedTime = -1.f;
+	KomendantSeenAt = FVector::ZeroVector;
+	bKomendantSeenCalm = false;
+	KomendantSeenTime = -1.f;
 	bHideOutsideDecided = false;
 	bHideOutside = false;
 	RoundStartTime = GetWorld()->GetTimeSeconds();
@@ -390,7 +428,8 @@ void AObshagaBotController::Think()
 	{
 		SeenStrikes = Strikes;
 		AActor* Last = LastWorkedOn.Get();
-		if (Last && Config->BotRetryAfterCaughtSeconds > 0.f)
+		// Записку-слух, выроненную на допросе, сервер уже засчитал как оставленную (bRumorPlanted): от неё отказываться не за что.
+		if (Last && Last != MyRumorNote.Get() && Config->BotRetryAfterCaughtSeconds > 0.f)
 		{
 			GaveUpOn = Last;
 			GaveUpUntil = Now + Config->BotRetryAfterCaughtSeconds;
@@ -401,11 +440,23 @@ void AObshagaBotController::Think()
 		bFireAlarmGrumbled = true;
 		Say(static_cast<uint8>(ObshagaStory::EBotLine::FireAlarm));
 	}
-	// Ложная тревога: бросил вещь, а Палыч на шум не пошёл — не вышло, попробуем позже другой вещью.
-	if (LureThrowTime >= 0.f && !bLureDone && Now - LureThrowTime > BotLureResultSeconds)
+	// Ложная тревога: удалась ли, бот узнаёт как человек — по пометке «выполнено» у задания в телефоне. Пометки нет,
+	// когда окно наверняка прошло, — не вышло (заметили или бросок не засчитали): попробуем позже другой вещью.
+	// lured — выполнено; seen — Палыч засчитал грохот, но бота заметили; failed — грохот не засчитан (журнал знает, бот — нет).
+	if (!bLureDone && IsLureTaskSatisfied())
 	{
-		UE_LOG(LogObshaga, Verbose, TEXT("Bot %s lure result: failed after %.1f s, t=%.1f"), *MyState->GetPlayerName(), Now - LureThrowTime, GetRoundSeconds());
+		bLureDone = true;
+		UE_LOG(LogObshaga, Verbose, TEXT("Bot %s lure result: lured after %.1f s, t=%.1f"), *MyState->GetPlayerName(),
+			LureThrowTime >= 0.f ? Now - LureThrowTime : -1.f, GetRoundSeconds());
 		LureThrowTime = -1.f;
+		LureCountedTime = -1.f;
+	}
+	else if (LureThrowTime >= 0.f && !bLureDone && Now - LureThrowTime > BotLureResultSeconds + Config->LureUnseenSeconds + BotLureStatusLagSeconds)
+	{
+		UE_LOG(LogObshaga, Verbose, TEXT("Bot %s lure result: %s after %.1f s, t=%.1f"), *MyState->GetPlayerName(),
+			LureCountedTime >= 0.f ? TEXT("seen") : TEXT("failed"), Now - LureThrowTime, GetRoundSeconds());
+		LureThrowTime = -1.f;
+		LureCountedTime = -1.f;
 		LureRetryAt = Now + BotLureRetrySeconds;
 	}
 	if (Me->IsFrozen())
@@ -413,6 +464,7 @@ void AObshagaBotController::Think()
 		return;
 	}
 	WatchOthers();
+	WatchKomendant();
 
 	// Бот-Крыса стучит на жертву, когда ночью подходит его время.
 	if (MyState->GetTrueRole() == EPlayerRole::Rat && !bTipped && GameState->GetPhase() == ERoundPhase::Night)
@@ -511,12 +563,38 @@ void AObshagaBotController::Think()
 		{
 			TryTipRoom();
 		}
+		// Гуляет с приманкой в руках и как раз увидел спокойного Палыча — прогулку бросает: пора искать, откуда бросить.
+		else if (Goal == EBotGoal::Wander && bKomendantSeenCalm && Now >= LureRetryAt && HasFreshKomendantSighting(BotThinkSeconds))
+		{
+			const AItemActor* CarriedLure = Me->GetCarryComponent()->GetCarriedItem();
+			const FTaskRow* LureRow = MyState->GetTaskComponent()->FindRowByCondition(ETaskCondition::NoiseLuredKomendantAndUnseen);
+			if (CarriedLure && LureRow && RowWantsItem(*LureRow, CarriedLure))
+			{
+				Goal = EBotGoal::None;
+				Path.Reset();
+				SetState(EBotState::Idle);
+			}
+		}
+		// Записку-слух пора оставить где придётся (скоро отбой у осторожного, ночь, походы срывал Палыч): кладём в первой
+		// нежилой комнате по дороге. Шёл как раз её класть — дальше идти незачем.
+		if (ShouldDropNoteSoon() && DropNoteHere() && Goal == EBotGoal::Drop)
+		{
+			Goal = EBotGoal::None;
+			Path.Reset();
+			SetState(EBotState::Idle);
+		}
 		return;
 	}
 
 	// Idle.
 	if (Now < IdleUntil)
 	{
+		return;
+	}
+	// Ложная тревога: только что бросил — стоит там, куда ушёл, и ни за чем не ходит, пока окно «не попадись» не пройдёт.
+	if (Now < LureHoldUntil)
+	{
+		IdleUntil = Now + 0.5f;
 		return;
 	}
 	// Новое дело — новые цели: «не дошёл» должно записываться на то, к чему бот идёт сейчас, а не на прошлое.
@@ -527,6 +605,7 @@ void AObshagaBotController::Think()
 	// Осторожный бот после отбоя из комнаты за ней не выходит.
 	if (!Me->GetCarryComponent()->IsCarrying() && !IsCarefulAtHomeTime())
 	{
+		const FTaskRow* RumorRow = MyState->GetTaskComponent()->FindRowByCondition(ETaskCondition::NoteReadByDistinctPlayers);
 		for (TActorIterator<AItemActor> It(GetWorld()); It; ++It)
 		{
 			AItemActor* Note = *It;
@@ -536,13 +615,22 @@ void AObshagaBotController::Think()
 			{
 				continue;
 			}
-			// Читать ли — решается заново для каждого места записки: подкинутую туда, где её уже видели, тоже прочтут.
+			// Автор свою записку из любопытства не читает: оставленную — никогда (куда бы её ни переложили), ещё не оставленную
+			// он и так возьмёт в руки по заданию.
+			if (Note == MyRumorNote.Get() || (RumorRow && RowWantsItem(*RumorRow, Note)))
+			{
+				continue;
+			}
+			// Читать ли — решается заново для каждого места записки (подкинутую туда, где её уже видели, тоже прочтут)
+			// и раз в BotNoteRerollSeconds, если в прошлый раз не захотел.
 			const TWeakObjectPtr<AItemActor> NoteKey(Note);
 			FBotNoteRoll* Roll = NoteRolls.Find(NoteKey);
-			if (!Roll || FVector::Dist(Roll->Location, NoteAt) > BotNoteMovedDistance)
+			if (!Roll || FVector::Dist(Roll->Location, NoteAt) > BotNoteMovedDistance
+				|| (!Roll->bRead && Roll->TriesLeft <= 0 && Now - Roll->RollTime >= Config->BotNoteRerollSeconds))
 			{
 				FBotNoteRoll Fresh;
 				Fresh.Location = NoteAt;
+				Fresh.RollTime = Now;
 				// Две попытки: если дорогу сорвал Палыч, к тому же месту бот сходит ещё раз.
 				Fresh.TriesLeft = FMath::FRand() < Config->BotReadNoteChance ? 2 : 0;
 				Roll = &NoteRolls.Add(NoteKey, Fresh);
@@ -665,7 +753,7 @@ void AObshagaBotController::HandleInterrogation()
 	}
 	// Бежать к допросу — один раз на допрос, если успеваем: окно не закрывается и путь есть.
 	// Из шкафа, с улицы и посреди дела (прячет вещь, чинит) не срывается. С вещью в руках не бежит: нёс бы её прямо
-	// к Палычу. Осторожный (не попадаться, выманил Палыча) тоже: выбежать к Палычу — как раз попасться на глаза.
+	// к Палычу. Осторожный (не попадаться, только что бросил приманку) тоже: выбежать к Палычу — как раз попасться на глаза.
 	const bool bFreeToRun = (State == EBotState::Idle || State == EBotState::Walk || State == EBotState::Flee)
 		&& !Me->GetCarryComponent()->IsCarrying() && !IsCareful();
 	if (bCoverTask && bFreeToRun && !Me->IsFrozen() && AlibiRunFor.Get() != Info.Suspect && Remaining >= BotAlibiMinWindowSeconds
@@ -728,6 +816,28 @@ void AObshagaBotController::WatchOthers()
 	}
 }
 
+void AObshagaBotController::WatchKomendant()
+{
+	// Где Палыч и спокоен ли, бот знает только по тому, что видел сам (как человек: глазами, не сквозь стены).
+	// Из шкафа не видно ничего.
+	if (Me->IsHiding() || Me->IsGhost())
+	{
+		return;
+	}
+	const AKomendantCharacter* Komendant = FindKomendant();
+	if (Komendant && CanWitness(Komendant))
+	{
+		KomendantSeenAt = Komendant->GetActorLocation();
+		bKomendantSeenCalm = Komendant->GetAlert() == EKomendantAlert::Calm;
+		KomendantSeenTime = GetWorld()->GetTimeSeconds();
+	}
+}
+
+bool AObshagaBotController::HasFreshKomendantSighting(float MaxAge) const
+{
+	return KomendantSeenTime >= 0.f && GetWorld()->GetTimeSeconds() - KomendantSeenTime <= MaxAge;
+}
+
 void AObshagaBotController::GuardSaw(const APawn* Thief, const AItemActor* Item)
 {
 	// Запоминает вора: если тот спрячет телевизор у себя, сторож пойдёт обыскивать его комнату.
@@ -762,7 +872,9 @@ bool AObshagaBotController::TryFleeOrHide(const AKomendantCharacter* Komendant)
 	const bool bCareful = IsCareful();
 	// Осторожный бот после отбоя у себя в комнате не подозрителен — а выбежать от Палыча в коридор как раз подозрительно.
 	// Утром Палыч проверяет и шкафы, так что прятаться у себя тоже нельзя: сидящего в шкафу он ловит.
-	if (IsCarefulAtHomeTime() && !Me->GetCarryComponent()->IsCarrying())
+	// С запиской в руках — так же: её он сейчас положит (PlanTask), а выбежать с ней в коридор — попасться наверняка.
+	const AItemActor* Held = Me->GetCarryComponent()->GetCarriedItem();
+	if (IsCarefulAtHomeTime() && (!Held || Held->GetItemData()->bReadable))
 	{
 		const ARoomVolume* Room = ARoomVolume::FindRoomAt(this, Me->GetActorLocation());
 		if (Room && Room->RoomId == MyState->GetHomeRoomId())
@@ -853,6 +965,11 @@ bool AObshagaBotController::TryFleeOrHide(const AKomendantCharacter* Komendant)
 	TargetItem.Reset();
 	TargetSpot.Reset();
 	TargetDevice.Reset();
+	// Сбежал с запиской-слухом в руках — ещё один сорванный поход к месту (после BotRumorMaxAborts кладёт где стоит).
+	if (State != EBotState::Flee && IsCarryingRumorNote())
+	{
+		++RumorDropAborts;
+	}
 	WalkTo(Best->GetActorLocation(), EBotGoal::None, 120.f);
 	State = EBotState::Flee;
 	Me->SetSprinting(!Me->GetCarryComponent()->IsCarryingHeavy());
@@ -890,7 +1007,9 @@ bool AObshagaBotController::PlanTask()
 	// дела и сидит у себя до утра (прогулку домой сделает PlanWander).
 	if (IsCarefulAtHomeTime())
 	{
-		return false;
+		// Записку-слух домой не несём: оставляем здесь, если это не жилая комната (или уже дома); из чужой жилой комнаты —
+		// по дороге домой, в первой нежилой (Think).
+		return DropNoteHere();
 	}
 	for (int32 Index = 0; Index < Rows.Num(); ++Index)
 	{
@@ -1125,8 +1244,18 @@ bool AObshagaBotController::PlanTaskRow(const FTaskRow& Row)
 			{
 				return false;
 			}
+			// Уже ночь или Палыч дважды сорвал поход — оставляем записку здесь, если это не жилая комната; из жилой идём
+			// как обычно и кладём её в первой нежилой по дороге (Think).
+			if (ShouldDropNoteSoon() && DropNoteHere())
+			{
+				return true;
+			}
+			// Там, где бот недавно сам видел Палыча, записку не оставить: с ней в руках от него пришлось бы бежать.
+			// Сначала — подальше от Палыча, потом — где больше народу.
+			const bool bKnowKomendant = KomendantSeenTime >= 0.f && Now - KomendantSeenTime <= BotRumorKomendantMemorySeconds;
+			const float KomendantClearance = GetRoundConfig()->BotFleeDistance * BotRumorKomendantClearance;
 			TArray<FVector> Crowded;
-			int32 MostNeighbours = -1;
+			int32 BestScore = -1;
 			for (const AKomendantWaypoint* Waypoint : Waypoints)
 			{
 				const FVector At = Waypoint->GetActorLocation();
@@ -1135,6 +1264,8 @@ bool AObshagaBotController::PlanTaskRow(const FTaskRow& Row)
 				{
 					continue;
 				}
+				const bool bNearKomendant = bKnowKomendant && FVector::Dist(At, KomendantSeenAt) < KomendantClearance
+					&& FMath::Abs(At.Z - KomendantSeenAt.Z) < BotSameFloorHeight * 2.f;
 				int32 Neighbours = 0;
 				for (TActorIterator<AObshagaCharacter> It(GetWorld()); It; ++It)
 				{
@@ -1145,12 +1276,13 @@ bool AObshagaBotController::PlanTaskRow(const FTaskRow& Row)
 						++Neighbours;
 					}
 				}
-				if (Neighbours > MostNeighbours)
+				const int32 Score = (bNearKomendant ? 0 : 1000) + Neighbours;
+				if (Score > BestScore)
 				{
-					MostNeighbours = Neighbours;
+					BestScore = Score;
 					Crowded.Reset();
 				}
-				if (Neighbours == MostNeighbours)
+				if (Score == BestScore)
 				{
 					Crowded.Add(At);
 				}
@@ -1223,7 +1355,7 @@ bool AObshagaBotController::IsCarefulAtHomeTime() const
 	// Домой — заранее, за BotCurfewHomeSeconds до отбоя: идти к себе уже ночью по коридору — тоже «подозрительно».
 	const AObshagaGameState* GameState = GetWorld()->GetGameState<AObshagaGameState>();
 	const bool bNearCurfew = GameState && (GameState->GetPhase() != ERoundPhase::Evening || GameState->GetPhaseRemainingSeconds() < BotCurfewHomeSeconds);
-	// Только «не попадись на глаза»: выманившему Палыча шумом нельзя лишь попасться, а не показываться, —
+	// Только «не попадись на глаза»: бросившему приманку прятаться нужно лишь несколько секунд после броска (LureHoldUntil), —
 	// его ночные дела (выход на улицу, недоделанная кража) не отменяются.
 	const AObshagaPlayerState* MyState = GetMyState();
 	return bNearCurfew && MyState && MyState->GetTaskComponent()->FindRowByCondition(ETaskCondition::NeverSpottedWholeRound) != nullptr;
@@ -1327,19 +1459,10 @@ void AObshagaBotController::Arrive()
 	case EBotGoal::Drop:
 		if (Carry->IsCarrying())
 		{
-			const bool bNote = Carry->GetCarriedItem()->GetItemData()->bReadable;
+			// Записку-слух бот отмечает оставленной (и своей — её он не читает) по своему же событию в OnGameEvent:
+			// так же, как выроненную на допросе.
 			UE_LOG(LogObshaga, Verbose, TEXT("Bot %s dropped %s"), *GetMyState()->GetPlayerName(), *Carry->GetCarriedItem()->GetName());
-			AItemActor* Dropped = Carry->GetCarriedItem();
 			Carry->Drop();
-			bRumorPlanted |= bNote;
-			if (bNote)
-			{
-				// Свою записку бот не читает — ни здесь, ни если её потом переложат.
-				FBotNoteRoll Own;
-				Own.Location = Dropped->GetActorLocation();
-				Own.bRead = true;
-				NoteRolls.Add(TWeakObjectPtr<AItemActor>(Dropped), Own);
-			}
 		}
 		break;
 	case EBotGoal::SearchSpot:
@@ -1361,10 +1484,12 @@ void AObshagaBotController::Arrive()
 			if (Note->GetItemState() == EItemState::World && FVector::Dist(Note->GetActorLocation(), Me->GetActorLocation()) < 260.f)
 			{
 				Note->SecondaryInteract(Me);
-				// Прочитал: на этом месте больше не читает (переложат — решит заново).
+				// Прочитал: на этом месте больше не читает (переложат — решит заново). Подсказку с бумаги, если она есть,
+				// бот уже услышал (HearNoteHint).
 				FBotNoteRoll& Roll = NoteRolls.FindOrAdd(TWeakObjectPtr<AItemActor>(Note));
 				Roll.Location = Note->GetActorLocation();
 				Roll.bRead = true;
+				Roll.ReadTime = Now;
 				UE_LOG(LogObshaga, Verbose, TEXT("Bot %s read %s"), *GetMyState()->GetPlayerName(), *Note->GetName());
 			}
 		}
@@ -1449,7 +1574,14 @@ void AObshagaBotController::Arrive()
 		TryTipRoom();
 		break;
 	case EBotGoal::Lure:
-		TryLureThrow();
+		if (!TryLureThrow() && !bLureDone && LureThrowTime < 0.f)
+		{
+			// Отсюда бросить не вышло (дорожку загородили, Палыч отсюда виден, взгляд на него устарел) — к той же точке
+			// по кругу не ходим: позже.
+			LureRetryAt = Now + BotLureRetrySeconds;
+			UE_LOG(LogObshaga, Verbose, TEXT("Bot %s lure skipped: no throw from here, retry in %.0f s, t=%.1f"), *GetMyState()->GetPlayerName(),
+				BotLureRetrySeconds, GetRoundSeconds());
+		}
 		break;
 	default:
 		// Alibi: дошёл до допроса — подтверждает HandleInterrogation (он же решает, в радиусе ли бот).
@@ -1855,15 +1987,22 @@ void AObshagaBotController::OnGameEvent(const FGameEvent& Event)
 	const float Now = GetWorld()->GetTimeSeconds();
 	const UTaskComponent* Tasks = MyState->GetTaskComponent();
 
-	// Свои события: удалась ли ложная тревога, подброшена ли вещь.
+	// Свои события: удалась ли ложная тревога, подброшена ли вещь, оставлена ли записка-слух.
 	if (Who == MyState)
 	{
-		if (Event.Type == EGameEventType::KomendantAlerted && !bLureDone && Tasks->FindRowByCondition(ETaskCondition::NoiseLuredKomendantAndUnseen))
+		// Записка-слух легла (положил, бросил, спрятал или выронил на допросе) — для сервера она уже оставлена: дело сделано,
+		// и это своя записка, её бот не читает. Что держал её в руках, бот знает сам.
+		const bool bLeft = Event.Type == EGameEventType::ItemDropped || Event.Type == EGameEventType::ItemThrown || Event.Type == EGameEventType::ItemHidden;
+		const FTaskRow* RumorRow = Tasks->FindRowByCondition(ETaskCondition::NoteReadByDistinctPlayers);
+		if (bLeft && Item && RumorRow && RowWantsItem(*RumorRow, Item))
 		{
-			bLureDone = true;
-			UE_LOG(LogObshaga, Verbose, TEXT("Bot %s lure result: alerted after %.1f s, t=%.1f"), *MyState->GetPlayerName(),
-				LureThrowTime >= 0.f ? Now - LureThrowTime : -1.f, GetRoundSeconds());
-			LureThrowTime = -1.f;
+			bRumorPlanted = true;
+			MyRumorNote = Item;
+		}
+		if (Event.Type == EGameEventType::KomendantLured && LureThrowTime >= 0.f && LureCountedTime < 0.f && Now - LureThrowTime <= BotLureResultSeconds)
+		{
+			// Только для журнала (seen или failed): сам бот об этом не знает и решает по пометке задания в телефоне.
+			LureCountedTime = Now;
 		}
 		else if ((Event.Type == EGameEventType::ItemHidden || Event.Type == EGameEventType::ItemDropped) && Item && !bPlanted && !FrameRoom.IsNone())
 		{
@@ -1881,6 +2020,25 @@ void AObshagaBotController::OnGameEvent(const FGameEvent& Event)
 				PlantedRoom = FrameRoom;
 				UE_LOG(LogObshaga, Verbose, TEXT("Bot %s planted %s (%s) in %s, room of %s, t=%.1f"), *MyState->GetPlayerName(), *Data->ItemId.ToString(), *Item->GetName(),
 					*FrameRoom.ToString(), FrameVictim.IsValid() ? *FrameVictim->GetPlayerName() : TEXT("-"), GetRoundSeconds());
+			}
+		}
+		return;
+	}
+
+	// Достал вещь из тайника (нашёл): подъём уже записан — ItemPickedUp приходит раньше, — помечаем его «нашёл».
+	// Кто оставил найденную чужую записку, тот ещё не автор слуха.
+	if (Event.Type == EGameEventType::ItemFound)
+	{
+		if (Who && Item && !Me->IsHiding() && !Me->IsGhost() && CanWitness(Who->GetPawn()))
+		{
+			for (int32 Index = Sightings.Num() - 1; Index >= 0; --Index)
+			{
+				FBotSighting& Seen = Sightings[Index];
+				if (Seen.Who.Get() == Who && Seen.Item.Get() == Item && Seen.What == EBotSeen::PickedUp)
+				{
+					Seen.bFound = true;
+					break;
+				}
 			}
 		}
 		return;
@@ -1913,7 +2071,7 @@ void AObshagaBotController::OnGameEvent(const FGameEvent& Event)
 	Remember(Who, What, Item, What == EBotSeen::Hidden ? Item->GetCurrentRoomId() : Event.RoomId);
 }
 
-bool AObshagaBotController::CanWitness(const APawn* Other) const
+bool AObshagaBotController::CanWitness(const AActor* Other) const
 {
 	if (!Me || !Other)
 	{
@@ -1974,6 +2132,29 @@ void AObshagaBotController::HearRumor(APlayerState* Who, int32 Verb, FName RoomI
 	const AObshagaPlayerState* MyState = GetMyState();
 	UE_LOG(LogObshaga, Verbose, TEXT("Bot %s heard rumor: %s verb %d room %s, t=%.1f"), MyState ? *MyState->GetPlayerName() : TEXT("-"), *Who->GetPlayerName(), Verb,
 		*RoomId.ToString(), GetRoundSeconds());
+}
+
+void AObshagaBotController::HearNoteHint(AItemActor* Note, FName RoomA, FName RoomB)
+{
+	if (!Note)
+	{
+		return;
+	}
+	// Та же записка — та же бумага: запоминаем подсказку заново, последней (она и самая свежая).
+	NoteHints.RemoveAll([Note](const FBotNoteHint& Old) { return Old.Note.Get() == Note; });
+	FBotNoteHint& Hint = NoteHints.AddDefaulted_GetRef();
+	Hint.Note = Note;
+	Hint.RoomA = RoomA;
+	Hint.RoomB = RoomB;
+	Hint.Time = GetWorld()->GetTimeSeconds();
+	const AObshagaPlayerState* MyState = GetMyState();
+	UE_LOG(LogObshaga, Verbose, TEXT("Bot %s heard note hint: %s,%s, t=%.1f"), MyState ? *MyState->GetPlayerName() : TEXT("-"), *RoomA.ToString(), *RoomB.ToString(),
+		GetRoundSeconds());
+}
+
+bool AObshagaBotController::HasNoteHint(const AItemActor* Note) const
+{
+	return Note && NoteHints.ContainsByPredicate([Note](const FBotNoteHint& Hint) { return Hint.Note.Get() == Note; });
 }
 
 bool AObshagaBotController::IsItemShownInRoom(FName ItemId, FName RoomId) const
@@ -2092,26 +2273,123 @@ FBotSuspect AObshagaBotController::FindTvThief(const FTaskRow& Row) const
 
 FBotSuspect AObshagaBotController::FindNoteAuthor() const
 {
-	// Автор слуха — кто первым на глазах у бота оставил записку (положил, бросил, спрятал).
+	// Автор слуха. Бот судит только по тому, что видел сам, и по подсказке на бумаге записки (Параноику — выдумка, как человеку):
+	// видел, как X оставил записку, — твёрдо (а если X не живёт ни в одной из комнат с бумаги — средне); видел записку
+	// у X в руках и X живёт в одной из этих комнат или там живёт всего один сосед — средне; просто кто-то из жильцов этих
+	// комнат или записка в руках у X без подсказки — слабо (обвинение — только утром).
 	const AObshagaPlayerState* MyState = GetMyState();
+	const AObshagaGameState* GameState = GetWorld()->GetGameState<AObshagaGameState>();
 	const FTaskRow* Row = MyState->GetTaskComponent()->FindRowByCondition(ETaskCondition::CorrectAccusation);
 	const FName NoteId = Row ? Row->ItemId : NAME_None;
 	const float Now = GetWorld()->GetTimeSeconds();
-	FBotSuspect Found;
-	for (const FBotSighting& Seen : Sightings)
+	FBotSuspect Best;
+	float BestScore = -1.f;
+	auto Consider = [&Best, &BestScore](APlayerState* Who, EBotEvidence Strength, float Score, const FString& Source)
 	{
+		const AObshagaPlayerState* WhoState = Cast<AObshagaPlayerState>(Who);
+		// Выселенного не обвинить — на него и не думаем, чтобы не застрять на нём.
+		if (!WhoState || WhoState->IsEvicted())
+		{
+			return;
+		}
+		if (Strength > Best.Strength || (Strength == Best.Strength && Score > BestScore))
+		{
+			Best.Who = Who;
+			Best.Strength = Strength;
+			Best.Source = Source;
+			BestScore = Score;
+		}
+	};
+
+	// Подсказка с бумаги (последняя прочитанная) и кто живёт в этих комнатах — это видно всем (HomeRoomId).
+	// Сам бот не автор (у него задание найти автора) — себя не считает.
+	const FBotNoteHint* Hint = NoteHints.IsEmpty() ? nullptr : &NoteHints.Last();
+	TArray<APlayerState*> Residents;
+	if (Hint && GameState)
+	{
+		for (APlayerState* Other : GameState->PlayerArray)
+		{
+			const AObshagaPlayerState* OtherState = Cast<AObshagaPlayerState>(Other);
+			if (OtherState && OtherState != MyState && !OtherState->GetHomeRoomId().IsNone()
+				&& (OtherState->GetHomeRoomId() == Hint->RoomA || OtherState->GetHomeRoomId() == Hint->RoomB))
+			{
+				Residents.Add(Other);
+			}
+		}
+	}
+	const FString HintRooms = Hint ? FString::Printf(TEXT("%s,%s"), *Hint->RoomA.ToString(), *Hint->RoomB.ToString()) : FString();
+
+	// Бот видел, как X сам достал эту записку из тайника (нашёл чужую), — тогда то, что X с ней делал потом, не авторство.
+	auto FoundIt = [this](int32 Index)
+	{
+		const FBotSighting& Seen = Sightings[Index];
+		for (int32 Earlier = Index; Earlier >= 0; --Earlier)
+		{
+			const FBotSighting& Before = Sightings[Earlier];
+			if (Before.Who == Seen.Who && Before.Item == Seen.Item && Before.What == EBotSeen::PickedUp)
+			{
+				return Before.bFound;
+			}
+		}
+		return false;
+	};
+
+	TSet<const APlayerState*> SeenWithNote;
+	for (int32 Index = 0; Index < Sightings.Num(); ++Index)
+	{
+		const FBotSighting& Seen = Sightings[Index];
 		APlayerState* Who = Seen.Who.Get();
-		if (!Who || Who == MyState || !Seen.bReadable || Seen.What == EBotSeen::PickedUp || Seen.What == EBotSeen::Carrying
-			|| (!NoteId.IsNone() && Seen.ItemId != NoteId))
+		if (!Who || Who == MyState || !Seen.bReadable || (!NoteId.IsNone() && Seen.ItemId != NoteId))
 		{
 			continue;
 		}
-		Found.Who = Who;
-		Found.Strength = EBotEvidence::Strong;
-		Found.Source = FString::Printf(TEXT("saw %s note in %s %.0f s ago"), SeenName(Seen.What), *Seen.RoomId.ToString(), Now - Seen.Time);
-		break;
+		SeenWithNote.Add(Who);
+		if (FoundIt(Index))
+		{
+			continue;
+		}
+		const bool bResident = Residents.Contains(Who);
+		const float Ago = Now - Seen.Time;
+		if (Seen.What == EBotSeen::Dropped || Seen.What == EBotSeen::Thrown || Seen.What == EBotSeen::Hidden)
+		{
+			// Первым оставил — скорее автор: тот, кто потом прочитал и положил обратно, оставляет позже.
+			if (!Hint || bResident)
+			{
+				Consider(Who, EBotEvidence::Strong, -Seen.Time, FString::Printf(TEXT("saw %s note in %s %.0f s ago"), SeenName(Seen.What), *Seen.RoomId.ToString(), Ago));
+			}
+			else
+			{
+				Consider(Who, EBotEvidence::Medium, Seen.Time, FString::Printf(TEXT("saw %s note in %s %.0f s ago, not from paper hint rooms %s"), SeenName(Seen.What),
+					*Seen.RoomId.ToString(), Ago, *HintRooms));
+			}
+		}
+		else if (Hint && bResident)
+		{
+			Consider(Who, EBotEvidence::Medium, 200000.f + Seen.Time, FString::Printf(TEXT("saw %s note in %s %.0f s ago + paper hint %s"), SeenName(Seen.What),
+				*Seen.RoomId.ToString(), Ago, *HintRooms));
+		}
+		else if (!Hint)
+		{
+			Consider(Who, EBotEvidence::Weak, Seen.Time, FString::Printf(TEXT("saw %s note in %s %.0f s ago"), SeenName(Seen.What), *Seen.RoomId.ToString(), Ago));
+		}
 	}
-	return Found;
+
+	// Одна подсказка: в этих комнатах живёт всего один сосед — это он (средне); несколько — кто-то из них (слабо): сначала тот,
+	// кого бот видел с запиской, иначе первый по списку игроков.
+	if (Hint && Residents.Num() == 1)
+	{
+		Consider(Residents[0], EBotEvidence::Medium, 100000.f, FString::Printf(TEXT("paper hint %s (1 suspect)"), *HintRooms));
+	}
+	else if (Hint)
+	{
+		for (int32 Index = 0; Index < Residents.Num(); ++Index)
+		{
+			const bool bWithNote = SeenWithNote.Contains(Residents[Index]);
+			Consider(Residents[Index], EBotEvidence::Weak, (bWithNote ? 100000.f : 0.f) - static_cast<float>(Index),
+				FString::Printf(TEXT("paper hint %s (%d suspects)%s"), *HintRooms, Residents.Num(), bWithNote ? TEXT(", saw with note") : TEXT("")));
+		}
+	}
+	return Best;
 }
 
 FBotSuspect AObshagaBotController::FindContrabandRoom() const
@@ -2204,7 +2482,8 @@ bool AObshagaBotController::PlanAccuse(const FTaskRow& Row)
 	// Видел сам или сложил два и два — идёт сразу. По одному слуху — только утром: обвинение одно, ошибка дорогая.
 	if (Suspect.Strength == EBotEvidence::None || (Suspect.Strength < EBotEvidence::Medium && GameState->GetPhase() != ERoundPhase::Morning))
 	{
-		return false;
+		// Автора слуха пока не вычислить — ищем и читаем записки, как человек: по бумаге видно, из каких он комнат.
+		return MyState->IsAccuseRumor() && PlanNoteSearch();
 	}
 	const AObshagaPlayerState* SuspectState = Cast<AObshagaPlayerState>(Suspect.Who.Get());
 	const AObshagaCharacter* SuspectCharacter = SuspectState ? Cast<AObshagaCharacter>(SuspectState->GetPawn()) : nullptr;
@@ -2219,6 +2498,82 @@ bool AObshagaBotController::PlanAccuse(const FTaskRow& Row)
 	}
 	const float Reach = FMath::Max(GetRoundConfig()->AccuseDistance - BotAccuseMargin, 100.f);
 	return WalkTo(SuspectCharacter->GetActorLocation(), EBotGoal::Accuse, FMath::Min(Reach * 0.5f, 400.f));
+}
+
+bool AObshagaBotController::PlanNoteSearch()
+{
+	if (Me->GetCarryComponent()->IsCarrying())
+	{
+		return false;
+	}
+	const UObshagaRoundConfig* Config = GetRoundConfig();
+	const float Now = GetWorld()->GetTimeSeconds();
+	// Записка на виду (сам видит: рядом, на своём этаже, без стены между ними): не читал — прочесть [F]; читал, а подсказки
+	// на бумаге не было (её ещё не подбрасывали) — перечитать, когда её переложили или прошло BotNoteRerollSeconds.
+	AItemActor* Best = nullptr;
+	float BestDistance = TNumericLimits<float>::Max();
+	for (TActorIterator<AItemActor> It(GetWorld()); It; ++It)
+	{
+		AItemActor* Note = *It;
+		if (!Note->GetItemData()->bReadable || Note->GetItemState() != EItemState::World || IsGivenUp(Note) || HasNoteHint(Note) || !CanWitness(Note))
+		{
+			continue;
+		}
+		const FVector NoteAt = Note->GetActorLocation();
+		const FBotNoteRoll* Roll = NoteRolls.Find(TWeakObjectPtr<AItemActor>(Note));
+		if (Roll && Roll->bRead && FVector::Dist(Roll->Location, NoteAt) <= BotNoteMovedDistance && Now - Roll->ReadTime < Config->BotNoteRerollSeconds)
+		{
+			continue;
+		}
+		const float Distance = FVector::Dist(NoteAt, Me->GetActorLocation());
+		if (Distance < BestDistance)
+		{
+			BestDistance = Distance;
+			Best = Note;
+		}
+	}
+	if (Best)
+	{
+		TargetItem = Best;
+		if (WalkTo(Best->GetActorLocation(), EBotGoal::ReadNote, 150.f))
+		{
+			return true;
+		}
+		TargetItem.Reset();
+	}
+	// На виду записок нет — заглянуть в общие комнаты (гостиная, кухня, коридоры): записки-слухи оставляют там.
+	// Не всегда: у бота бывают и другие дела. Осторожный (не попадаться, только что бросил приманку) по общаге не бродит.
+	if (IsCareful() || FMath::FRand() >= BotNoteSearchChance)
+	{
+		return false;
+	}
+	TArray<const AKomendantWaypoint*> Candidates;
+	for (const AKomendantWaypoint* Waypoint : Waypoints)
+	{
+		const ARoomVolume* Room = ARoomVolume::FindRoomAt(this, Waypoint->GetActorLocation());
+		if (Room && (Room->RoomType == ERoomType::LivingRoom || Room->RoomType == ERoomType::Kitchen || Room->RoomType == ERoomType::Corridor)
+			&& FVector::Dist(Waypoint->GetActorLocation(), Me->GetActorLocation()) > 300.f)
+		{
+			Candidates.Add(Waypoint);
+		}
+	}
+	if (Candidates.IsEmpty())
+	{
+		return false;
+	}
+	const FVector Target = Candidates[FMath::RandRange(0, Candidates.Num() - 1)]->GetActorLocation();
+	if (!WalkTo(Target, EBotGoal::Wander, 160.f))
+	{
+		return false;
+	}
+	// В журнал — только когда бот пошёл искать в другую комнату.
+	const ARoomVolume* SearchRoom = ARoomVolume::FindRoomAt(this, Target);
+	if (SearchRoom && SearchRoom->RoomId != NoteSearchRoom)
+	{
+		NoteSearchRoom = SearchRoom->RoomId;
+		UE_LOG(LogObshaga, Verbose, TEXT("Bot %s looks for notes in %s"), *GetMyState()->GetPlayerName(), *NoteSearchRoom.ToString());
+	}
+	return true;
 }
 
 bool AObshagaBotController::TryAccuse()
@@ -2428,6 +2783,54 @@ bool AObshagaBotController::PlanFrame(const FTaskRow& Row)
 	return WalkTo(Item->GetActorLocation(), EBotGoal::PickUp, 150.f);
 }
 
+// --- Пусти слух («оставь записку, её должны прочитать») ---
+
+bool AObshagaBotController::IsCarryingRumorNote() const
+{
+	const AObshagaPlayerState* MyState = GetMyState();
+	const AItemActor* Carried = Me ? Me->GetCarryComponent()->GetCarriedItem() : nullptr;
+	const FTaskRow* RumorRow = MyState ? MyState->GetTaskComponent()->FindRowByCondition(ETaskCondition::NoteReadByDistinctPlayers) : nullptr;
+	return Carried && RumorRow && RowWantsItem(*RumorRow, Carried);
+}
+
+bool AObshagaBotController::ShouldDropNoteSoon() const
+{
+	// Осторожному скоро сидеть дома (носить записку там всю ночь — попасться утром), ночью далёкие походы опасны,
+	// а Палыч уже дважды сорвал поход к месту — значит, донести её туда не выйдет.
+	const AObshagaGameState* GameState = GetWorld()->GetGameState<AObshagaGameState>();
+	return IsCarryingRumorNote() && (IsCarefulAtHomeTime() || RumorDropAborts >= BotRumorMaxAborts
+		|| (GameState && GameState->GetPhase() != ERoundPhase::Evening));
+}
+
+bool AObshagaBotController::DropNoteHere()
+{
+	if (!IsCarryingRumorNote())
+	{
+		return false;
+	}
+	// В жилой комнате слух не прочтут — там оставлять не стоит. Кроме своей, когда пора сидеть дома: держать записку в руках
+	// до утра ещё хуже (с ношей Палыч замечает сразу).
+	const AObshagaPlayerState* MyState = GetMyState();
+	const ARoomVolume* Room = Me->GetCurrentRoom();
+	const bool bCarefulHome = IsCarefulAtHomeTime();
+	if (!Room || (Room->RoomType == ERoomType::Bedroom && !(bCarefulHome && Room->RoomId == MyState->GetHomeRoomId())))
+	{
+		return false;
+	}
+	if (bCarefulHome)
+	{
+		UE_LOG(LogObshaga, Verbose, TEXT("Bot %s drops note before going home, t=%.1f"), *MyState->GetPlayerName(), GetRoundSeconds());
+	}
+	else
+	{
+		UE_LOG(LogObshaga, Verbose, TEXT("Bot %s drops note here after %d aborts, t=%.1f"), *MyState->GetPlayerName(), RumorDropAborts, GetRoundSeconds());
+	}
+	// Что записка оставлена (и своя), бот отметит по своему событию (OnGameEvent).
+	Me->GetCarryComponent()->Drop();
+	IdleUntil = GetWorld()->GetTimeSeconds() + 0.5f;
+	return true;
+}
+
 // --- Ложная тревога («вымани Палыча шумом») ---
 
 bool AObshagaBotController::IsLureItem(const AItemActor* Item) const
@@ -2450,20 +2853,22 @@ bool AObshagaBotController::IsLureItem(const AItemActor* Item) const
 
 bool AObshagaBotController::PlanLure()
 {
+	const UObshagaRoundConfig* Config = GetRoundConfig();
 	const float Now = GetWorld()->GetTimeSeconds();
-	const AKomendantCharacter* Komendant = FindKomendant();
-	if (bLureDone || LureThrowTime >= 0.f || Now < LureRetryAt || !Komendant)
+	if (bLureDone || LureThrowTime >= 0.f || Now < LureRetryAt)
 	{
 		return false;
 	}
+	// Где Палыч и спокоен ли, бот знает только по своим глазам (WatchKomendant), как человек: без свежего взгляда — не за что браться.
+	const bool bFreshCalm = bKomendantSeenCalm && HasFreshKomendantSighting(Config->BotLureSightingMaxAge);
 	UCarryComponent* Carry = Me->GetCarryComponent();
 	AItemActor* Carried = Carry->GetCarriedItem();
 	if (!Carried)
 	{
-		// Брать вещь стоит, только когда её можно скоро бросить: Палыч спокоен и не утро (утром он обыскивает комнаты).
-		// Иначе бот носил бы её без толку, а другие дела стояли бы.
+		// Брать вещь стоит, только когда её можно скоро бросить: бот только что видел спокойного Палыча, и не утро
+		// (утром он обыскивает комнаты). Иначе бот носил бы её без толку, а другие дела стояли бы.
 		const AObshagaGameState* GameState = GetWorld()->GetGameState<AObshagaGameState>();
-		if (Komendant->GetAlert() != EKomendantAlert::Calm || !GameState || GameState->GetPhase() == ERoundPhase::Morning)
+		if (!bFreshCalm || !GameState || GameState->GetPhase() == ERoundPhase::Morning)
 		{
 			return false;
 		}
@@ -2491,84 +2896,129 @@ bool AObshagaBotController::PlanLure()
 		return WalkTo(Best->GetActorLocation(), EBotGoal::PickUp, 150.f);
 	}
 	const FTaskRow* LureRow = GetMyState()->GetTaskComponent()->FindRowByCondition(ETaskCondition::NoiseLuredKomendantAndUnseen);
-	if (!LureRow || !RowWantsItem(*LureRow, Carried) || Komendant->GetAlert() != EKomendantAlert::Calm)
+	if (!LureRow || !RowWantsItem(*LureRow, Carried) || !bFreshCalm)
 	{
 		return false;
 	}
-	// Встать так, чтобы Палыч был не слишком близко (поймает) и не слишком далеко (не услышит), и лучше — за стеной от него.
-	const UObshagaRoundConfig* Config = GetRoundConfig();
+	// Бросать из-за угла: Палыч (где бот его видел) не слишком близко и не слишком далеко, отсюда его не видно, и вещь
+	// улетит подальше от бота. Можно прямо отсюда — бросаем; иначе идём к ближайшей точке маршрута, откуда можно.
 	const FVector Here = Me->GetActorLocation();
-	const FVector KomendantAt = Komendant->GetActorLocation();
-	const float Distance = FVector::Dist(Here, KomendantAt);
-	const bool bInBand = Distance >= Config->BotLureMinDistance && Distance <= Config->BotLureMaxDistance;
-	if (bInBand && !LineOfSightTo(Komendant))
+	FVector Direction = FVector::ZeroVector;
+	float Lane = 0.f;
+	if (FindLureThrow(Here, KomendantSeenAt, Direction, Lane))
 	{
 		return TryLureThrow();
 	}
-	const AKomendantWaypoint* Covered = nullptr;
-	const AKomendantWaypoint* Exposed = nullptr;
-	float CoveredDistance = BotLureSearchRadius;
-	float ExposedDistance = BotLureSearchRadius;
+	TArray<TPair<float, const AKomendantWaypoint*>> Candidates;
 	for (const AKomendantWaypoint* Waypoint : Waypoints)
 	{
 		const FVector At = Waypoint->GetActorLocation();
 		const float FromMe = FVector::Dist(At, Here);
-		const float FromKomendant = FVector::Dist(At, KomendantAt);
-		if (FromMe > BotLureSearchRadius || FromKomendant < Config->BotLureMinDistance || FromKomendant > Config->BotLureMaxDistance)
+		const float FromKomendant = FVector::Dist(At, KomendantSeenAt);
+		if (FromMe <= BotLureSearchRadius && FromKomendant >= Config->BotLureMinDistance && FromKomendant <= Config->BotLureMaxDistance)
 		{
-			continue;
-		}
-		if (!HasClearLine(At, KomendantAt))
-		{
-			if (FromMe < CoveredDistance)
-			{
-				CoveredDistance = FromMe;
-				Covered = Waypoint;
-			}
-		}
-		else if (FromMe < ExposedDistance)
-		{
-			ExposedDistance = FromMe;
-			Exposed = Waypoint;
+			Candidates.Emplace(FromMe, Waypoint);
 		}
 	}
-	if (Covered)
+	// Проверки дорожки дорогие (лучи) — идём от ближних точек к дальним и берём первую годную.
+	Candidates.Sort([](const TPair<float, const AKomendantWaypoint*>& A, const TPair<float, const AKomendantWaypoint*>& B) { return A.Key < B.Key; });
+	for (const TPair<float, const AKomendantWaypoint*>& Candidate : Candidates)
 	{
-		return WalkTo(Covered->GetActorLocation(), EBotGoal::Lure, 100.f);
+		if (FindLureThrow(Candidate.Value->GetActorLocation(), KomendantSeenAt, Direction, Lane)
+			&& WalkTo(Candidate.Value->GetActorLocation(), EBotGoal::Lure, 80.f))
+		{
+			return true;
+		}
 	}
-	if (bInBand)
+	// Укрытия с дорожкой для броска рядом нет. Бросать в открытую, у Палыча на виду, бот не станет: позже.
+	LureRetryAt = Now + BotLureRetrySeconds;
+	UE_LOG(LogObshaga, Verbose, TEXT("Bot %s lure skipped: no throw spot, retry in %.0f s, t=%.1f"), *GetMyState()->GetPlayerName(), BotLureRetrySeconds, GetRoundSeconds());
+	return false;
+}
+
+bool AObshagaBotController::FindLureThrow(const FVector& From, const FVector& KomendantAt, FVector& OutDirection, float& OutLane) const
+{
+	const UObshagaRoundConfig* Config = GetRoundConfig();
+	const float Distance = FVector::Dist(From, KomendantAt);
+	if (Distance < Config->BotLureMinDistance || Distance > Config->BotLureMaxDistance || HasClearLine(From, KomendantAt))
 	{
-		return TryLureThrow();
+		return false;
 	}
-	return Exposed && WalkTo(Exposed->GetActorLocation(), EBotGoal::Lure, 100.f);
+	const FVector Toward = FVector(KomendantAt.X - From.X, KomendantAt.Y - From.Y, 0.f).GetSafeNormal();
+	if (Toward.IsNearlyZero())
+	{
+		return false;
+	}
+	// Бросок — примерно в сторону Палыча (чтобы услышал), но куда именно, решает свободная дорожка: вещь должна стукнуть
+	// не ближе LureMinSelfDistance от бота, а не о стену рядом с ним. Упадёт она не дальше BotLureMaxDistance от Палыча.
+	const float NeedLane = Config->LureMinSelfDistance + BotLureLaneMargin;
+	for (int32 Step = 0; Step <= BotLureAngleSteps * 2; ++Step)
+	{
+		// 0, +25, -25, +50, -50, …
+		const float Angle = BotLureAngleStep * static_cast<float>((Step + 1) / 2) * (Step % 2 == 1 ? 1.f : -1.f);
+		const FVector Direction = Toward.RotateAngleAxis(Angle, FVector::UpVector);
+		const float Lane = MeasureThrowLane(From, Direction);
+		const FVector Landing = From + Direction * FMath::Min(Lane, BotLureThrowReach);
+		if (Lane >= NeedLane && FVector::Dist(Landing, KomendantAt) <= Config->BotLureMaxDistance)
+		{
+			OutDirection = Direction;
+			OutLane = Lane;
+			return true;
+		}
+	}
+	return false;
+}
+
+float AObshagaBotController::MeasureThrowLane(const FVector& From, const FVector& Direction) const
+{
+	// Вещь летит из рук чуть вверх: мерим шаром с небольшую вещь на высоте броска. Мешают стены, мебель и закрытые двери
+	// (о них вещь и стукнет); люди и другие вещи — нет.
+	const FVector Start = From + FVector(0.f, 0.f, Me ? Me->GetConfig()->ThrowHeight : 40.f);
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(BotLureLane), false);
+	for (TActorIterator<APawn> It(GetWorld()); It; ++It)
+	{
+		Params.AddIgnoredActor(*It);
+	}
+	for (TActorIterator<AItemActor> It(GetWorld()); It; ++It)
+	{
+		Params.AddIgnoredActor(*It);
+	}
+	FHitResult Hit;
+	if (GetWorld()->SweepSingleByChannel(Hit, Start, Start + Direction * BotLureLaneProbe, FQuat::Identity, ECC_Visibility,
+		FCollisionShape::MakeSphere(BotLureLaneRadius), Params))
+	{
+		return Hit.Distance;
+	}
+	return BotLureLaneProbe;
 }
 
 bool AObshagaBotController::TryLureThrow()
 {
 	AObshagaPlayerState* MyState = GetMyState();
 	const AObshagaGameState* GameState = GetWorld()->GetGameState<AObshagaGameState>();
+	const UObshagaRoundConfig* Config = GetRoundConfig();
 	UCarryComponent* Carry = Me->GetCarryComponent();
 	AItemActor* Item = Carry->GetCarriedItem();
+	// Палыч — каким бот видел его сам; пока шёл к месту броска, взгляд мог устареть ещё на дорогу.
+	if (!Item || !IsLureItem(Item) || bLureDone || LureThrowTime >= 0.f || !bKomendantSeenCalm
+		|| !HasFreshKomendantSighting(Config->BotLureSightingMaxAge + BotLureWalkSeconds))
+	{
+		return false;
+	}
+	const FVector Here = Me->GetActorLocation();
+	FVector Direction = FVector::ZeroVector;
+	float Lane = 0.f;
+	if (!FindLureThrow(Here, KomendantSeenAt, Direction, Lane))
+	{
+		return false;
+	}
+	const float Now = GetWorld()->GetTimeSeconds();
+	const float Distance = FVector::Dist(Here, KomendantSeenAt);
+	// Только для журнала: видит ли бот Палыча в миг броска (по правилу — не должен).
 	const AKomendantCharacter* Komendant = FindKomendant();
-	if (!Item || !IsLureItem(Item) || !Komendant || Komendant->GetAlert() != EKomendantAlert::Calm || bLureDone || LureThrowTime >= 0.f)
-	{
-		return false;
-	}
-	const UObshagaRoundConfig* Config = GetRoundConfig();
-	const FVector KomendantAt = Komendant->GetActorLocation();
-	const float Distance = FVector::Dist(Me->GetActorLocation(), KomendantAt);
-	if (Distance < Config->BotLureMinDistance || Distance > Config->BotLureMaxDistance)
-	{
-		return false;
-	}
-	const bool bSeesMe = LineOfSightTo(Komendant);
-	// Бросаем в сторону Палыча: вещь пролетает метров семь и стукнет между ним и ботом (или о стену между ними) —
-	// ближе к Палычу, чем стоит бот, так что он её услышит, а пойдёт на шум не к самому боту. Брошенная от него
-	// падала бы ещё на 7 м дальше — за пределом его слуха.
+	const bool bSeesMe = Komendant && LineOfSightTo(Komendant);
 	// Бросок летит туда, куда «смотрит» персонаж, — поворачиваем и тело, и взгляд контроллера.
-	FVector Toward = KomendantAt - Me->GetActorLocation();
-	Toward.Z = 0.f;
-	const FRotator Facing = Toward.IsNearlyZero() ? Me->GetActorRotation() : Toward.Rotation();
+	const FRotator Facing = Direction.Rotation();
 	Me->SetActorRotation(Facing);
 	SetControlRotation(Facing);
 	Carry->Throw();
@@ -2576,11 +3026,12 @@ bool AObshagaBotController::TryLureThrow()
 	{
 		return false;
 	}
-	const float Now = GetWorld()->GetTimeSeconds();
-	UE_LOG(LogObshaga, Verbose, TEXT("Bot %s lure throw %s (%s): komendant %.0f cm, sees me %d, phase %s, t=%.1f"), *MyState->GetPlayerName(),
-		*Item->GetItemData()->ItemId.ToString(), *Item->GetName(), Distance, bSeesMe ? 1 : 0,
+	UE_LOG(LogObshaga, Verbose, TEXT("Bot %s lure throw %s (%s): komendant %.0f cm, sees me %d, lane %.0f cm, last seen %.1f s ago, phase %s, t=%.1f"),
+		*MyState->GetPlayerName(), *Item->GetItemData()->ItemId.ToString(), *Item->GetName(), Distance, bSeesMe ? 1 : 0, Lane, Now - KomendantSeenTime,
 		*StaticEnum<ERoundPhase>()->GetNameStringByValue(static_cast<int64>(GameState->GetPhase())), GetRoundSeconds());
 	LureThrowTime = Now;
+	LureCountedTime = -1.f;
+	LureHoldUntil = Now + Config->LureUnseenSeconds + BotLureHoldExtraSeconds;
 	// Ту же вещь сразу не подбираем: пусть полежит, где упала.
 	GaveUpOn = Item;
 	GaveUpUntil = Now + BotLureRetrySeconds;
@@ -2588,13 +3039,73 @@ bool AObshagaBotController::TryLureThrow()
 	{
 		Say(static_cast<uint8>(ObshagaStory::EBotLine::Lure));
 	}
-	// И скорее домой: попасться теперь нельзя.
-	if (!WalkTo(RoomPoint(MyState->GetHomeRoomId()), EBotGoal::Wander, 150.f))
+	RetreatAfterLure(Here + Direction * FMath::Min(Lane, BotLureThrowReach), KomendantSeenAt);
+	return true;
+}
+
+void AObshagaBotController::RetreatAfterLure(const FVector& Landing, const FVector& KomendantAt)
+{
+	// Палыч пойдёт на грохот: уходим и от места падения, и от того места, где его видели, — туда, откуда не видно
+	// ни того, ни другого. Коридор хуже комнаты: по коридорам он и ходит.
+	const FVector Here = Me->GetActorLocation();
+	const float HereToLanding = FVector::Dist(Here, Landing);
+	const float HereToKomendant = FVector::Dist(Here, KomendantAt);
+	const AKomendantWaypoint* Best = nullptr;
+	float BestScore = -TNumericLimits<float>::Max();
+	for (const AKomendantWaypoint* Waypoint : Waypoints)
+	{
+		const FVector At = Waypoint->GetActorLocation();
+		const float FromMe = FVector::Dist(At, Here);
+		const float FromLanding = FVector::Dist(At, Landing);
+		const float FromKomendant = FVector::Dist(At, KomendantAt);
+		if (FromMe > BotLureRetreatRadius || FromLanding <= HereToLanding || FromKomendant <= HereToKomendant)
+		{
+			continue;
+		}
+		const ARoomVolume* Room = ARoomVolume::FindRoomAt(this, At);
+		const float Score = FMath::Min(FromLanding, FromKomendant) - FromMe * 0.3f
+			- ((Room && Room->RoomType == ERoomType::Corridor) ? BotLureCorridorPenalty : 0.f);
+		// Лучи — только для тех, кто лучше уже найденного.
+		if (Score <= BestScore || HasClearLine(At, Landing) || HasClearLine(At, KomendantAt))
+		{
+			continue;
+		}
+		BestScore = Score;
+		Best = Waypoint;
+	}
+	if (Best && WalkTo(Best->GetActorLocation(), EBotGoal::Wander, 120.f))
+	{
+		// Бег включаем после WalkTo: он выключает бег всем, кто ещё не в состоянии «убегает».
+		Me->SetSprinting(true);
+		return;
+	}
+	// Укрыться негде — скорее домой; не дойти и туда — стоим, где бросали (оттуда Палыча и так не видно).
+	if (!WalkTo(RoomPoint(GetMyState()->GetHomeRoomId()), EBotGoal::Wander, 150.f))
 	{
 		Goal = EBotGoal::None;
 		Path.Reset();
 		SetState(EBotState::Idle);
-		IdleUntil = Now + 0.5f;
+		IdleUntil = GetWorld()->GetTimeSeconds() + 0.5f;
 	}
-	return true;
+}
+
+bool AObshagaBotController::IsLureTaskSatisfied() const
+{
+	// Та же пометка «сейчас выполнено», что человек видит в телефоне (сервер обновляет её раз в секунду).
+	const AObshagaPlayerState* MyState = GetMyState();
+	if (!MyState)
+	{
+		return false;
+	}
+	const UTaskComponent* Tasks = MyState->GetTaskComponent();
+	const TArray<FTaskRow>& Rows = Tasks->GetRows();
+	const TArray<FTaskState>& States = Tasks->GetTasks();
+	for (int32 Index = 0; Index < Rows.Num(); ++Index)
+	{
+		if (Rows[Index].SuccessCondition == ETaskCondition::NoiseLuredKomendantAndUnseen && States.IsValidIndex(Index) && States[Index].bSatisfiedNow)
+		{
+			return true;
+		}
+	}
+	return false;
 }

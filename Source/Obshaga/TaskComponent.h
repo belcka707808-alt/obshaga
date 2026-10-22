@@ -49,7 +49,10 @@ public:
 	static AItemActor* FindStolenItem(const UObject* WorldContextObject, const APlayerState* Who, const FTaskRow& Row);
 	/** Задание про записку со слухом (в строке указан предмет, который можно прочитать)? Тогда ищут не вора, а автора слуха. */
 	static bool IsRumorRow(const UObject* WorldContextObject, const FTaskRow& Row);
-	/** Записка, которую подкинул Who, если слух — его задание; nullptr — он не автор слуха. */
+	/**
+	 * Записка — доказательство, что слух пустил Who: у него задание «пусти слух», и он эту записку уже оставил (положил,
+	 * бросил, спрятал), а если ещё нет — брал в руки или несёт сейчас. nullptr — он не автор слуха.
+	 */
 	static AItemActor* FindRumorNote(const UObject* WorldContextObject, const APlayerState* Who);
 	/** Обновляет пометку «выполнено прямо сейчас» для телефона и сообщает владельцу, если она поменялась. */
 	void UpdateLiveStatus();

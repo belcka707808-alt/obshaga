@@ -9,6 +9,7 @@
 #include "KomendantPersonality.h"
 #include "KomendantWaypoint.h"
 #include "NightExitDoor.h"
+#include "NoiseStatics.h"
 #include "Obshaga.h"
 #include "ObshagaCharacter.h"
 #include "ObshagaGameMode.h"
@@ -689,6 +690,7 @@ void AKomendantAIController::OnPerceptionUpdated(AActor* Actor, FAIStimulus Stim
 	{
 		UE_LOG(LogObshaga, Verbose, TEXT("Komendant heard %s: loudness %.2f at %s, %.0f cm away, investigating 0 (birthday), t=%.1f"), *HeardWho, Stimulus.Strength,
 			*Stimulus.StimulusLocation.ToCompactString(), HeardDistance, GetRoundSeconds());
+		JudgeLure(Actor, Stimulus, NoiseRoom, false);
 		return;
 	}
 	if (NoiseRoom)
@@ -709,6 +711,46 @@ void AKomendantAIController::OnPerceptionUpdated(AActor* Actor, FAIStimulus Stim
 			UGameEventSubsystem::PublishFrom(Culprit, EGameEventType::KomendantAlerted);
 		}
 	}
+	// «Пошёл на шум» (KomendantAlerted) — любой шум: дверь, прибор, уроненное. «Ложная тревога» — только брошенное издалека.
+	JudgeLure(Actor, Stimulus, NoiseRoom, bGoLook);
+}
+
+void AKomendantAIController::JudgeLure(AActor* NoiseActor, const FAIStimulus& Stimulus, const ARoomVolume* NoiseRoom, bool bInvestigating)
+{
+	const ENoiseKind Kind = UNoiseStatics::GetNoiseKind(Stimulus.Tag);
+	if (Kind != ENoiseKind::Thrown)
+	{
+		return;
+	}
+
+	// Приманка — это бросок издалека и из-за угла: стоящий рядом с грохотом или у Палыча на глазах приманил его к себе.
+	AObshagaCharacter* Culprit = Cast<AObshagaCharacter>(NoiseActor);
+	APlayerState* CulpritState = Culprit ? Culprit->GetPlayerState() : nullptr;
+	const float SelfDistance = Culprit ? FVector::Dist(Culprit->GetActorLocation(), Stimulus.StimulusLocation) : 0.f;
+	const float KomendantDistance = Komendant ? FVector::Dist(Komendant->GetActorLocation(), Stimulus.StimulusLocation) : 0.f;
+	const bool bSeen = Culprit && SeenPlayers.Contains(Culprit);
+	const bool bCounted = bInvestigating && CulpritState && SelfDistance >= GetRoundConfig()->LureMinSelfDistance && !bSeen;
+	// Для автопроверки (задание «ложная тревога»): каждое решение по брошенному, засчитано или нет.
+	const FString LureWho = CulpritState ? KomendantLogName(CulpritState) : GetNameSafe(NoiseActor);
+	UE_LOG(LogObshaga, Verbose, TEXT("Komendant lure: %s kind=%s self=%.0f cm komendant=%.0f cm seen=%d counted=%d, t=%.1f"), *LureWho,
+		UNoiseStatics::GetNoiseKindName(Kind), SelfDistance, KomendantDistance, bSeen ? 1 : 0, bCounted ? 1 : 0, GetRoundSeconds());
+	if (!bCounted)
+	{
+		return;
+	}
+
+	if (UGameEventSubsystem* Bus = UGameEventSubsystem::Get(this))
+	{
+		FGameEvent Event;
+		Event.Type = EGameEventType::KomendantLured;
+		Event.Instigator = CulpritState;
+		// Комната — там, где грохнуло (туда он и пошёл); вне комнат — где стоит бросивший.
+		const ARoomVolume* CulpritRoom = Culprit->GetCurrentRoom();
+		Event.RoomId = NoiseRoom ? NoiseRoom->RoomId : (CulpritRoom ? CulpritRoom->RoomId : NAME_None);
+		Bus->Publish(Event);
+	}
+	// Окно «не попадись 10 с» смотрит на записи «заметил»: увидит бросившего — запишет сразу, а не по старому счётчику раз в 5 с.
+	LastSpottedEventTime.FindOrAdd(Culprit) = -100.f;
 }
 
 void AKomendantAIController::StartInvestigate(const FVector& Location)

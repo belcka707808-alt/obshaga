@@ -192,6 +192,18 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tasks", meta = (ClampMin = "0", Units = "s"))
 	float UnseenWindowSeconds = 10.f;
 
+	/** «Ложная тревога»: столько секунд после того, как Палыч пошёл на грохот, бросивший не должен попадаться ему на глаза. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tasks", meta = (ClampMin = "0", Units = "s"))
+	float LureUnseenSeconds = 10.f;
+
+	/** «Ложная тревога»: когда Палыч услышал грохот, бросивший должен быть от него не ближе этого — иначе это не приманка. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tasks", meta = (ClampMin = "0", Units = "cm"))
+	float LureMinSelfDistance = 500.f;
+
+	/** Удар вещи в первые столько секунд после броска — шум «брошено» (только он годится для ложной тревоги); позже — простой удар. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tasks", meta = (ClampMin = "0", Units = "s"))
+	float LureThrowMaxAgeSeconds = 3.f;
+
 	/** Сколько нужно пробыть на улице, чтобы ночная вылазка засчиталась. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tasks", meta = (ClampMin = "0", Units = "s"))
 	float CurfewOutsideSeconds = 10.f;
@@ -311,9 +323,16 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bots", meta = (ClampMin = "0", ClampMax = "1"))
 	float BotFixCheckChance = 0.35f;
 
-	/** С каким шансом бот читает найденную записку (решает один раз на записку). */
+	/** С каким шансом бот читает найденную записку (решает заново, когда её переложили, и раз в BotNoteRerollSeconds). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bots", meta = (ClampMin = "0", ClampMax = "1"))
 	float BotReadNoteChance = 0.35f;
+
+	/**
+	 * Бот не стал читать записку — через столько секунд решает заново (переложенную — сразу). Бот с заданием «найди автора
+	 * слуха» прочитанную без подсказки на бумаге перечитывает тоже не раньше (или когда её переложили).
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bots", meta = (ClampMin = "1", Units = "s"))
+	float BotNoteRerollSeconds = 60.f;
 
 	/** Бот замечает, что сосед взял, положил, бросил, спрятал или несёт вещь, только если тот не дальше этого и на виду. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bots", meta = (ClampMin = "0", Units = "cm"))
@@ -335,13 +354,17 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bots", meta = (ClampMin = "0", ClampMax = "1"))
 	float BotLieWithAlibiChance = 0.8f;
 
-	/** «Ложная тревога»: бот бросает вещь, когда спокойный Палыч не ближе этого (по прямой, с учётом этажа)… */
+	/** «Ложная тревога»: бот бросает вещь из-за угла не ближе этого (по прямой, с учётом этажа) к месту, где сам последний раз видел спокойного Палыча… */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bots", meta = (ClampMin = "0", Units = "cm"))
 	float BotLureMinDistance = 700.f;
 
 	/** …и не дальше этого: дальше он может и не услышать. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bots", meta = (ClampMin = "0", Units = "cm"))
 	float BotLureMaxDistance = 1400.f;
+
+	/** «Ложная тревога»: бот берётся за бросок, только если сам видел Палыча не больше стольких секунд назад (сквозь стены он его не знает). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bots", meta = (ClampMin = "0", Units = "s"))
+	float BotLureSightingMaxAge = 6.f;
 
 	/** «Спрячь запрещёнку»: с таким шансом бот прячет её не у себя, а в общем месте (санузел, кухня, гостиная) — туда утренний обыск не ходит. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bots", meta = (ClampMin = "0", ClampMax = "1"))
